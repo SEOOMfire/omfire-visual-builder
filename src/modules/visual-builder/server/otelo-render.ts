@@ -121,8 +121,12 @@ async function suggestPortrait(files: ClientFile[], current: string): Promise<st
   return best?.name;
 }
 
+function isLogoFile(name: string): boolean {
+  return /(?:^|[_-])logo(?:[_.-]|$)/i.test(name) || /herstellerlogo/i.test(name);
+}
+
 function products(files: ClientFile[]) {
-  return files.filter((file) => file.role === "produkt" && file.name.toLowerCase().endsWith(".png") && !file.name.toLowerCase().includes("logo"));
+  return files.filter((file) => file.role === "produkt" && file.name.toLowerCase().endsWith(".png") && !isLogoFile(file.name));
 }
 
 function asStoerer(value: string | undefined, fallback: StoererTyp): StoererTyp {
