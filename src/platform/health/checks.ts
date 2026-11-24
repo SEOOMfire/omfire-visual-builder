@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import postgres from "postgres";
@@ -43,14 +43,17 @@ export async function checkDatabase(): Promise<CheckResult> {
 export async function checkVolume(): Promise<CheckResult> {
   const root = process.env.FILE_STORAGE_ROOT?.trim();
   if (!root) return { ok: false, detail: "FILE_STORAGE_ROOT fehlt." };
-  const directory = await mkdtemp(join(root, ".health-"));
   try {
-    await writeFile(join(directory, "probe"), "ok");
-    return { ok: true, detail: "beschreibbar" };
+    await mkdir(root, { recursive: true });
+    const directory = await mkdtemp(join(root, ".health-"));
+    try {
+      await writeFile(join(directory, "probe"), "ok");
+      return { ok: true, detail: "beschreibbar" };
+    } finally {
+      await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+    }
   } catch {
     return { ok: false, detail: "Das Volume ist nicht beschreibbar." };
-  } finally {
-    await rm(directory, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -76,7 +79,7 @@ function launchChromium(): Promise<CheckResult> {
     };
     let child;
     try {
-      child = spawn(binary, ["--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--dump-dom", "about:blank"], {
+      child = spawn(/*turbopackIgnore: true*/ binary, ["--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--dump-dom", "about:blank"], {
         stdio: "ignore",
       });
     } catch {
