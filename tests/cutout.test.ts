@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PNG } from "pngjs";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
-import { buildScene, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { arrowSpan, buildScene, wavePaintShare, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
 import { headInside, measureCutout, placeCutout, type Cutout } from "../src/modules/visual-builder/server/cutout";
 
 function portraitWithFace(): Buffer {
@@ -82,8 +82,39 @@ test("transparent margins are ignored and the head stays in the frame", () => {
     if (wide) {
       assert.ok(Math.abs(scene.headline.box.w / format.w - 0.55) < 0.02, format.id);
       assert.ok(scene.kachel && Math.abs(scene.kachel.box.w / format.w - 0.22) < 0.02, format.id);
+      const gap = scene.subline.box.y - (scene.headline.box.y + scene.headline.box.h);
+      assert.ok(gap >= scene.headline.box.h * 0.1, format.id);
+    }
+    assert.equal(scene.hints.some((hint) => /überlappt/.test(hint)), false, scene.hints.join(" | "));
+    if (scene.stern && scene.kachel) {
+      assert.ok(scene.stern.box.w * 0.96 >= scene.kachel.box.w * 0.2, format.id);
     }
   }
+});
+
+test("a device tile keeps the price, the pill and the phone apart", () => {
+  const deviceCopy = copy();
+  deviceCopy.einmalpreis = "229 €";
+  deviceCopy.einmalpreisZusatz = "+ mtl. 10 €";
+  deviceCopy.datenmenge = "150 GB";
+  deviceCopy.datenmengeAlt = "50 GB";
+  deviceCopy.geraetName = "Samsung Galaxy A57";
+  for (const format of OTELO_FORMATS) {
+    const scene = buildScene(format, "kachel_geraet", deviceCopy);
+    assert.ok(scene.pill, format.id);
+    assert.equal(scene.hints.some((hint) => /überlappt/.test(hint)), false, `${format.id} ${scene.hints.join(" | ")}`);
+    assert.ok(scene.product && scene.product.x > (scene.kachel?.box.x ?? 0), format.id);
+  }
+});
+
+test("the wave bundle covers at least 12 percent of the square", () => {
+  assert.ok(wavePaintShare(1080, 1080) >= 0.12);
+});
+
+test("arrows stop before the head", () => {
+  const span = arrowSpan(400, 80, 470);
+  assert.ok(span.end <= 470);
+  assert.ok(span.count < 3);
 });
 
 test("a short motif fails the 9x16 length rule", () => {

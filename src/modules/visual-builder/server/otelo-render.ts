@@ -95,6 +95,8 @@ export type RenderRequest = {
   datenmenge?: string;
   datenmengeAlt?: string;
   einmalpreisZusatz?: string;
+  preisAlt?: string;
+  energielabel?: string;
   sternText?: string;
   deko?: string;
   geraetName?: string;
@@ -148,7 +150,10 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
   const personQuery = name === "product_person" || name === "kachel_geraet_person" ? (input.person?.trim() || "") : input.motiv;
   const person = wantsPerson && personQuery ? resolveMotif(files.filter((file) => file.role === "figur"), personQuery, "figur") : null;
   if (name === "product_person" && !person) throw new Error("Für product_person fehlt die Person. Nenne sie im Feld person.");
-  const energy = pick(files, "energielabel", "class_arrows_ag_a.svg") ?? pick(files, "energielabel", "_a.");
+  const energyLetter = input.energielabel?.trim();
+  const energy = (energyLetter ? files.find((file) => file.role === "energielabel" && new RegExp(`[_-]${energyLetter}[._]`, "i").test(file.name)) : undefined)
+    ?? pick(files, "energielabel", "class_arrows_ag_a.svg")
+    ?? pick(files, "energielabel", "_a.");
   const copy: SceneCopy = {
     headline: input.headline?.trim() || "Unlimited on demand",
     subline: input.subline?.trim() || (name.startsWith("kachel") ? "" : "100 GB monatlich\ninkl. unendlich oft 1 GB abrufen"),
@@ -165,6 +170,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     datenmenge: input.datenmenge,
     datenmengeAlt: input.datenmengeAlt,
     einmalpreisZusatz: input.einmalpreisZusatz,
+    preisAlt: input.preisAlt,
     sternText: input.sternText,
     deko: input.deko === "bw_wellen" || input.deko === "fruehling_blaetter" || input.deko === "keine" ? input.deko : undefined,
     geraetName: input.geraetName,

@@ -30,6 +30,11 @@ export const MCP_INSTRUCTIONS = [
   "Ablauf: erst system_status, dann brand_assets des Kunden, dann compose_creative.",
   "Hinweise immer nennen. Vor save_creative nachfragen.",
   "Bei einer CSV immer erst check_batch, danach run_batch.",
+  "Bei einem eingefügten Briefing die Angaben herausziehen: Gerät, Speicher, Zeitraum, Tarife, Einmalpreise, Altpreise, Monatspreise, Datenvolumen. Fehlende Pflichtangaben gezielt nachfragen: Monatspreis je Tarif, Datenvolumen, Kampagne oder Headline, Kanäle, Zielgruppe.",
+  "Interne Begriffe wie SUB 10 oder OTC nie ins Motiv schreiben.",
+  "Ist der neue Einmalpreis höher als der alte, nachfragen und nie statt verwenden.",
+  "Aus einem freigegebenen Briefing eine CSV nach docs/CSV.md erzeugen, zur Freigabe zeigen, dann check_batch, dann run_batch.",
+  "Für Dezember und Januar ist die Deko keine, solange keine Winter-Deko im Bestand liegt.",
   "Fehlt eine Kampagne, nachfragen und nichts raten.",
   "Sprachbefehle stehen unverändert in aenderung.text. Das Wort vor dem Verb ist das Element, jeder Teilsatz einzeln. Bei Unklarheit nachfragen, welches Element gemeint ist.",
 ].join(" ");

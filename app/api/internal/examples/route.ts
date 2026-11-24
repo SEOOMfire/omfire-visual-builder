@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   if (!renderAuthorized(request.headers.get("x-render-token"))) {
     return Response.json({ message: "Nicht gefunden." }, { status: 404 });
   }
-  const payload = await request.json().catch(() => null) as { probe?: boolean; ping?: boolean; only?: string; custom?: Record<string, unknown>; publish?: string; glance?: boolean } | null;
+  const payload = await request.json().catch(() => null) as { probe?: boolean; ping?: boolean; only?: string; custom?: Record<string, unknown>; publish?: string; glance?: boolean; batch?: string } | null;
   if (payload?.ping) {
     const ping = await pingImage();
     const url = ping.token ? previewUrl(ping.token) : "";
@@ -33,16 +33,27 @@ export async function POST(request: Request) {
     const token = await storePreview(`${randomUUID()}-vergleich.jpg`, Buffer.from(payload.publish, "base64"));
     return Response.json({ url: previewUrl(token) });
   }
+  if (typeof payload?.batch === "string" && payload.batch.includes("headline")) {
+    try {
+      const { runCreativeBatch } = await import("../../../../src/modules/visual-builder/server/batch-run");
+      return Response.json(await runCreativeBatch(payload.batch));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Der Stapel ist fehlgeschlagen.";
+      return Response.json({ message }, { status: 500 });
+    }
+  }
   if (payload?.custom && typeof payload.custom.name === "string" && typeof payload.custom.motiv === "string") {
     try {
       const sheet = await renderTemplate(payload.custom as Parameters<typeof renderTemplate>[0]);
       const glance = payload.glance
-        ? await (await import("../../../../src/modules/visual-builder/server/review")).glanceAt(
-          sheet.jpeg,
+        ? await (await import("../../../../src/modules/visual-builder/server/review")).glanceFormats(
+          sheet.formats.map((format) => ({ label: format.label, jpeg: format.pngBase64 })),
           "",
-          String(payload.custom.name).startsWith("kachel")
-            ? "files/referenz/banner/Meta_Q4_1126_BW_Young_Classic_Woman_1x1.png"
-            : "files/referenz/styleguide-seite-4.jpg",
+          String(payload.custom.name).startsWith("kachel_geraet")
+            ? "files/referenz/banner/Meta_Q4_1126_BW_i17_Young_1x1.png"
+            : String(payload.custom.name).startsWith("kachel")
+              ? "files/referenz/banner/Meta_Q4_1126_BW_Young_Classic_Woman_1x1.png"
+              : "files/referenz/styleguide-seite-4.jpg",
           sheet.measureText,
         )
         : "";

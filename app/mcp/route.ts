@@ -12,7 +12,7 @@ export const TOOLS = [
   { name: "list_clients", description: "Kunden, auf die diese Person Zugriff hat.", inputSchema: { type: "object", properties: {} } },
   { name: "brand_assets", description: "Logos, Buttons, Störer, Schriften, Sprachen und Vorlagen eines Kunden.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" } } } },
   { name: "search_motifs", description: "Sucht Motive nach Name, Ordner oder Ausrichtung.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" }, suche: { type: "string" } } } },
-  { name: "compose_creative", description: "Baut einen Entwurf. Felder immer setzen, wenn der Nutzer sie nennt: headline, unterzeile, datenmenge, datenmenge_alt, preis, preis_zusatz, stern_text, deko, einmalpreis, einmalpreis_zusatz, geraet_name, button, kampagne. Vorlagen: tarif, young, product, product_person, kachel_person, kachel_geraet, kachel_geraet_person. deko ist bw_wellen, fruehling_blaetter oder keine. Kampagne BW setzt Wellen, fruehling_sommer die Blätter.", inputSchema: { type: "object", required: ["kunde", "vorlage", "motiv"], properties: { kunde: { type: "string", description: "Kunde, zum Beispiel otelo." }, vorlage: { type: "string", description: "tarif, young, product, product_person, kachel_person, kachel_geraet oder kachel_geraet_person." }, motiv: { type: "string", description: "Dateiname des Motivs." }, person: { type: "string", description: "Person, wenn das Gerät ein eigenes Motiv ist." }, headline: { type: "string", description: "Headline, zum Beispiel BLACK WEEK." }, subline: { type: "string", description: "Unterzeile." }, unterzeile: { type: "string", description: "Unterzeile, gleicher Inhalt wie subline." }, button: { type: "string", description: "Text der CTA-Leiste. Leer lässt die Leiste weg." }, kampagne: { type: "string", description: "BW oder fruehling_sommer." }, datenmenge: { type: "string", description: "Datenmenge im grünen Teil, zum Beispiel 150 GB." }, datenmenge_alt: { type: "string", description: "Durchgestrichener Altwert, zum Beispiel 50 GB." }, preis: { type: "string", description: "Preis, zum Beispiel 19,99 €." }, preis_zusatz: { type: "string", description: "Zusatz unter dem Preis, Standard pro Monat." }, einmalpreis: { type: "string", description: "Einmalpreis der Gerät-Kachel." }, einmalpreis_zusatz: { type: "string", description: "Zusatz zum Einmalpreis." }, stern_text: { type: "string", description: "Text im Stern, zum Beispiel YOUNG DEAL." }, deko: { type: "string", description: "bw_wellen, fruehling_blaetter oder keine." }, geraet_name: { type: "string", description: "Gerätename unten rechts." }, stoerer_typ: { type: "string" }, aktion_text: { type: "string" }, pflichttext: { type: "string" }, headline_variante: { type: "string" }, orange: { type: "string" }, produktname: { type: "string" } } } },
+  { name: "compose_creative", description: "Baut einen Entwurf. Felder immer setzen, wenn der Nutzer sie nennt: headline, unterzeile, datenmenge, datenmenge_alt, preis, preis_zusatz, stern_text, deko, einmalpreis, einmalpreis_zusatz, geraet_name, button, kampagne. Vorlagen: tarif, young, product, product_person, kachel_person, kachel_geraet, kachel_geraet_person. deko ist bw_wellen, fruehling_blaetter oder keine. Kampagne BW setzt Wellen, fruehling_sommer die Blätter.", inputSchema: { type: "object", required: ["kunde", "vorlage", "motiv"], properties: { kunde: { type: "string", description: "Kunde, zum Beispiel otelo." }, vorlage: { type: "string", description: "tarif, young, product, product_person, kachel_person, kachel_geraet oder kachel_geraet_person." }, motiv: { type: "string", description: "Dateiname des Motivs." }, person: { type: "string", description: "Person, wenn das Gerät ein eigenes Motiv ist." }, headline: { type: "string", description: "Headline, zum Beispiel BLACK WEEK." }, subline: { type: "string", description: "Unterzeile." }, unterzeile: { type: "string", description: "Unterzeile, gleicher Inhalt wie subline." }, button: { type: "string", description: "Text der CTA-Leiste. Leer lässt die Leiste weg." }, kampagne: { type: "string", description: "BW oder fruehling_sommer." }, datenmenge: { type: "string", description: "Datenmenge im grünen Teil, zum Beispiel 150 GB." }, datenmenge_alt: { type: "string", description: "Durchgestrichener Altwert, zum Beispiel 50 GB." }, preis: { type: "string", description: "Preis, zum Beispiel 19,99 €." }, preis_zusatz: { type: "string", description: "Zusatz unter dem Preis, Standard pro Monat." }, einmalpreis: { type: "string", description: "Einmalpreis der Gerät-Kachel." }, einmalpreis_zusatz: { type: "string", description: "Zusatz zum Einmalpreis." }, preis_alt: { type: "string", description: "Alter Einmalpreis für statt, nur wenn er höher ist als der neue." }, energielabel: { type: "string", description: "Energieklasse A bis G." }, stern_text: { type: "string", description: "Text im Stern, zum Beispiel YOUNG DEAL." }, deko: { type: "string", description: "bw_wellen, fruehling_blaetter oder keine." }, geraet_name: { type: "string", description: "Gerätename unten rechts." }, stoerer_typ: { type: "string" }, aktion_text: { type: "string" }, pflichttext: { type: "string" }, headline_variante: { type: "string" }, orange: { type: "string" }, produktname: { type: "string" } } } },
   { name: "adjust_creative", description: "Ändert einen Entwurf per Sprache. Den Satz unverändert in aenderung.text geben. Wellen stärker, Wellen schwächer und Deko weg sind gültige Befehle. Nicht erkannte Teilsätze werden genannt, nie verworfen.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string", description: "Entwurfs-ID." }, aenderung: { type: "object", description: "Objekt mit text: der Satz des Nutzers." } } } },
   { name: "translate", description: "Überträgt die Texte eines Entwurfs in weitere Sprachen.", inputSchema: { type: "object", required: ["entwurf", "sprachen"], properties: { entwurf: { type: "string" }, sprachen: { type: "array", items: { type: "string" } } } } },
   { name: "check_guidelines", description: "Prüft die Texte eines Entwurfs gegen die CI-Richtlinie.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" } } } },
@@ -44,16 +44,16 @@ function renderedText(intro: string, rendered: { motifName: string; token: strin
   });
 }
 
-async function attachReview(draft: { vorlage?: string; glance?: string; hints: string[] }, measured: string[], jpeg: string, measureText = ""): Promise<string> {
+async function attachReview(draft: { vorlage?: string; glance?: string; hints: string[] }, measured: string[], formats: Array<{ label: string; pngBase64: string }>, measureText = ""): Promise<string> {
   const { readClientText } = await import("../../src/modules/visual-builder/server/client-volume");
-  const { glanceAt, pruefungText } = await import("../../src/modules/visual-builder/server/review");
+  const { glanceFormats, pruefungText } = await import("../../src/modules/visual-builder/server/review");
   const rules = await readClientText("otelo", "ci-richtlinie.md").catch(() => "");
   const reference = draft.vorlage === "kachel_geraet" || draft.vorlage === "kachel_geraet_person"
     ? "files/referenz/banner/Meta_Q4_1126_BW_i17_Young_1x1.png"
     : draft.vorlage?.startsWith("kachel")
       ? "files/referenz/banner/Meta_Q4_1126_BW_Young_Classic_Woman_1x1.png"
       : "files/referenz/styleguide-seite-4.jpg";
-  draft.glance = await glanceAt(jpeg, rules ?? "", reference, measureText);
+  draft.glance = await glanceFormats(formats.map((format) => ({ label: format.label, jpeg: format.pngBase64 })), rules ?? "", reference, measureText);
   draft.hints = measured;
   await writeDraft(draft as Parameters<typeof writeDraft>[0]);
   return pruefungText(measured, draft.glance);
@@ -77,8 +77,9 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
   }
   if (name === "search_motifs") {
     const { motifNames } = await import("../../src/modules/visual-builder/server/client-volume");
-    const query = String(args.suche ?? "").toLowerCase();
-    const names = (await motifNames("otelo")).filter((name) => name.toLowerCase().includes(query));
+    const { motifQueryMatches } = await import("../../src/modules/visual-builder/server/motif");
+    const query = String(args.suche ?? "");
+    const names = (await motifNames("otelo")).filter((name) => motifQueryMatches(name, query) || name.toLowerCase().includes(query.toLowerCase()));
     return { text: names.length ? names.slice(0, 30).join(", ") : "Kein Motiv mit diesem Namen." };
   }
   if (name === "compose_creative") {
@@ -111,11 +112,13 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
       datenmenge: fields.datenmenge,
       datenmengeAlt: fields.datenmengeAlt,
       einmalpreisZusatz: fields.einmalpreisZusatz,
+      preisAlt: fields.preisAlt,
+      energielabel: fields.energielabel,
       sternText: fields.sternText,
       deko: fields.deko,
       geraetName: fields.geraetName,
     });
-    const checked = await attachReview(draft, rendered.hints, rendered.jpeg, rendered.measureText);
+    const checked = await attachReview(draft, rendered.hints, rendered.formats, rendered.measureText);
     return { text: `${renderedText(`Entwurf ${rendered.name}. ID ${draft.id}.`, rendered)}\n${checked}`, image: rendered.jpeg, mime: "image/jpeg" };
   }
   if (name === "adjust_creative") {
@@ -123,7 +126,7 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
       ? { text: args.aenderung }
       : args.aenderung && typeof args.aenderung === "object" ? args.aenderung as Record<string, unknown> : {};
     const { draft, rendered } = await adjustCreative(String(args.entwurf ?? ""), change);
-    const checked = await attachReview(draft, rendered.hints, rendered.jpeg, rendered.measureText);
+    const checked = await attachReview(draft, rendered.hints, rendered.formats, rendered.measureText);
     const summary = draft.summary ? `${draft.summary}\n` : "";
     return { text: `${summary}${renderedText(`Entwurf ${draft.id}, Version ${draft.layoutBook?.version ?? 1}.`, rendered)}\n${checked}`, image: rendered.jpeg, mime: "image/jpeg" };
   }
@@ -155,10 +158,16 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
     return { text: fullReport([...(draft?.hints ?? []), ...findings.map((finding) => finding.message), ...layout], draft?.glance ?? "") };
   }
   if (name === "check_batch") {
-    const { parseBatchCsv } = await import("../../src/modules/visual-builder/server/csv-batch");
-    const parsed = parseBatchCsv(String(args.text ?? args.inhalt ?? ""));
+    const { inspectBatch } = await import("../../src/modules/visual-builder/server/csv-batch");
+    const parsed = inspectBatch(String(args.text ?? args.inhalt ?? ""));
     if (parsed.errors.length) return { text: parsed.errors.join(" ") };
-    return { text: `${parsed.rows.length} von ${parsed.rows.length} Zeilen gelesen. Speichern prüft jede Zeile einzeln.` };
+    return { text: `${parsed.rows.length} von ${parsed.rows.length} Zeilen sind lesbar. Danach run_batch mit derselben CSV.` };
+  }
+  if (name === "run_batch") {
+    const { runCreativeBatch } = await import("../../src/modules/visual-builder/server/batch-run");
+    const result = await runCreativeBatch(String(args.text ?? args.inhalt ?? ""));
+    const sheets = result.contacts.map((url, index) => `[Kontakt ${index + 1}](${url})`).join(" ");
+    return { text: `${result.summary}\n[ZIP](${result.url})\n${sheets}` };
   }
   return { text: "Dieser Schritt ist noch nicht an der Reihe. compose_creative, adjust_creative und save_creative arbeiten auf dem Volume." };
 }

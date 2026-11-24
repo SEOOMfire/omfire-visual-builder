@@ -28,8 +28,8 @@ export function fullReport(measured: readonly string[], glance: string): string 
   return lines.join("\n");
 }
 
-/** A look at the rendered sheet. Never a reason to block saving. */
-export async function glanceAt(jpegBase64: string, rules: string, referencePath = "files/referenz/styleguide-seite-4.jpg", measured = ""): Promise<string> {
+/** A look at one format. Never a reason to block saving. */
+export async function glanceAt(jpegBase64: string, rules: string, referencePath = "files/referenz/styleguide-seite-4.jpg", measured = "", formatLabel = ""): Promise<string> {
   const config = openRouterConfig(MODEL_VARIABLE, "anthropic/claude-sonnet-5.5");
   if (!config.configured) return "nicht gelaufen, weil die Prüfung nicht erreichbar ist.";
   if (!jpegBase64) return "nicht gelaufen, weil kein Bild vorlag.";
@@ -44,7 +44,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
         {
           role: "user",
           content: [
-            { type: "text", text: `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nIm 9x16 ist kein Logo vorgesehen.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1800)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens fünf Sätze. Jeder Satz nennt einen konkreten Mangel und das Format.` },
+            { type: "text", text: `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nIm 9x16 ist kein Logo vorgesehen.\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"}.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens zwei Sätze zu diesem einen Format.` },
             ...images,
           ],
         },
@@ -65,9 +65,23 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
       if (!/keine Antwort|abgelehnt/.test(message)) throw error;
       text = await ask(undefined);
     }
-    return text.split(/(?<=\.)\s+/).slice(0, 5).join(" ");
+    return text.split(/(?<=\.)\s+/).slice(0, 2).join(" ");
   } catch (error) {
     const message = error instanceof Error ? error.message : "unbekannter Fehler";
     return `nicht gelaufen, weil ${message.replace(/\s+/g, " ").slice(0, 180)}`;
   }
+}
+
+export async function glanceFormats(
+  formats: Array<{ label: string; jpeg: string }>,
+  rules: string,
+  referencePath: string,
+  measured = "",
+): Promise<string> {
+  const picked = formats.filter((format) => format.jpeg);
+  const notes = await Promise.all(picked.map(async (format) => {
+    const note = await glanceAt(format.jpeg, rules, referencePath, measured, format.label);
+    return `${format.label}: ${note}`;
+  }));
+  return notes.join("\n");
 }

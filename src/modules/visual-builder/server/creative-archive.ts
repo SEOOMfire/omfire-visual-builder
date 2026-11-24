@@ -34,6 +34,8 @@ export type CreativeDraft = {
   datenmenge?: string;
   datenmengeAlt?: string;
   einmalpreisZusatz?: string;
+  preisAlt?: string;
+  energielabel?: string;
   sternText?: string;
   deko?: string;
   geraetName?: string;
@@ -85,6 +87,8 @@ export function creativeInput(args: Record<string, unknown>) {
     preisZusatz: textOf(args, "preis_zusatz", "preisZusatz"),
     einmalpreis: textOf(args, "einmalpreis"),
     einmalpreisZusatz: textOf(args, "einmalpreis_zusatz", "einmalpreisZusatz"),
+    preisAlt: textOf(args, "preis_alt", "preisAlt"),
+    energielabel: textOf(args, "energielabel"),
     aktionText: textOf(args, "aktion_text", "aktionText"),
     pflichttext: textOf(args, "pflichttext"),
     headlineVariante: textOf(args, "headline_variante", "headlineVariante"),
@@ -118,6 +122,8 @@ export function fieldsForRender(draft: CreativeDraft) {
     datenmenge: draft.datenmenge,
     datenmengeAlt: draft.datenmengeAlt,
     einmalpreisZusatz: draft.einmalpreisZusatz,
+    preisAlt: draft.preisAlt,
+    energielabel: draft.energielabel,
     sternText: draft.sternText,
     deko: draft.deko,
     geraetName: draft.geraetName,
@@ -179,6 +185,8 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   if (typeof change.datenmenge_alt === "string") draft.datenmengeAlt = change.datenmenge_alt;
   if (typeof change.stern_text === "string") draft.sternText = change.stern_text;
   if (typeof change.einmalpreis_zusatz === "string") draft.einmalpreisZusatz = change.einmalpreis_zusatz;
+  if (typeof change.preis_alt === "string") draft.preisAlt = change.preis_alt;
+  if (typeof change.energielabel === "string") draft.energielabel = change.energielabel;
   if (typeof change.geraet_name === "string") draft.geraetName = change.geraet_name;
   if (change.deko === "bw_wellen" || change.deko === "fruehling_blaetter" || change.deko === "keine") draft.deko = change.deko;
   const spoken = typeof change.text === "string" ? change.text : typeof change.satz === "string" ? change.satz : "";
@@ -231,6 +239,8 @@ export async function storeRenderedDraft(rendered: RenderedCreative, fields: Omi
     datenmenge: fields.datenmenge,
     datenmengeAlt: fields.datenmengeAlt,
     einmalpreisZusatz: fields.einmalpreisZusatz,
+    preisAlt: fields.preisAlt,
+    energielabel: fields.energielabel,
     sternText: fields.sternText,
     deko: fields.deko,
     geraetName: fields.geraetName,
