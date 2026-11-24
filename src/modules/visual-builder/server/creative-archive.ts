@@ -127,6 +127,11 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   if (typeof change.produktname === "string") draft.produktname = change.produktname;
   if (typeof change.button === "string") draft.button = change.button;
   const spoken = typeof change.text === "string" ? change.text : typeof change.satz === "string" ? change.satz : "";
+  if (!spoken && !Array.isArray(change.befehle)) {
+    const result = applyToBook(draft.layoutBook ?? newBook(draft.orange), { befehle: [] });
+    draft.layoutBook = result.book;
+    draft.summary = "Felder des Entwurfs geändert.";
+  }
   if (spoken || Array.isArray(change.befehle)) {
     const result = applyToBook(draft.layoutBook ?? newBook(draft.orange), spoken || { befehle: change.befehle });
     if (result.question) throw new Error(result.question);
