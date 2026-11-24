@@ -1,0 +1,11 @@
+node_modules
+.next
+out
+var
+.git
+export
+.env
+.env.*
+*.log
+tsconfig.tsbuildinfo
+coverage
