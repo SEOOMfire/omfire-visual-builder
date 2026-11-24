@@ -419,7 +419,7 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
     ctx.font = face(900, subSize, "Titillium Web");
     ctx.fillText(scene.subline.lines[0]?.text ?? "", scene.subline.box.x, scene.subline.box.y);
     drawKachel(ctx, scene, images);
-    drawCta(ctx, scene);
+    if (scene.cta.text.trim()) drawCta(ctx, scene);
     drawImageBox(ctx, scene.logoKey ? images[scene.logoKey] : null, scene.logo.box, "left");
     return hints;
   }

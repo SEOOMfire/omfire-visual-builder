@@ -381,7 +381,7 @@ function buildKachel(
       box: fittedTile,
       datenmenge: copy.datenmenge?.trim() || "150 GB",
       alt: copy.datenmengeAlt?.trim() || "",
-      einmal: copy.einmalpreis,
+      einmal: name === "kachel_person" ? "" : copy.einmalpreis.trim(),
       einmalZusatz: copy.einmalpreisZusatz?.trim() || "",
     },
     stern: placed.stern && stern ? { box: placed.stern, text: stern.text } : undefined,
