@@ -189,6 +189,15 @@ function box(x: number, y: number, w: number, h: number): Box {
   return { x, y, w, h };
 }
 
+function headlineLines(raw: string): string[] {
+  const given = raw.split(/\n/).map((line) => line.trim()).filter(Boolean).map((line) => line.toUpperCase());
+  if (given.length !== 1) return given.slice(0, 3);
+  const words = given[0].split(/\s+/);
+  if (words.length < 2) return given;
+  const cut = words.length === 3 ? 1 : Math.ceil(words.length / 2);
+  return [words.slice(0, cut).join(" "), words.slice(cut).join(" ")];
+}
+
 function overlaps(left: Box, right: Box): boolean {
   return left.x < right.x + right.w && right.x < left.x + left.w && left.y < right.y + right.h && right.y < left.y + left.h;
 }
@@ -211,7 +220,7 @@ export function buildScene(
     const fh = h * 0.78;
     const fw = fh * 0.7;
     const onRight = copy.orange === "rechts" || name === "product_person";
-    const x = onRight ? Math.max(w * 0.48, w - fw * 0.86) : w * 0.02;
+    const x = onRight ? Math.max(w * 0.56, w - fw * 0.86) : w * 0.02;
     return box(x, h * 1.05 - fh, fw, fh);
   })();
   const product = name === "product" || name === "product_person"
@@ -219,17 +228,18 @@ export function buildScene(
     : undefined;
   const energy = product ? box(product.x + product.w + w * 0.01, product.y + product.h * 0.35, Math.min(w, h) * 0.08, Math.min(w, h) * 0.1) : undefined;
   const productName = product ? { text: copy.produktname, box: box(product.x, product.y + product.h + h * 0.008, product.w * 1.4, h * 0.028) } : undefined;
-  const headlineWidth = portrait ? w * 0.78 : w * 0.46;
+  const headlineWidth = portrait ? w * 0.48 : w * 0.52;
+  const lines = headlineLines(copy.headline);
   const headline = {
-    lines: copy.headline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 3).map((line) => line.toUpperCase()),
+    lines,
     variant: copy.headlineVariante,
-    box: box(w * 0.05, h * 0.045, headlineWidth, portrait ? h * 0.1 : h * 0.145),
-    step: w * 0.035,
+    box: box(w * 0.05, h * 0.04, headlineWidth, (portrait ? h * 0.07 : h * 0.11) * Math.max(1, Math.min(2, lines.length))),
+    step: w * 0.04,
   };
   const subLines = copy.subline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 4);
   const subline = {
     lines: subLines.map((text, index) => ({ text, bold: index === 0, color: index === 0 ? ORANGE : WHITE })),
-    box: box(headline.box.x, headline.box.y + headline.box.h + h * 0.012, headline.box.w * 0.8, h * 0.1),
+    box: box(headline.box.x, headline.box.y + headline.box.h + h * 0.012, Math.min(headline.box.w, w * 0.46), h * 0.09),
   };
   const stoerer = {
     typ: copy.stoererTyp,

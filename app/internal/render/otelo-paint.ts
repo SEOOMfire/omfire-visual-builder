@@ -99,7 +99,7 @@ function drawDiamond(ctx: CanvasRenderingContext2D, scene: OteloScene) {
   const lines = scene.stoerer.typ === "ohne_preis"
     ? ["Nur", zusatz || "im Fachhandel"].filter(Boolean)
     : ["Nur", preis || "29,99 €", zusatz || "monatlich¹"];
-  const size = box.w * (lines.length > 2 ? 0.13 : 0.16);
+  const size = box.w * (lines.length > 2 ? 0.09 : 0.12);
   lines.forEach((line, index) => {
     const weight = index === 1 && scene.stoerer.typ !== "ohne_preis" ? 800 : 600;
     ctx.font = face(weight, size, "Geist");
