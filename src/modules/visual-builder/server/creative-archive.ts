@@ -9,6 +9,7 @@ import { applyToBook, newBook, type AdjustBook } from "./adjust-commands";
 import { normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
 import { renderTemplate, type RenderedCreative } from "./otelo-render";
 import { signPreview } from "./previews";
+import { previewUrl } from "./public-url";
 
 export type { VorlageName };
 
@@ -201,6 +202,16 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   if (spoken || Array.isArray(change.befehle)) {
     const result = applyToBook(draft.layoutBook ?? newBook(draft.orange), spoken || { befehle: change.befehle });
     if (result.question) throw new Error(result.question);
+    if (result.compare) {
+      const left = result.book.history.find((entry) => entry.n === result.compare?.links);
+      const right = result.book.history.find((entry) => entry.n === result.compare?.rechts);
+      if (!left || !right) throw new Error(`Version ${result.compare.links} oder ${result.compare.rechts} kenne ich nicht.`);
+      const renderSnap = (snap: typeof left.snap) => renderTemplate(fieldsForRender({ ...draft, layoutBook: { ...result.book, snap } }));
+      const [first, second] = await Promise.all([renderSnap(left.snap), renderSnap(right.snap)]);
+      draft.summary = `Version ${left.n}: ${previewUrl(first.token)}\nVersion ${right.n}: ${previewUrl(second.token)}`;
+      await writeDraft(draft);
+      return { draft, rendered: second };
+    }
     draft.layoutBook = result.book;
     draft.orange = result.book.snap.orange;
     const patch = result.book.snap.fields ?? {};
