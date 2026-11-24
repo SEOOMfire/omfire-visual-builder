@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   if (!renderAuthorized(request.headers.get("x-render-token"))) {
     return Response.json({ message: "Nicht gefunden." }, { status: 404 });
   }
-  const payload = await request.json().catch(() => null) as { probe?: boolean; ping?: boolean; only?: string } | null;
+  const payload = await request.json().catch(() => null) as { probe?: boolean; ping?: boolean; only?: string; custom?: Record<string, unknown>; publish?: string } | null;
   if (payload?.ping) {
     const ping = await pingImage();
     const url = ping.token ? previewUrl(ping.token) : "";
@@ -26,6 +26,27 @@ export async function POST(request: Request) {
     });
     const text = (await response.text()).split(token).join("TOKEN");
     return Response.json({ status: response.status, body: text.slice(0, 600) });
+  }
+  if (typeof payload?.publish === "string" && payload.publish.length > 20) {
+    const { storePreview } = await import("../../../../src/modules/visual-builder/server/previews");
+    const { randomUUID } = await import("node:crypto");
+    const token = await storePreview(`${randomUUID()}-vergleich.jpg`, Buffer.from(payload.publish, "base64"));
+    return Response.json({ url: previewUrl(token) });
+  }
+  if (payload?.custom && typeof payload.custom.name === "string" && typeof payload.custom.motiv === "string") {
+    try {
+      const sheet = await renderTemplate(payload.custom as Parameters<typeof renderTemplate>[0]);
+      return Response.json({
+        name: sheet.name,
+        motifName: sheet.motifName,
+        contactUrl: previewUrl(sheet.token),
+        formats: sheet.formats.map((format) => ({ label: format.label, url: previewUrl(format.token) })),
+        hints: sheet.hints.slice(0, 12),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Der Kontaktbogen ist fehlgeschlagen.";
+      return Response.json({ message }, { status: 500 });
+    }
   }
   try {
     const files = await listClientFiles("otelo");

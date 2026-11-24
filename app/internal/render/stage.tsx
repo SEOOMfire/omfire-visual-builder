@@ -70,7 +70,7 @@ async function paint(job: RenderJob): Promise<RenderOutput> {
     const scene = job.otelo?.[frame.id];
     if (scene) {
       const images: Record<string, HTMLImageElement | null> = {};
-      for (const key of [scene.figureKey, scene.productKey, scene.energyKey, scene.logoKey]) {
+      for (const key of [scene.figureKey, scene.productKey, scene.energyKey, scene.logoKey, scene.dekoKey]) {
         if (key) images[key] = await loadImage(job.images[key]);
       }
       const extra = drawOtelo(context, scene, images);

@@ -12,7 +12,7 @@ const TOOLS = [
   { name: "list_clients", description: "Kunden, auf die diese Person Zugriff hat.", inputSchema: { type: "object", properties: {} } },
   { name: "brand_assets", description: "Logos, Buttons, Störer, Schriften, Sprachen und Vorlagen eines Kunden.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" } } } },
   { name: "search_motifs", description: "Sucht Motive nach Name, Ordner oder Ausrichtung.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" }, suche: { type: "string" } } } },
-  { name: "compose_creative", description: "Baut einen Entwurf aus Vorlage, Motiv und Texten. Liefert Kontaktbogen, Links je Format, Hinweise und eine Entwurfs-ID.", inputSchema: { type: "object", required: ["kunde", "vorlage", "motiv"], properties: { kunde: { type: "string" }, vorlage: { type: "string" }, motiv: { type: "string" }, person: { type: "string" }, headline: { type: "string" }, subline: { type: "string" }, button: { type: "string" }, kampagne: { type: "string" }, stoerer_typ: { type: "string" }, preis: { type: "string" }, preis_zusatz: { type: "string" }, einmalpreis: { type: "string" }, aktion_text: { type: "string" }, pflichttext: { type: "string" }, headline_variante: { type: "string" }, orange: { type: "string" }, produktname: { type: "string" } } } },
+  { name: "compose_creative", description: "Baut einen Entwurf aus Vorlage, Motiv und Texten. Vorlagen: tarif, young, product, product_person, kachel_person, kachel_geraet, kachel_geraet_person. Kampagne BW setzt Wellen und Headline-Pfeile, fruehling_sommer die Blätter. Liefert Kontaktbogen, Links je Format, Hinweise und eine Entwurfs-ID.", inputSchema: { type: "object", required: ["kunde", "vorlage", "motiv"], properties: { kunde: { type: "string" }, vorlage: { type: "string" }, motiv: { type: "string" }, person: { type: "string" }, headline: { type: "string" }, subline: { type: "string" }, unterzeile: { type: "string" }, button: { type: "string" }, kampagne: { type: "string" }, stoerer_typ: { type: "string" }, preis: { type: "string" }, preis_zusatz: { type: "string" }, einmalpreis: { type: "string" }, einmalpreis_zusatz: { type: "string" }, aktion_text: { type: "string" }, pflichttext: { type: "string" }, headline_variante: { type: "string" }, orange: { type: "string" }, produktname: { type: "string" }, datenmenge: { type: "string" }, datenmenge_alt: { type: "string" }, stern_text: { type: "string" }, deko: { type: "string" }, geraet_name: { type: "string" } } } },
   { name: "adjust_creative", description: "Ändert einen Entwurf per Sprache und liefert eine neue Version. Den Satz des Nutzers unverändert in aenderung.text geben. Das Element steht vor dem Verb, jeder Teilsatz gilt für sich: „Frau spiegeln“ betrifft die Person, nicht den Störer. Größen: etwas 5 Prozent, ohne Zusatz 15 Prozent, deutlich 25 Prozent. Verschieben: etwas 3 Prozent, ohne Zusatz 6 Prozent, deutlich 12 Prozent. Spiegeln dreht das Bild horizontal. „Auf die andere Seite“ tauscht das ganze Layout. Elemente: headline, subline, stoerer (Störer/Preis/Raute), person (Frau/Model), geraet, cta (Button/Leiste), logo, pflichttext, energielabel, schraege. Standard gilt für alle Formate.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" }, aenderung: { type: "object" } } } },
   { name: "translate", description: "Überträgt die Texte eines Entwurfs in weitere Sprachen.", inputSchema: { type: "object", required: ["entwurf", "sprachen"], properties: { entwurf: { type: "string" }, sprachen: { type: "array", items: { type: "string" } } } } },
   { name: "check_guidelines", description: "Prüft die Texte eines Entwurfs gegen die CI-Richtlinie.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" } } } },
@@ -44,11 +44,16 @@ function renderedText(intro: string, rendered: { motifName: string; token: strin
   });
 }
 
-async function attachReview(draft: { glance?: string; hints: string[] }, measured: string[], jpeg: string): Promise<string> {
+async function attachReview(draft: { vorlage?: string; glance?: string; hints: string[] }, measured: string[], jpeg: string): Promise<string> {
   const { readClientText } = await import("../../src/modules/visual-builder/server/client-volume");
   const { glanceAt, pruefungText } = await import("../../src/modules/visual-builder/server/review");
   const rules = await readClientText("otelo", "ci-richtlinie.md").catch(() => "");
-  draft.glance = await glanceAt(jpeg, rules ?? "");
+  const reference = draft.vorlage === "kachel_geraet" || draft.vorlage === "kachel_geraet_person"
+    ? "files/referenz/banner/Meta_Q4_1126_BW_i17_Young_1x1.png"
+    : draft.vorlage?.startsWith("kachel")
+      ? "files/referenz/banner/Meta_Q4_1126_BW_Young_Classic_Woman_1x1.png"
+      : "files/referenz/styleguide-seite-4.jpg";
+  draft.glance = await glanceAt(jpeg, rules ?? "", reference);
   draft.hints = measured;
   await writeDraft(draft as Parameters<typeof writeDraft>[0]);
   return pruefungText(measured, draft.glance);
@@ -80,7 +85,7 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
     const { renderTemplate } = await import("../../src/modules/visual-builder/server/otelo-render");
     const text = (key: string) => typeof args[key] === "string" ? String(args[key]) : undefined;
     const headline = text("headline") ?? "";
-    const subline = text("subline") ?? "";
+    const subline = text("subline") ?? text("unterzeile") ?? "";
     const button = text("button") ?? "";
     const kampagne = text("kampagne") ?? "";
     const rendered = await renderTemplate({
@@ -99,6 +104,13 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
       headlineVariante: text("headline_variante"),
       orange: text("orange"),
       produktname: text("produktname"),
+      datenmenge: text("datenmenge"),
+      datenmengeAlt: text("datenmenge_alt"),
+      einmalpreisZusatz: text("einmalpreis_zusatz"),
+      sternText: text("stern_text"),
+      deko: text("deko"),
+      geraetName: text("geraet_name"),
+      kampagne: text("kampagne"),
     });
     const { defaultHeadline, defaultOrange, defaultStoerer, normalizeVorlage } = await import("../../src/modules/visual-builder/otelo-scene");
     const name = normalizeVorlage(String(args.vorlage ?? "young"));

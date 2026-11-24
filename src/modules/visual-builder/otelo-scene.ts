@@ -22,7 +22,8 @@ export const PFLICHTTEXT_IN_MOTIV: Record<string, boolean> = {
 export type OrangeSide = "links" | "rechts";
 export type HeadlineVariant = "direkt" | "box";
 export type StoererTyp = "tarif" | "product" | "bonus" | "stern" | "kreis" | "ohne_preis";
-export type VorlageName = "tarif" | "product" | "product_person" | "young";
+export type VorlageName = "tarif" | "product" | "product_person" | "young" | "kachel_person" | "kachel_geraet" | "kachel_geraet_person";
+export type DekoName = "bw_wellen" | "fruehling_blaetter" | "keine";
 
 export type Box = { x: number; y: number; w: number; h: number };
 export type Pt = [number, number];
@@ -40,6 +41,13 @@ export type SceneCopy = {
   headlineVariante: HeadlineVariant;
   orange: OrangeSide;
   produktname: string;
+  datenmenge?: string;
+  datenmengeAlt?: string;
+  einmalpreisZusatz?: string;
+  sternText?: string;
+  deko?: DekoName;
+  geraetName?: string;
+  kampagne?: string;
 };
 
 export type OteloScene = {
@@ -58,6 +66,7 @@ export type OteloScene = {
   energy?: Box;
   energyKey?: string;
   logoKey?: string;
+  dekoKey?: string;
   productName?: { text: string; box: Box };
   headline: { lines: string[]; variant: HeadlineVariant; box: Box; step: number };
   subline: { lines: Array<{ text: string; bold: boolean; color: string }>; box: Box };
@@ -65,6 +74,12 @@ export type OteloScene = {
   cta: { box: Box; text: string };
   logo: { box: Box; side: "left" | "right" };
   pflichttext?: { text: string; box: Box };
+  style?: "schraege" | "kachel";
+  kachel?: { box: Box; datenmenge: string; alt: string; einmal: string; einmalZusatz: string };
+  stern?: { box: Box; text: string };
+  deko?: { name: DekoName; box: Box; strength?: number };
+  headlinePfeile?: boolean;
+  deviceLabel?: { text: string; box: Box };
   hints: string[];
 };
 
@@ -79,7 +94,16 @@ export function normalizeVorlage(value: string): VorlageName {
   if (value === "tarif" || value === "standard") return "tarif";
   if (value === "product" || value === "hardware") return "product";
   if (value === "product_person") return "product_person";
+  if (value === "kachel_person" || value === "kachel_geraet" || value === "kachel_geraet_person") return value;
   return "young";
+}
+
+export function dekoFor(copy: Pick<SceneCopy, "deko" | "kampagne">): DekoName {
+  if (copy.deko === "bw_wellen" || copy.deko === "fruehling_blaetter" || copy.deko === "keine") return copy.deko;
+  const name = (copy.kampagne ?? "").toLowerCase();
+  if (name.includes("fruehling") || name.includes("sommer")) return "fruehling_blaetter";
+  if (name === "bw" || name.includes("black")) return "bw_wellen";
+  return "keine";
 }
 
 export function defaultOrange(name: VorlageName): OrangeSide {
@@ -139,36 +163,57 @@ export function polygonArea(points: readonly Pt[]): number {
   return Math.abs(sum) / 2;
 }
 
-/** One straight rising edge. Orange stays as close to one third as the angle range allows and never over half. */
-export function splitOrange(width: number, height: number, angleDeg: number, _side: OrangeSide, ratio = 1 / 3): { polygon: Pt[]; ratio: number; angle: number } {
+function wedge(width: number, height: number, angle: number, ratio: number, above: boolean): { polygon: Pt[]; yLeft: number; yRight: number } | null {
+  const rise = Math.tan((angle * Math.PI) / 180) * width;
+  const span = above ? height * ratio * 2 : height * (1 - ratio) * 2;
+  let yLeft = above ? (span + rise) / 2 : (span + rise) / 2;
+  let yRight = yLeft - rise;
+  if (!above) {
+    const target = height * (1 - ratio) * 2;
+    yLeft = (target + rise) / 2;
+    yRight = (target - rise) / 2;
+  }
+  if (yLeft > height - 2) {
+    const shift = yLeft - (height - 2);
+    yLeft -= shift;
+    yRight -= shift;
+  }
+  if (yRight < 2) {
+    const shift = 2 - yRight;
+    yLeft += shift;
+    yRight += shift;
+  }
+  if (yLeft <= yRight + 4 || yLeft > height || yRight < 0) return null;
+  const polygon: Pt[] = above
+    ? [[0, 0], [width, 0], [width, yRight], [0, yLeft]]
+    : [[0, yLeft], [width, yRight], [width, height], [0, height]];
+  return { polygon, yLeft, yRight };
+}
+
+/** One straight rising edge. Orange stays near one third and never over half. `links` is the area above the line. */
+export function splitOrange(width: number, height: number, angleDeg: number, side: OrangeSide, ratio = 1 / 3): { polygon: Pt[]; ratio: number; angle: number } {
   const portrait = height > width;
   const min = portrait ? 11 : 18;
   const max = 45;
-  let best = { polygon: [[0, height * 0.67], [width, height * 0.5], [width, height], [0, height]] as Pt[], ratio: 0.4, angle: min };
+  const above = side === "links";
+  let best = {
+    polygon: (above
+      ? [[0, 0], [width, 0], [width, height * 0.2], [0, height * 0.55]]
+      : [[0, height * 0.67], [width, height * 0.5], [width, height], [0, height]]) as Pt[],
+    ratio: 0.4,
+    angle: min,
+  };
   let bestGap = Infinity;
   for (let angle = min; angle <= max; angle += 1) {
-    const rise = Math.tan((angle * Math.PI) / 180) * width;
-    const target = (height * (1 - ratio)) * 2;
-    let yLeft = (target + rise) / 2;
-    let yRight = (target - rise) / 2;
-    if (yLeft > height - 2) {
-      const shift = yLeft - (height - 2);
-      yLeft -= shift;
-      yRight -= shift;
-    }
-    if (yRight < 2) {
-      const shift = 2 - yRight;
-      yLeft += shift;
-      yRight += shift;
-    }
-    if (yLeft <= yRight + 4 || yLeft > height || yRight < 0) continue;
-    const polygon: Pt[] = [[0, yLeft], [width, yRight], [width, height], [0, height]];
-    const area = rasterOrangeRatio(polygon, width, height);
-    if (area > 0.5 || area < 0.2 || !edgeRises(polygon, width, height)) continue;
-    const gap = Math.abs(area - ratio) + Math.abs(angle - angleDeg) * 0.0005;
+    const built = wedge(width, height, angle, ratio, above);
+    if (!built || !edgeRises(built.polygon, width, height)) continue;
+    const area = rasterOrangeRatio(built.polygon, width, height);
+    if (area > 0.5 || area < 0.2) continue;
+    const footInside = above ? pointInPolygon(width * 0.22, Math.min(height - 2, built.yLeft - 8), built.polygon) : pointInPolygon(width * 0.78, height - 4, built.polygon);
+    const gap = Math.abs(area - ratio) + (footInside ? 0 : 0.2) + Math.abs(angle - angleDeg) * 0.0005;
     if (gap < bestGap) {
       bestGap = gap;
-      best = { polygon, ratio: area, angle };
+      best = { polygon: built.polygon, ratio: area, angle };
     }
   }
   return best;
@@ -221,12 +266,141 @@ function pointInPolygon(x: number, y: number, points: readonly Pt[]): boolean {
   return inside;
 }
 
+function mirrorBox(target: Box, width: number, flip: boolean): Box {
+  if (!flip) return target;
+  return { x: width - target.x - target.w, y: target.y, w: target.w, h: target.h };
+}
+
+function keepInside(target: Box, width: number, height: number, right: number, bottom: number): Box {
+  const x = Math.max(width * 0.05, Math.min(target.x, width * right - target.w));
+  const w = Math.min(target.w, width * right - x);
+  const y = Math.max(height * 0.05, Math.min(target.y, height * bottom - 4));
+  const h = Math.min(target.h, height * bottom - y);
+  return { x, y, w: Math.max(8, w), h: Math.max(8, h) };
+}
+
+function buildKachel(
+  format: { id: string; w: number; h: number },
+  name: VorlageName,
+  copy: SceneCopy,
+  shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko", Shift>>,
+): OteloScene {
+  const { w, h } = format;
+  const portrait = h > w * 1.2;
+  const tiktok = format.id === "tiktok-9x16";
+  const flip = copy.orange === "links";
+  const left = w * (tiktok ? 0.08 : 0.055);
+  const headlineH = portrait ? h * 0.055 : h * 0.096;
+  const headline = {
+    lines: [copy.headline.replace(/\s+/g, " ").trim().toUpperCase() || "BLACK WEEK"],
+    variant: "direkt" as const,
+    box: mirrorBox(box(left, portrait ? h * 0.134 : h * 0.065, Math.min(w * (portrait ? 0.72 : 0.7), w * (tiktok ? 0.84 : 0.9) - left), headlineH), w, flip),
+    step: 0,
+  };
+  const subline = {
+    lines: copy.subline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 2).map((text) => ({ text: text.toUpperCase(), bold: true, color: ORANGE })),
+    box: mirrorBox(box(left, headline.box.y + headline.box.h + h * 0.018, headline.box.w, headlineH * 0.45), w, flip),
+  };
+  const tileRaw = box(left, portrait ? h * 0.29 : h * 0.3, w * (portrait ? 0.5 : 0.45), portrait ? h * 0.32 : h * 0.4);
+  const tile = mirrorBox(tileRaw, w, flip);
+  const ctaH = Math.max(portrait ? h * 0.05 : h * 0.082, h * ((format.id.startsWith("pmax") ? 0.03 : format.id.endsWith("9x16") ? 0.022 : 0.025) / 0.48));
+  const cta = {
+    box: mirrorBox(box(left, portrait ? h * 0.68 : h * 0.75, w * (portrait ? 0.55 : 0.62), ctaH), w, flip),
+    text: copy.button.trim() || "Jetzt sichern",
+  };
+  const showLogo = !portrait;
+  const logoW = w * 0.25;
+  const logo = {
+    box: showLogo ? box(w * 0.047, h * 0.94 - logoW / 5.58, logoW, logoW / 5.58) : box(0, 0, 0, 0),
+    side: "left" as const,
+  };
+  const personH = portrait ? h * 0.58 : h * 0.72;
+  const figure = name === "kachel_geraet" ? undefined : mirrorBox(box(w * 0.4, h * 1.03 - personH, w * (portrait ? 0.68 : 0.64), personH), w, flip);
+  const deviceH = h * (portrait ? 0.46 : 0.6);
+  const device = name === "kachel_person" ? undefined : mirrorBox(box(w * 0.52, h * 0.26, Math.min(w * 0.4, deviceH * 0.72), deviceH), w, flip);
+  const sternSize = Math.min(w, h) * (portrait ? 0.14 : 0.18);
+  const stern = copy.sternText?.trim()
+    ? { box: mirrorBox(box(tileRaw.x + tileRaw.w - sternSize * 0.35, tileRaw.y - sternSize * 0.2, sternSize, sternSize), w, flip), text: copy.sternText.trim() }
+    : undefined;
+  const dekoName = dekoFor(copy);
+  const deko = shifts.deko?.hidden || dekoName === "keine"
+    ? undefined
+    : { name: dekoName, box: mirrorBox(box(w * 0.45, h * 0.15, w * 0.55, h * 0.85), w, flip), strength: shifts.deko?.scale ?? 1 };
+  const fit = (target: Box) => tiktok ? keepInside(target, w, h, 0.84, 0.78) : target;
+  headline.box = fit(headline.box);
+  subline.box = fit(subline.box);
+  const fittedTile = fit(tile);
+  cta.box = fit(cta.box);
+  if (stern) stern.box = fit(stern.box);
+  const placed = {
+    figure: figure ? moved(figure, shifts.person, w, h) : undefined,
+    product: device ? moved(device, shifts.geraet, w, h) : undefined,
+    headline: moved(headline.box, shifts.headline, w, h) ?? headline.box,
+    subline: moved(subline.box, shifts.subline, w, h) ?? subline.box,
+    cta: moved(cta.box, shifts.cta, w, h) ?? cta.box,
+    logo: moved(logo.box, shifts.logo, w, h),
+    stern: stern ? moved(stern.box, shifts.stoerer, w, h) : undefined,
+  };
+  const hints: string[] = [];
+  const label = `${w}x${h}`;
+  const safeRight = tiktok ? 0.85 : 0.96;
+  const safeBottom = tiktok ? 0.8 : 0.96;
+  for (const [title, item] of [["Headline", placed.headline], ["Subline", placed.subline], ["Kachel", fittedTile], ["CTA", placed.cta], ["Logo", placed.logo], ["Stern", placed.stern]] as Array<[string, Box | undefined]>) {
+    if (!item || item.w < 2) continue;
+    if (item.x < w * 0.04 - 1 || item.y < (portrait ? h * 0.1 : h * 0.04) - 1 || item.x + item.w > w * safeRight + 1 || item.y + item.h > h * safeBottom + 1) {
+      hints.push(`${title} liegt außerhalb der sicheren Zone im ${label}${tiktok ? " (TikTok-Schutzzone)" : ""}.`);
+    }
+  }
+  if (placed.figure) {
+    if (placed.figure.h < h * 0.5) hints.push(`Die Person ist zu klein im ${label}.`);
+    else if (placed.figure.h < h * (portrait ? 0.5 : 0.6)) hints.push(`Hinweis: Die Personenhöhe liegt unter dem Bestand im ${label}.`);
+  }
+  if (placed.cta.h * 0.5 < h * (format.id.endsWith("9x16") ? 0.022 : format.id.startsWith("pmax") ? 0.03 : 0.025)) {
+    hints.push(`Der CTA-Text ist zu klein im ${label}.`);
+  }
+  if (placed.headline.w < w * 0.7 || placed.headline.w > w * 0.96) hints.push(`Hinweis: Die Headline-Breite weicht vom Bestand ab im ${label}.`);
+  if (tile.w < w * 0.35 || tile.w > w * 0.6) hints.push(`Hinweis: Die Kachel-Breite weicht vom Bestand ab im ${label}.`);
+  const minCtaH = portrait ? 0.038 : 0.07;
+  if (placed.cta.h < h * minCtaH) hints.push(`Hinweis: Die CTA-Leiste ist niedriger als im Bestand im ${label}.`);
+  return {
+    id: format.id,
+    width: w,
+    height: h,
+    orange: name === "kachel_person" ? [] : [[w * 0.62, h * 0.78], [w, h * 0.62], [w, h], [w * 0.45, h]],
+    angle: 28,
+    orangeRatio: name === "kachel_person" ? 0 : 0.12,
+    orangeSide: copy.orange,
+    style: "kachel",
+    figure: placed.figure,
+    figureFlip: Boolean(shifts.person?.flip),
+    product: placed.product,
+    headline: { ...headline, box: placed.headline },
+    subline: { ...subline, box: placed.subline },
+    stoerer: { typ: "stern", box: placed.stern ?? box(0, 0, 0, 0), preis: copy.preis, zusatz: copy.preisZusatz, einmal: copy.einmalpreis, aktion: copy.sternText ?? "" },
+    kachel: {
+      box: fittedTile,
+      datenmenge: copy.datenmenge?.trim() || "150 GB",
+      alt: copy.datenmengeAlt?.trim() || "",
+      einmal: copy.einmalpreis,
+      einmalZusatz: copy.einmalpreisZusatz?.trim() || "",
+    },
+    stern: placed.stern && stern ? { box: placed.stern, text: stern.text } : undefined,
+    deko,
+    headlinePfeile: dekoName === "bw_wellen",
+    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: box(w * 0.55, h * 0.9, w * 0.32, h * 0.04) } : undefined,
+    cta: { ...cta, box: placed.cta },
+    logo: placed.logo && placed.logo.w > 2 ? { ...logo, box: placed.logo } : { ...logo, box: { x: 0, y: 0, w: 0, h: 0 } },
+    hints,
+  };
+}
+
 export function buildScene(
   format: { id: string; w: number; h: number },
   name: VorlageName,
   copy: SceneCopy,
-  shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege", Shift>> = {},
+  shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko", Shift>> = {},
 ): OteloScene {
+  if (name === "kachel_person" || name === "kachel_geraet" || name === "kachel_geraet_person") return buildKachel(format, name, copy, shifts);
   const { w, h } = format;
   const portrait = h > w;
   const prefer = TEMPLATE_ANGLE[name][portrait ? "portrait" : "landscape"];
@@ -250,7 +424,7 @@ export function buildScene(
   const stoererX = columnEnd - diamond * 1.16;
   const subline = {
     lines: subLines.map((text, index) => ({ text, bold: index === 0, color: index === 0 ? ORANGE : WHITE })),
-    box: box(textX, headline.box.y + headline.box.h + h * 0.012, Math.max(w * 0.18, stoererX - textX - diamond * 0.2), portrait ? h * 0.07 : h * 0.1),
+    box: box(textX, headline.box.y + headline.box.h + h * 0.012, Math.max(w * 0.18, stoererX - textX - diamond * 0.2), portrait ? h * 0.09 : h * 0.14),
   };
   const stoerer = {
     typ: copy.stoererTyp,
@@ -271,7 +445,7 @@ export function buildScene(
     box: ctaBox,
     text: copy.button.trim() || "Jetzt sichern auf **otelo.de**",
   };
-  const logoW = Math.min(w, h) * (portrait ? 0.16 : 0.2);
+  const logoW = portrait ? Math.min(w, h) * 0.2 : w * 0.25;
   const logoH = logoW / 5.58;
   const logoY = tiktok ? Math.min(cta.box.y + cta.box.h + h * 0.02, h * 0.72) : cta.box.y + cta.box.h + h * 0.03;
   let logoBox = box(textX, logoY, logoW, logoH);
@@ -289,13 +463,11 @@ export function buildScene(
       const x = personRight ? textX + textW - fw : textX;
       return box(x, h * 1.02 - fh, fw, fh);
     }
-    const top = Math.max(logo.box.y + logo.box.h, cta.box.y + cta.box.h) + h * 0.01;
-    const fh = portrait ? h * 1.04 - top : h * 0.92;
-    const textRight = columnEnd + w * 0.015;
-    const fw = Math.min(w * (portrait ? 0.46 : 0.4), Math.max(w * 0.28, w - textRight));
-    const x = personRight ? textRight : Math.max(-w * 0.02, Math.min(w * 0.02, textX - fw));
-    const y = portrait ? top : h * 1.04 - fh;
-    return box(x, y, fw, fh);
+    const tall = format.id.endsWith("9x16");
+    const fh = tall ? h * 0.58 : h * 0.72;
+    const fw = Math.min(w * (tall ? 0.62 : 0.46), Math.max(w * 0.34, w - columnEnd - w * 0.02));
+    const x = personRight ? Math.max(columnEnd + w * 0.01, w - fw * 0.9) : -w * 0.03;
+    return box(x, h * 1.02 - fh, fw, fh);
   })();
   const product = name === "product" || name === "product_person" ? (() => {
     const onRight = copy.orange === "rechts";
@@ -306,6 +478,15 @@ export function buildScene(
   })() : undefined;
   const energy = product ? box(product.x + product.w * 0.15, product.y + product.h + h * 0.012, Math.min(w, h) * 0.06, Math.min(w, h) * 0.075) : undefined;
   const productName = product ? { text: copy.produktname, box: box(product.x, product.y + product.h + h * 0.008, product.w * 1.3, h * 0.025) } : undefined;
+  const column = [headline.box, subline.box, stoerer.box, cta.box];
+  const lowest = Math.max(...column.map((item) => item.y + item.h));
+  const room = Math.max(0, logo.box.y - lowest - h * 0.02);
+  let drop = 0;
+  while (drop + h * 0.02 <= room && corners(headline.box).some(([x, y]) => pointInPolygon(x, y + drop, split.polygon))) drop += h * 0.02;
+  for (const item of column) item.y += drop;
+  while (headline.box.h > h * 0.08 && corners(headline.box).some(([x, y]) => pointInPolygon(x, y, split.polygon))) {
+    headline.box = { ...headline.box, y: headline.box.y + h * 0.015, h: headline.box.h - h * 0.015 };
+  }
   const placed = {
     figure: figure ? moved(figure, shifts.person, w, h) : undefined,
     product: product ? moved(product, shifts.geraet, w, h) : undefined,
@@ -333,6 +514,14 @@ export function buildScene(
     const visible = Math.max(0, Math.min(w, placed.figure.x + placed.figure.w) - Math.max(0, placed.figure.x));
     if (visible < placed.figure.w * 0.6) hints.push(`Die Person ist zu weit aus dem Format geschoben im ${label}.`);
     if (placed.figure.y + placed.figure.h < h - 1) hints.push(`Die Figur berührt den unteren Rand nicht im ${label}.`);
+    const minPerson = format.id.endsWith("9x16") ? 0.5 : 0.65;
+    if (placed.figure.h < h * minPerson) hints.push(`Die Person ist zu klein im ${label}.`);
+    const onOrange = [0.3, 0.5, 0.75].some((down) => [0.3, 0.6].some((across) => pointInPolygon(
+      Math.min(w - 2, Math.max(2, placed.figure!.x + placed.figure!.w * across)),
+      Math.min(h - 2, placed.figure!.y + placed.figure!.h * down),
+      split.polygon,
+    )));
+    if (!onOrange) hints.push(`Die Figur steht nicht auf Orange im ${label}.`);
   }
   if (headline.lines.length > 2) hints.push(`Die Headline hat mehr als zwei Zeilen im ${label}.`);
   if (subline.lines.length > 3) hints.push(`Die Subline hat mehr als drei Zeilen im ${label}.`);
@@ -357,7 +546,7 @@ export function buildScene(
   for (const [nameOf, item] of safeBoxes) {
     if (!item) continue;
     if (item.x < w * 0.05 - 1 || item.y < h * 0.05 - 1 || item.x + item.w > w * (1 - safeRight) + 1 || item.y + item.h > h * (1 - safeBottom) + 1) {
-      hints.push(`${nameOf} liegt außerhalb der sicheren Zone im ${label}.`);
+      hints.push(`${nameOf} liegt außerhalb der sicheren Zone im ${label}${tiktok ? " (TikTok-Schutzzone)" : ""}.`);
     }
   }
   if (placed.logo && corners(placed.logo).some(([x, y]) => pointInPolygon(x, y, split.polygon))) {

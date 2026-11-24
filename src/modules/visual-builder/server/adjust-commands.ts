@@ -1,6 +1,6 @@
 import type { OrangeSide } from "../otelo-scene";
 
-export type ElementId = "headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege";
+export type ElementId = "headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko";
 
 export type Nudge = { dx: number; dy: number; scale: number; flip: boolean; hidden: boolean };
 
@@ -33,6 +33,7 @@ const WORDS: Array<[RegExp, ElementId]> = [
   [/pflichttext|kleingedruckt/i, "pflichttext"],
   [/energielabel|energie/i, "energielabel"],
   [/schr[äa]ge|slant|teilung/i, "schraege"],
+  [/deko|wellen|bl[äa]tter/i, "deko"],
 ];
 
 export function emptyNudge(): Nudge {
@@ -58,6 +59,7 @@ const LABEL: Record<ElementId, string> = {
   pflichttext: "Pflichttext",
   energielabel: "Energielabel",
   schraege: "Schräge",
+  deko: "Deko",
 };
 
 function elementIn(text: string): ElementId | undefined {
@@ -129,7 +131,7 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
     const verb = richtung === "unten" ? down : richtung === "oben" ? up : richtung === "links" ? left : right;
     commands.push({ op: "verschieben", element, richtung, prozent: windowAmount(clause, verb, "move"), formate });
   }
-  if (/ausblenden|verstecken/i.test(clause)) {
+  if (/ausblenden|verstecken|\bweg\b/i.test(clause)) {
     if (!element) return { commands, question: "Welches Element soll ich ausblenden?" };
     commands.push({ op: "sichtbarkeit", element, sichtbar: false, formate });
   }

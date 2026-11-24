@@ -69,9 +69,9 @@ export async function openRouterComplete(input: {
     });
     if (!response.ok) {
       lastStatus = response.status;
-      await response.body?.cancel().catch(() => undefined);
+      const detail = (await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 160);
       if (response.status === 429 || response.status >= 500) continue;
-      throw new Error(`Der Sprachdienst hat die Anfrage abgelehnt (${response.status}).`);
+      throw new Error(`Der Sprachdienst hat die Anfrage abgelehnt (${response.status}${detail ? `: ${detail}` : ""}).`);
     }
     const json = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
     const text = textOf(json.choices?.[0]?.message?.content).trim();

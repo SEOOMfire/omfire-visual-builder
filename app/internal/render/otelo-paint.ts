@@ -227,7 +227,7 @@ function drawCta(ctx: CanvasRenderingContext2D, scene: OteloScene) {
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.fillStyle = BLACK;
-  const size = fit(ctx, raw, 700, "Geist", w - h * 1.5, h * 0.42);
+  const size = fit(ctx, raw, 700, "Geist", w - h * 1.5, h * 0.5);
   parts.forEach((part, index) => {
     if (!part) return;
     ctx.font = face(index % 2 === 1 ? 700 : 400, size, "Geist");
@@ -274,11 +274,155 @@ function paintedOrangeShare(ctx: CanvasRenderingContext2D, width: number, height
   return seen ? orange / seen : 0;
 }
 
+function drawWaves(ctx: CanvasRenderingContext2D, box: { x: number; y: number; w: number; h: number }, strength: number) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(box.x, box.y, box.w, box.h);
+  ctx.clip();
+  const count = Math.round(16 * strength);
+  for (let index = 0; index < count; index += 1) {
+    ctx.beginPath();
+    const base = box.y + box.h * (0.05 + index * 0.045);
+    for (let x = box.x; x <= box.x + box.w; x += 6) {
+      const y = base + Math.sin(x / 18 + index * 0.6) * box.h * 0.012 * strength + ((x - box.x) / box.w) * box.h * 0.22;
+      if (x === box.x) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = `rgba(250,90,20,${Math.max(0.15, 0.9 - index / count)})`;
+    ctx.lineWidth = Math.max(1.5, box.w * 0.004);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawArrows(ctx: CanvasRenderingContext2D, box: { x: number; y: number; w: number; h: number }) {
+  const h = box.h * 0.72;
+  const y = box.y + box.h * 0.14;
+  let x = box.x + box.w + h * 0.15;
+  ctx.fillStyle = LIME;
+  for (let index = 0; index < 4; index += 1) {
+    ctx.globalAlpha = 1 - index * 0.22;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + h * 0.42, y + h / 2);
+    ctx.lineTo(x, y + h);
+    ctx.lineTo(x + h * 0.16, y + h / 2);
+    ctx.closePath();
+    ctx.fill();
+    x += h * 0.34;
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawKachel(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Record<string, HTMLImageElement | null>) {
+  const tile = scene.kachel;
+  if (!tile) return;
+  const { box } = tile;
+  const top = box.h * (tile.einmal ? 0.62 : 0.55);
+  roundRect(ctx, box.x, box.y, box.w, top, box.h * 0.08);
+  ctx.fillStyle = LIME;
+  ctx.fill();
+  ctx.fillStyle = BLACK;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  if (tile.einmal) {
+    ctx.font = face(700, top * 0.16, "Geist");
+    ctx.fillText("Einmalig", box.x + box.w * 0.5, box.y + top * 0.22);
+    ctx.font = face(800, top * 0.42, "Geist");
+    ctx.fillText(tile.einmal, box.x + box.w * 0.5, box.y + top * 0.55);
+    if (tile.einmalZusatz) {
+      ctx.font = face(600, top * 0.14, "Geist");
+      ctx.fillText(tile.einmalZusatz, box.x + box.w * 0.5, box.y + top * 0.84);
+    }
+  } else {
+    ctx.font = face(900, top * 0.42, "Titillium Web");
+    ctx.fillText(tile.datenmenge, box.x + box.w * 0.5, box.y + top * (tile.alt ? 0.4 : 0.5));
+    if (tile.alt) {
+      ctx.font = face(700, top * 0.16, "Titillium Web");
+      const text = tile.alt;
+      const width = ctx.measureText(text).width;
+      const y = box.y + top * 0.78;
+      ctx.fillText(text, box.x + box.w * 0.5, y);
+      ctx.strokeStyle = BLACK;
+      ctx.lineWidth = Math.max(2, top * 0.02);
+      ctx.beginPath();
+      ctx.moveTo(box.x + box.w * 0.5 - width / 2, y);
+      ctx.lineTo(box.x + box.w * 0.5 + width / 2, y);
+      ctx.stroke();
+    }
+  }
+  roundRect(ctx, box.x, box.y + top * 0.82, box.w, box.h - top * 0.82, box.h * 0.08);
+  ctx.strokeStyle = WHITE;
+  ctx.lineWidth = Math.max(2, box.w * 0.012);
+  ctx.stroke();
+  ctx.fillStyle = WHITE;
+  ctx.font = face(700, (box.h - top) * 0.34, "Geist");
+  ctx.fillText(scene.stoerer.preis || "", box.x + box.w * 0.5, box.y + top + (box.h - top) * 0.38);
+  ctx.font = face(400, (box.h - top) * 0.16, "Geist");
+  ctx.fillText(scene.stoerer.zusatz || "pro Monat", box.x + box.w * 0.5, box.y + top + (box.h - top) * 0.68);
+  if (scene.stern && scene.stern.box.w > 2) {
+    drawBurst(ctx, scene.stern.box.x + scene.stern.box.w / 2, scene.stern.box.y + scene.stern.box.h / 2, scene.stern.box.w * 0.48, ORANGE);
+    ctx.fillStyle = WHITE;
+    ctx.textAlign = "center";
+    ctx.font = face(800, scene.stern.box.w * 0.12, "Titillium Web");
+    scene.stern.text.split(/\n| /).slice(0, 3).forEach((line, index, all) => {
+      ctx.fillText(line, scene.stern!.box.x + scene.stern!.box.w / 2, scene.stern!.box.y + scene.stern!.box.h * (0.42 + (index - (all.length - 1) / 2) * 0.16));
+    });
+  }
+  if (scene.deviceLabel?.text && images) {
+    ctx.fillStyle = WHITE;
+    ctx.font = face(700, scene.deviceLabel.box.h * 0.7, "Geist");
+    ctx.textAlign = "left";
+    ctx.fillText(scene.deviceLabel.text, scene.deviceLabel.box.x, scene.deviceLabel.box.y);
+  }
+}
+
 export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Record<string, HTMLImageElement | null>): string[] {
   const hints: string[] = [];
   const geist = document.fonts.check('700 32px "Geist"');
   const title = document.fonts.check('900 40px "Titillium Web"');
   if (!geist || !title) hints.push(`Eine Ersatzschrift wurde verwendet im ${scene.width}x${scene.height}.`);
+  if (scene.style === "kachel") {
+    ctx.fillStyle = BLACK;
+    ctx.fillRect(0, 0, scene.width, scene.height);
+    if (scene.deko?.name === "bw_wellen") drawWaves(ctx, scene.deko.box, scene.deko.strength ?? 1);
+    if (scene.deko?.name === "fruehling_blaetter" && scene.dekoKey && images[scene.dekoKey]) {
+      drawImageBox(ctx, images[scene.dekoKey], scene.deko.box, "right");
+    }
+    if (scene.orange.length >= 3) {
+      ctx.beginPath();
+      ctx.moveTo(scene.orange[0][0], scene.orange[0][1]);
+      for (const point of scene.orange.slice(1)) ctx.lineTo(point[0], point[1]);
+      ctx.closePath();
+      ctx.fillStyle = ORANGE;
+      ctx.fill();
+    }
+    drawImageBox(ctx, scene.productKey ? images[scene.productKey] : null, scene.product, "center");
+    const figureImage = scene.figureKey ? images[scene.figureKey] : null;
+    if (figureImage && scene.figure && scene.figureFlip) {
+      const box = scene.figure;
+      ctx.save();
+      ctx.translate(box.x + box.w / 2, box.y + box.h / 2);
+      ctx.scale(-1, 1);
+      ctx.drawImage(figureImage, -box.w / 2, -box.h / 2, box.w, box.h);
+      ctx.restore();
+    } else drawImageBox(ctx, figureImage, scene.figure, scene.orangeSide === "rechts" ? "right" : "left");
+    ctx.fillStyle = LIME;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    const headSize = fit(ctx, scene.headline.lines[0] ?? "", 900, "Titillium Web", scene.headline.box.w, scene.headline.box.h * 0.9);
+    ctx.font = face(900, headSize, "Titillium Web");
+    ctx.fillText(scene.headline.lines[0] ?? "", scene.headline.box.x, scene.headline.box.y);
+    if (scene.headlinePfeile) drawArrows(ctx, { ...scene.headline.box, w: Math.min(scene.headline.box.w, ctx.measureText(scene.headline.lines[0] ?? "").width) });
+    ctx.fillStyle = ORANGE;
+    const subSize = fit(ctx, scene.subline.lines[0]?.text ?? "", 900, "Titillium Web", scene.subline.box.w, scene.subline.box.h);
+    ctx.font = face(900, subSize, "Titillium Web");
+    ctx.fillText(scene.subline.lines[0]?.text ?? "", scene.subline.box.x, scene.subline.box.y);
+    drawKachel(ctx, scene, images);
+    drawCta(ctx, scene);
+    drawImageBox(ctx, scene.logoKey ? images[scene.logoKey] : null, scene.logo.box, "left");
+    return hints;
+  }
   ctx.fillStyle = BLACK;
   ctx.fillRect(0, 0, scene.width, scene.height);
   if (scene.orange.length >= 3) {

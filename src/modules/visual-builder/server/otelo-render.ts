@@ -90,6 +90,13 @@ export type RenderRequest = {
   headlineVariante?: string;
   orange?: string;
   produktname?: string;
+  datenmenge?: string;
+  datenmengeAlt?: string;
+  einmalpreisZusatz?: string;
+  sternText?: string;
+  deko?: string;
+  geraetName?: string;
+  kampagne?: string;
   layout?: AdjustSnap;
 };
 
@@ -116,10 +123,10 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
   const name = normalizeVorlage(input.name);
   const logo = pick(files, "logo", "wortmarke_weiss") ?? pick(files, "logo", "weiss");
   if (!logo) throw new Error("Die Wortmarke fehlt auf dem Volume.");
-  const wantsProduct = name === "product" || name === "product_person";
-  const wantsPerson = name !== "product" || Boolean(input.person?.trim());
+  const wantsProduct = name === "product" || name === "product_person" || name === "kachel_geraet" || name === "kachel_geraet_person";
+  const wantsPerson = name === "tarif" || name === "young" || name === "product_person" || name === "kachel_person" || name === "kachel_geraet_person" || (name === "product" && Boolean(input.person?.trim()));
   const device = wantsProduct ? resolveMotif(products(files), input.motiv, "produkt") : null;
-  const personQuery = name === "product_person" ? (input.person?.trim() || "") : input.motiv;
+  const personQuery = name === "product_person" || name === "kachel_geraet_person" ? (input.person?.trim() || "") : input.motiv;
   const person = wantsPerson && personQuery ? resolveMotif(files.filter((file) => file.role === "figur"), personQuery, "figur") : null;
   if (name === "product_person" && !person) throw new Error("Für product_person fehlt die Person. Nenne sie im Feld person.");
   const energy = pick(files, "energielabel", "class_arrows_ag_a.svg") ?? pick(files, "energielabel", "_a.");
@@ -136,12 +143,21 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     headlineVariante: asHeadline(input.headlineVariante, defaultHeadline(name)),
     orange: asOrange(input.orange, defaultOrange(name)),
     produktname: input.produktname?.trim() || (device ? device.name.replace(/\.[a-z0-9]+$/i, "").replace(/_/g, " ") : ""),
+    datenmenge: input.datenmenge,
+    datenmengeAlt: input.datenmengeAlt,
+    einmalpreisZusatz: input.einmalpreisZusatz,
+    sternText: input.sternText,
+    deko: input.deko === "bw_wellen" || input.deko === "fruehling_blaetter" || input.deko === "keine" ? input.deko : undefined,
+    geraetName: input.geraetName,
+    kampagne: input.kampagne,
   };
   const images: Record<string, string> = {};
   images[logo.path] = await asDataUrl(logo.path);
   if (person) images[person.path] = await asDataUrl(person.path);
   if (device) images[device.path] = await asDataUrl(device.path);
   if (energy && wantsProduct) images[energy.path] = await asDataUrl(energy.path);
+  const dekoFile = files.find((file) => file.role === "deko" && /blatt|fruehling/i.test(file.name));
+  if (dekoFile) images[dekoFile.path] = await asDataUrl(dekoFile.path);
   const fonts = [];
   const used = new Set<string>();
   for (const spec of [
@@ -159,7 +175,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
   }
   const otelo: Record<string, OteloScene> = {};
   for (const format of OTELO_FORMATS) {
-    const elements: ElementId[] = ["headline", "subline", "stoerer", "person", "geraet", "cta", "logo", "pflichttext", "energielabel", "schraege"];
+    const elements: ElementId[] = ["headline", "subline", "stoerer", "person", "geraet", "cta", "logo", "pflichttext", "energielabel", "schraege", "deko"];
     const shifts = Object.fromEntries(elements.map((element) => {
       const parts = ["*", format.id, format.token, `${format.w}x${format.h}`].map((key) => input.layout?.nudges[key]?.[element]).filter((item) => item);
       return [element, {
@@ -175,6 +191,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     if (person) scene.figureKey = person.path;
     if (device) scene.productKey = device.path;
     if (energy && wantsProduct) scene.energyKey = energy.path;
+    if (dekoFile) scene.dekoKey = dekoFile.path;
     otelo[format.id] = scene;
   }
   const job: RenderJob = {
@@ -230,5 +247,5 @@ export async function brandSummary(): Promise<string> {
   if (!raw) return "Für otelo liegt noch keine Marke auf dem Volume.";
   const marke = JSON.parse(raw) as { palette?: Array<{ name: string; hex: string }>; logos?: Array<{ name: string }> };
   const colors = (marke.palette ?? []).map((color) => `${color.name} ${color.hex}`).join(", ");
-  return `otelo. Farben: ${colors}. Logos: ${(marke.logos ?? []).map((logo) => logo.name).join(", ")}. Vorlagen: tarif, product, product_person, young.`;
+  return `otelo. Farben: ${colors}. Logos: ${(marke.logos ?? []).map((logo) => logo.name).join(", ")}. Vorlagen: tarif, product, product_person, young, kachel_person, kachel_geraet, kachel_geraet_person.`;
 }

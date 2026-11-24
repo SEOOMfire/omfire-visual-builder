@@ -31,6 +31,12 @@ export type CreativeDraft = {
   headlineVariante: HeadlineVariant;
   orange: OrangeSide;
   produktname: string;
+  datenmenge?: string;
+  datenmengeAlt?: string;
+  einmalpreisZusatz?: string;
+  sternText?: string;
+  deko?: string;
+  geraetName?: string;
   layoutBook?: AdjustBook;
   glance?: string;
   summary?: string;
@@ -39,7 +45,7 @@ export type CreativeDraft = {
 const BLOCKING = /überlappt|unteren Rand|Orange-Anteil|Schräge|CTA-Leiste|CTA-Text|Fußnote|Ersatzschrift|mehr als|auf Orange|zu klein|zu weit|sicheren Zone/;
 
 export function blockingHints(hints: readonly string[]): string[] {
-  return hints.filter((hint) => BLOCKING.test(hint));
+  return hints.filter((hint) => !hint.startsWith("Hinweis:") && BLOCKING.test(hint));
 }
 
 export function archivePeriod(now = new Date()): { quarter: string; monthYear: string } {
@@ -74,6 +80,13 @@ function requestFrom(draft: CreativeDraft) {
     headlineVariante: draft.headlineVariante,
     orange: draft.layoutBook?.snap.orange ?? draft.orange,
     produktname: draft.produktname,
+    datenmenge: draft.datenmenge,
+    datenmengeAlt: draft.datenmengeAlt,
+    einmalpreisZusatz: draft.einmalpreisZusatz,
+    sternText: draft.sternText,
+    deko: draft.deko,
+    geraetName: draft.geraetName,
+    kampagne: draft.kampagne,
     layout: draft.layoutBook?.snap,
   };
 }
@@ -168,6 +181,12 @@ export async function storeRenderedDraft(rendered: RenderedCreative, fields: Omi
     headlineVariante: fields.headlineVariante,
     orange: fields.orange,
     produktname: fields.produktname,
+    datenmenge: fields.datenmenge,
+    datenmengeAlt: fields.datenmengeAlt,
+    einmalpreisZusatz: fields.einmalpreisZusatz,
+    sternText: fields.sternText,
+    deko: fields.deko,
+    geraetName: fields.geraetName,
     layoutBook: newBook(fields.orange),
   };
   await writeDraft(draft);

@@ -28,11 +28,11 @@ export function fullReport(measured: readonly string[], glance: string): string 
 }
 
 /** A look at the rendered sheet. Never a reason to block saving. */
-export async function glanceAt(jpegBase64: string, rules: string): Promise<string> {
+export async function glanceAt(jpegBase64: string, rules: string, referencePath = "files/referenz/styleguide-seite-4.jpg"): Promise<string> {
   const config = openRouterConfig(MODEL_VARIABLE, "anthropic/claude-sonnet-5.5");
   if (!config.configured) return "nicht gelaufen, weil die Prüfung nicht erreichbar ist.";
   if (!jpegBase64) return "nicht gelaufen, weil kein Bild vorlag.";
-  const reference = await readClientFile("otelo", "files/referenz/styleguide-seite-4.jpg").catch(() => null);
+  const reference = await readClientFile("otelo", referencePath).catch(() => null);
   const images: Array<{ type: "image_url"; image_url: { url: string } }> = [
     { type: "image_url", image_url: { url: `data:image/jpeg;base64,${jpegBase64}` } },
   ];
@@ -53,10 +53,11 @@ export async function glanceAt(jpegBase64: string, rules: string): Promise<strin
       appTitle: "OMfire Visual-Builder",
       temperature: 0.2,
       maxTokens: 280,
-      timeoutMs: 25_000,
+      timeoutMs: 30_000,
     });
     return text.split(/(?<=\.)\s+/).slice(0, 5).join(" ");
-  } catch {
-    return "nicht gelaufen, weil die Bildprüfung keine Antwort gegeben hat.";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unbekannter Fehler";
+    return `nicht gelaufen, weil ${message.replace(/\s+/g, " ").slice(0, 180)}`;
   }
 }
