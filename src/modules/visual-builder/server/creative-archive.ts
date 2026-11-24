@@ -107,9 +107,9 @@ export function fieldsForRender(draft: CreativeDraft) {
     name: draft.vorlage,
     motiv: draft.motiv,
     person: draft.person,
-    headline: draft.headline,
-    subline: draft.subline,
-    button: draft.button,
+    headline: draft.layoutBook?.snap.fields?.headline ?? draft.headline,
+    subline: draft.layoutBook?.snap.fields?.subline ?? draft.subline,
+    button: draft.layoutBook?.snap.fields?.button ?? draft.button,
     stoererTyp: draft.stoererTyp,
     preis: draft.preis,
     preisZusatz: draft.preisZusatz,
@@ -119,15 +119,18 @@ export function fieldsForRender(draft: CreativeDraft) {
     headlineVariante: draft.headlineVariante,
     orange: draft.layoutBook?.snap.orange ?? draft.orange,
     produktname: draft.produktname,
-    datenmenge: draft.datenmenge,
-    datenmengeAlt: draft.datenmengeAlt,
+    datenmenge: draft.layoutBook?.snap.fields?.datenmenge ?? draft.datenmenge,
+    datenmengeAlt: draft.layoutBook?.snap.fields?.datenmengeAlt !== undefined ? draft.layoutBook.snap.fields.datenmengeAlt : draft.datenmengeAlt,
     einmalpreisZusatz: draft.einmalpreisZusatz,
     preisAlt: draft.preisAlt,
-    energielabel: draft.energielabel,
-    sternText: draft.sternText,
-    deko: draft.deko,
-    geraetName: draft.geraetName,
+    energielabel: draft.layoutBook?.snap.fields?.energielabel ?? draft.energielabel,
+    sternText: draft.layoutBook?.snap.fields?.sternText ?? draft.sternText,
+    deko: draft.layoutBook?.snap.fields?.deko ?? draft.deko,
+    geraetName: draft.layoutBook?.snap.fields?.geraetName ?? draft.geraetName,
     kampagne: draft.kampagne,
+    sublineColor: draft.layoutBook?.snap.fields?.sublineColor,
+    sternColor: draft.layoutBook?.snap.fields?.sternColor,
+    headlineColor: draft.layoutBook?.snap.fields?.headlineColor,
     layout: draft.layoutBook?.snap,
   };
 }
@@ -200,6 +203,24 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
     if (result.question) throw new Error(result.question);
     draft.layoutBook = result.book;
     draft.orange = result.book.snap.orange;
+    const patch = result.book.snap.fields ?? {};
+    if (patch.headline) draft.headline = patch.headline;
+    if (patch.subline) draft.subline = patch.subline;
+    if (patch.button) draft.button = patch.button;
+    if (patch.sternText) draft.sternText = patch.sternText;
+    if (patch.datenmenge) draft.datenmenge = patch.datenmenge;
+    if (patch.datenmengeAlt !== undefined) draft.datenmengeAlt = patch.datenmengeAlt;
+    if (patch.preis) draft.preis = patch.preis;
+    if (patch.preisZusatz) draft.preisZusatz = patch.preisZusatz;
+    if (patch.einmalpreis) draft.einmalpreis = patch.einmalpreis;
+    if (patch.einmalpreisZusatz) draft.einmalpreisZusatz = patch.einmalpreisZusatz;
+    if (patch.geraetName) draft.geraetName = patch.geraetName;
+    if (patch.pflichttext) draft.pflichttext = patch.pflichttext;
+    if (patch.deko) draft.deko = patch.deko;
+    if (patch.vorlage) draft.vorlage = normalizeVorlage(patch.vorlage);
+    if (patch.motiv) draft.motiv = patch.motiv;
+    if (patch.energielabel) draft.energielabel = patch.energielabel;
+    if (patch.headlineVariante) draft.headlineVariante = patch.headlineVariante;
     draft.summary = result.summary;
   }
   const rendered = await renderTemplate(fieldsForRender(draft));

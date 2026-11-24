@@ -51,6 +51,9 @@ export type SceneCopy = {
   deko?: DekoName;
   geraetName?: string;
   kampagne?: string;
+  sublineColor?: string;
+  sternColor?: string;
+  headlineColor?: string;
 };
 
 export type OteloScene = {
@@ -85,6 +88,7 @@ export type OteloScene = {
   pill?: { box: Box; preis: string; zusatz: string };
   preisAlt?: string;
   stern?: { box: Box; text: string };
+  sternColor?: string;
   deko?: { name: DekoName; box: Box; strength?: number };
   headlinePfeile?: boolean;
   deviceLabel?: { text: string; box: Box };
@@ -438,7 +442,7 @@ function buildKachel(
   format: { id: string; w: number; h: number },
   name: VorlageName,
   copy: SceneCopy,
-  shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko", Shift>>,
+  shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko" | "kachel" | "pfeile", Shift>>,
   cutout?: Cutout,
 ): OteloScene {
   const { w, h } = format;
@@ -453,13 +457,13 @@ function buildKachel(
   const headH = tall ? h * 0.062 : wide ? h * 0.12 : h * 0.11;
   const headY = tall ? h * 0.134 : h * 0.055;
   const headline = {
-    lines: [copy.headline.replace(/\s+/g, " ").trim().toUpperCase() || "BLACK WEEK"],
+    lines: [/[a-zäöü]/.test(copy.headline) ? copy.headline.replace(/\s+/g, " ").trim() : (copy.headline.replace(/\s+/g, " ").trim().toUpperCase() || "BLACK WEEK")],
     variant: "direkt" as const,
     box: mirrorBox(box(left, headY, headW, headH), w, flip),
     step: 0,
   };
   const subline = {
-    lines: copy.subline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 2).map((text) => ({ text: text.toUpperCase(), bold: true, color: ORANGE })),
+    lines: copy.subline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 2).map((text) => ({ text: /[a-zäöü]/.test(text) ? text : text.toUpperCase(), bold: true, color: copy.sublineColor || ORANGE })),
     box: mirrorBox(box(left, headline.box.y + headline.box.h + (wide ? headH * 0.14 : h * 0.012), wide ? w * 0.55 : w * 0.9, headH * 0.45), w, flip),
   };
   const tileRaw = deviceMode
@@ -537,7 +541,7 @@ function buildKachel(
   const fit = (target: Box) => tiktok ? keepInside(target, w, h, 0.84, 0.78) : target;
   headline.box = fit(headline.box);
   subline.box = fit(subline.box);
-  const fittedTile = fit(tile);
+  const fittedTile = shifts.kachel?.hidden ? box(0, 0, 0, 0) : (applyShift(fit(tile), shifts.kachel, w, h, "top-left", { left: w * 0.04, top: h * 0.04, right: w * 0.96, bottom: h * 0.96 }, [], "Kachel") ?? fit(tile));
   const fittedPill = pillRaw ? fit(mirrorBox(pillRaw, w, flip)) : undefined;
   cta.box = fit(cta.box);
   if (stern) stern.box = fit(stern.box);
@@ -554,6 +558,7 @@ function buildKachel(
     logo: applyShift(logo.box, shifts.logo, w, h, "top-left", textLimits, caps, "Logo"),
     stern: stern ? applyShift(stern.box, shifts.stoerer, w, h, "top-left", { ...textLimits, right: w * 1.02, top: 0 }, caps, "Stern") : undefined,
   };
+  if (placed.stern) placed.stern.y += fittedTile.y - tile.y;
   const hints: string[] = [];
   const label = `${w}x${h}`;
   const safeRight = tiktok ? 0.85 : 0.96;
@@ -660,7 +665,8 @@ function buildKachel(
     preisAlt: copy.preisAlt?.trim() || "",
     stern: placed.stern && stern ? { box: placed.stern, text: stern.text } : undefined,
     deko,
-    headlinePfeile: dekoName === "bw_wellen",
+    headlinePfeile: dekoName === "bw_wellen" && !shifts.pfeile?.hidden,
+    sternColor: copy.sternColor,
     deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: box(w * 0.55, h * 0.9, w * 0.32, h * 0.04) } : undefined,
     cta: { ...cta, box: placed.cta },
     logo: placed.logo && placed.logo.w > 2 ? { ...logo, box: placed.logo } : { ...logo, box: { x: 0, y: 0, w: 0, h: 0 } },
@@ -672,7 +678,7 @@ export function buildScene(
   format: { id: string; w: number; h: number },
   name: VorlageName,
   copy: SceneCopy,
-  shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko", Shift>> = {},
+  shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko" | "kachel" | "pfeile", Shift>> = {},
   cutout?: Cutout,
 ): OteloScene {
   if (name === "kachel_person" || name === "kachel_geraet" || name === "kachel_geraet_person") return buildKachel(format, name, copy, shifts, cutout);

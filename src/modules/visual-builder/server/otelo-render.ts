@@ -101,6 +101,9 @@ export type RenderRequest = {
   deko?: string;
   geraetName?: string;
   kampagne?: string;
+  sublineColor?: string;
+  sternColor?: string;
+  headlineColor?: string;
   layout?: AdjustSnap;
 };
 
@@ -179,6 +182,9 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     deko: input.deko === "bw_wellen" || input.deko === "fruehling_blaetter" || input.deko === "keine" ? input.deko : undefined,
     geraetName: input.geraetName,
     kampagne: input.kampagne,
+    sublineColor: input.sublineColor,
+    sternColor: input.sternColor,
+    headlineColor: input.headlineColor,
   };
   const images: Record<string, string> = {};
   images[logo.path] = await asDataUrl(logo.path);
@@ -205,7 +211,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
   }
   const otelo: Record<string, OteloScene> = {};
   for (const format of OTELO_FORMATS) {
-    const elements: ElementId[] = ["headline", "subline", "stoerer", "person", "geraet", "cta", "logo", "pflichttext", "energielabel", "schraege", "deko"];
+    const elements: ElementId[] = ["headline", "subline", "stoerer", "person", "geraet", "cta", "logo", "pflichttext", "energielabel", "schraege", "deko", "kachel", "pfeile", "altwert", "datenmenge"];
     const shifts = Object.fromEntries(elements.map((element) => {
       const parts = ["*", format.id, format.token, `${format.w}x${format.h}`].map((key) => input.layout?.nudges[key]?.[element]).filter((item) => item);
       return [element, {

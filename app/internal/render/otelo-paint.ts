@@ -435,8 +435,9 @@ function drawDeviceOffer(ctx: CanvasRenderingContext2D, scene: OteloScene) {
   ctx.font = face(500, offer.h * 0.22, "Geist");
   ctx.fillText(pill.zusatz, offer.x + offer.w / 2, offer.y + offer.h * 0.72);
   if (scene.stern && scene.stern.box.w > 2) {
-    drawBurst(ctx, scene.stern.box.x + scene.stern.box.w / 2, scene.stern.box.y + scene.stern.box.h / 2, scene.stern.box.w * 0.48, ORANGE);
-    ctx.fillStyle = WHITE;
+    const burst = scene.sternColor || ORANGE;
+    drawBurst(ctx, scene.stern.box.x + scene.stern.box.w / 2, scene.stern.box.y + scene.stern.box.h / 2, scene.stern.box.w * 0.48, burst);
+    ctx.fillStyle = burst.toLowerCase() === "#d7eb00" ? BLACK : WHITE;
     ctx.textAlign = "center";
     ctx.font = face(800, scene.stern.box.w * 0.11, "Titillium Web");
     scene.stern.text.split(/\n/).slice(0, 3).forEach((line, index, all) => {
@@ -502,8 +503,9 @@ function drawKachel(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Re
   ctx.font = face(400, bottomH * 0.16, "Geist");
   ctx.fillText(scene.stoerer.zusatz || "pro Monat", box.x + box.w * 0.5, bottomY + bottomH * 0.72);
   if (scene.stern && scene.stern.box.w > 2) {
-    drawBurst(ctx, scene.stern.box.x + scene.stern.box.w / 2, scene.stern.box.y + scene.stern.box.h / 2, scene.stern.box.w * 0.48, ORANGE);
-    ctx.fillStyle = WHITE;
+    const burst = scene.sternColor || ORANGE;
+    drawBurst(ctx, scene.stern.box.x + scene.stern.box.w / 2, scene.stern.box.y + scene.stern.box.h / 2, scene.stern.box.w * 0.48, burst);
+    ctx.fillStyle = burst.toLowerCase() === "#d7eb00" ? BLACK : WHITE;
     ctx.textAlign = "center";
     ctx.font = face(800, scene.stern.box.w * 0.12, "Titillium Web");
     scene.stern.text.split(/\n| /).slice(0, 3).forEach((line, index, all) => {
@@ -562,7 +564,7 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
       const span = arrowSpan(scene.headline.box.x + ctx.measureText(headText).width, headSize, maxX);
       if (span.count > 0) drawArrows(ctx, scene.headline.box.x + ctx.measureText(headText).width, scene.headline.box.y, headSize, span.count);
     }
-    ctx.fillStyle = ORANGE;
+    ctx.fillStyle = scene.subline.lines[0]?.color || ORANGE;
     const subText = scene.subline.lines[0]?.text ?? "";
     const subFit = sizeForWidth(ctx, subText, 900, "Titillium Web", scene.subline.box.w);
     ctx.font = face(900, Math.min(headSize * 0.45, subFit, scene.subline.box.h * 0.9), "Titillium Web");

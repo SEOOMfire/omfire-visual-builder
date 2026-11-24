@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   if (!renderAuthorized(request.headers.get("x-render-token"))) {
     return Response.json({ message: "Nicht gefunden." }, { status: 404 });
   }
-  const payload = await request.json().catch(() => null) as { probe?: boolean; ping?: boolean; only?: string; custom?: Record<string, unknown>; publish?: string; glance?: boolean; batch?: string } | null;
+  const payload = await request.json().catch(() => null) as { probe?: boolean; ping?: boolean; only?: string; custom?: Record<string, unknown>; publish?: string; glance?: boolean; batch?: string; spoken?: string } | null;
   if (payload?.ping) {
     const ping = await pingImage();
     const url = ping.token ? previewUrl(ping.token) : "";
@@ -32,6 +32,37 @@ export async function POST(request: Request) {
     const { randomUUID } = await import("node:crypto");
     const token = await storePreview(`${randomUUID()}-vergleich.jpg`, Buffer.from(payload.publish, "base64"));
     return Response.json({ url: previewUrl(token) });
+  }
+  if (typeof payload?.spoken === "string" && payload.custom && typeof payload.custom.name === "string") {
+    try {
+      const { applyToBook, newBook } = await import("../../../../src/modules/visual-builder/server/adjust-commands");
+      const step = applyToBook(newBook(), payload.spoken);
+      const patch = step.book.snap.fields ?? {};
+      const sheet = await renderTemplate({
+        ...(payload.custom as Parameters<typeof renderTemplate>[0]),
+        name: patch.vorlage || String(payload.custom.name),
+        motiv: patch.motiv || String(payload.custom.motiv ?? ""),
+        headline: patch.headline || String(payload.custom.headline ?? ""),
+        subline: patch.subline || String(payload.custom.subline ?? ""),
+        button: patch.button ?? (typeof payload.custom.button === "string" ? payload.custom.button : ""),
+        deko: patch.deko || (typeof payload.custom.deko === "string" ? payload.custom.deko : undefined),
+        sternText: patch.sternText || (typeof payload.custom.sternText === "string" ? payload.custom.sternText : undefined),
+        datenmengeAlt: patch.datenmengeAlt !== undefined ? patch.datenmengeAlt : (typeof payload.custom.datenmengeAlt === "string" ? payload.custom.datenmengeAlt : undefined),
+        energielabel: patch.energielabel,
+        sublineColor: patch.sublineColor,
+        sternColor: patch.sternColor,
+        layout: step.book.snap,
+      });
+      return Response.json({
+        summary: step.summary,
+        question: step.question,
+        contactUrl: previewUrl(sheet.token),
+        hints: sheet.hints.slice(0, 8),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Die Änderung ist fehlgeschlagen.";
+      return Response.json({ message }, { status: 500 });
+    }
   }
   if (typeof payload?.batch === "string" && payload.batch.includes("headline")) {
     try {

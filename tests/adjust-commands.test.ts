@@ -48,6 +48,45 @@ test("an unknown clause is named and the rest still applies", () => {
   assert.match(step.summary, /Nicht verstanden: blabla/);
 });
 
+test("the spoken sentences set text, color, scope, deco and versions", () => {
+  const cta = applyToBook(newBook(), "CTA: Jetzt wechseln");
+  assert.equal(cta.book.snap.fields.button, "Jetzt wechseln");
+  const gone = applyToBook(cta.book, "Stern weg");
+  assert.equal(mergedNudge(gone.book.snap, "meta-1x1", "stoerer").hidden, true);
+  const back = applyToBook(gone.book, "Stern wieder rein mit NUR BIS SONNTAG");
+  assert.equal(mergedNudge(back.book.snap, "meta-1x1", "stoerer").hidden, false);
+  assert.equal(back.book.snap.fields.sternText, "NUR BIS SONNTAG");
+  const lime = applyToBook(back.book, "Unterzeile in Lime");
+  assert.equal(lime.book.snap.fields.sublineColor, "#D7EB00");
+  const small = applyToBook(lime.book, "Headline kleiner nur im 9x16");
+  assert.equal(mergedNudge(small.book.snap, "9x16", "headline").scale, 0.85);
+  assert.equal(mergedNudge(small.book.snap, "1080x1080", "headline").scale, 1);
+  const moved = applyToBook(small.book, "Kachel etwas höher und Frau deutlich größer");
+  assert.equal(mergedNudge(moved.book.snap, "meta-1x1", "kachel").dy, -3);
+  assert.equal(mergedNudge(moved.book.snap, "meta-1x1", "person").scale, 1.25);
+  const leaves = applyToBook(moved.book, "nimm Blätter statt Wellen");
+  assert.equal(leaves.book.snap.fields.deko, "fruehling_blaetter");
+  const device = applyToBook(leaves.book, "Gerät statt Person: Galaxy A56, Energielabel B");
+  assert.equal(device.book.snap.fields.vorlage, "kachel_geraet");
+  assert.equal(device.book.snap.fields.motiv, "Galaxy A56");
+  assert.equal(device.book.snap.fields.energielabel, "B");
+  const alt = applyToBook(device.book, "Altwert weg");
+  assert.equal(alt.book.snap.fields.datenmengeAlt, "");
+  const air = applyToBook(alt.book, "mehr Luft zwischen Headline und Kachel");
+  assert.equal(mergedNudge(air.book.snap, "meta-1x1", "kachel").dy, -3 + 6);
+  const square = applyToBook(air.book, "wie im Quadrat");
+  assert.match(square.summary, /Quadrat/);
+  const restored = applyToBook(square.book, "zurück zu Version 2");
+  assert.equal(restored.book.snap.fields.button, "Jetzt wechseln");
+  assert.equal(mergedNudge(restored.book.snap, "meta-1x1", "stoerer").hidden, false);
+  assert.equal(restored.question, undefined);
+});
+
+test("a color outside the palette is a question", () => {
+  const step = applyToBook(newBook(), "Unterzeile in Rot");
+  assert.match(step.question ?? "", /Markenpalette/);
+});
+
 test("rückgängig restores the previous version as a new one", () => {
   const moved = applyToBook(newBook(), "Störer etwas tiefer");
   const back = applyToBook(moved.book, "rückgängig");

@@ -83,7 +83,8 @@ export function driveNextStep(): string {
 
 export async function systemStatus(): Promise<string> {
   const { oteloStatus } = await import("./otelo-render");
-  return oteloStatus();
+  const status = await oteloStatus();
+  return `${status} Änderungen am Motiv laufen über adjust_creative. Die Liste steht in help_adjust.`;
 }
 
 export async function pingImage(): Promise<{ base64: string; token: string | null; note: string }> {
