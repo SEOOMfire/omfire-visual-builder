@@ -34,9 +34,16 @@ docker run --rm -v cl3qb2c5nfazow6oqtaajteo-visual-builder-files:/data alpine ta
 
 ## Privates Repo und Deploy-Key
 
-Das Repo war öffentlich, damit Coolify es ohne GitHub-App bauen kann (`source_id` 0), genau wie die anderen MCP-Server. Für den Dauerbetrieb soll es privat sein und Coolify über einen Deploy-Key lesen.
+Das Repo ist noch öffentlich. Coolify klont es ohne GitHub-App (`source_id` 0), sonst schlägt der nächste Deploy fehl.
 
-Der vorhandene Coolify-Token darf keine Deploy-Keys anlegen und das Repo nicht auf privat stellen, wenn die folgenden Schritte fehlschlagen. Dann von Hand:
+Angelegt, aber noch nicht an die App gehängt:
+
+- GitHub-Deploy-Key `coolify-visual-builder`, nur lesen, ID `170943062`
+- Coolify-Schlüssel `visual-builder-deploy`, UUID `jrqq3inafzghvemn1cuoblnu`, Fingerabdruck `gqN6X8WaP75szVwNTVCe1XmAYhqBNqzYlWDFUa0MFww`
+
+Die Coolify-API lehnt `private_key_uuid` an einer bestehenden öffentlichen App ab. Der Wechsel auf den Deploy-Key geht nur in der Oberfläche. Danach das Repo auf privat stellen. Solange der Wechsel nicht passiert ist, bleibt das Repo öffentlich, damit Deploys weiterlaufen.
+
+Von Hand:
 
 1. Schlüssel erzeugen, nur lokal, nicht ins Repo:
 
