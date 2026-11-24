@@ -325,19 +325,36 @@ function drawWaves(ctx: CanvasRenderingContext2D, width: number, height: number,
 }
 
 function drawArrows(ctx: CanvasRenderingContext2D, x: number, y: number, height: number) {
-  let cursor = x + height * 0.08;
-  for (let index = 0; index < 4; index += 1) {
-    const fade = 1 - index * 0.24;
-    ctx.fillStyle = `rgba(${Math.round(215 * fade)},${Math.round(235 * fade)},0,1)`;
+  const colors = ["#D7EB00", "#7C8A00", "#2C3300"];
+  let cursor = x + height * 0.04;
+  for (let index = 0; index < 3; index += 1) {
+    ctx.fillStyle = colors[index] ?? "#2C3300";
     ctx.beginPath();
     ctx.moveTo(cursor, y);
-    ctx.lineTo(cursor + height * 0.46, y + height / 2);
+    ctx.lineTo(cursor + height * 0.42, y + height / 2);
     ctx.lineTo(cursor, y + height);
-    ctx.lineTo(cursor + height * 0.16, y + height / 2);
+    ctx.lineTo(cursor + height * 0.14, y + height / 2);
     ctx.closePath();
     ctx.fill();
-    cursor += height * 0.38;
+    cursor += height * 0.34;
   }
+}
+
+function drawCutout(ctx: CanvasRenderingContext2D, image: HTMLImageElement, figure: { x: number; y: number; w: number; h: number }, source: { x: number; y: number; w: number; h: number }, flip: boolean) {
+  const scaleX = figure.w / Math.max(1, source.w * image.width);
+  const scaleY = figure.h / Math.max(1, source.h * image.height);
+  const destW = image.width * scaleX;
+  const destH = image.height * scaleY;
+  const destX = figure.x - source.x * image.width * scaleX;
+  const destY = figure.y - source.y * image.height * scaleY;
+  ctx.save();
+  if (flip) {
+    ctx.translate(figure.x + figure.w / 2, figure.y + figure.h / 2);
+    ctx.scale(-1, 1);
+    ctx.translate(-(figure.x + figure.w / 2), -(figure.y + figure.h / 2));
+  }
+  ctx.drawImage(image, destX, destY, destW, destH);
+  ctx.restore();
 }
 
 function sizeForWidth(ctx: CanvasRenderingContext2D, text: string, weight: number, family: string, target: number): number {
@@ -459,14 +476,8 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
     }
     drawImageBox(ctx, scene.productKey ? images[scene.productKey] : null, scene.product, "center");
     const figureImage = scene.figureKey ? images[scene.figureKey] : null;
-    if (figureImage && scene.figure && scene.figureFlip) {
-      const box = scene.figure;
-      ctx.save();
-      ctx.translate(box.x + box.w / 2, box.y + box.h / 2);
-      ctx.scale(-1, 1);
-      ctx.drawImage(figureImage, -box.w / 2, -box.h / 2, box.w, box.h);
-      ctx.restore();
-    } else drawCover(ctx, figureImage, scene.figure);
+    if (figureImage && scene.figure && scene.figureSource) drawCutout(ctx, figureImage, scene.figure, scene.figureSource, Boolean(scene.figureFlip));
+    else drawImageBox(ctx, figureImage, scene.figure, scene.orangeSide === "rechts" ? "right" : "left");
     ctx.fillStyle = LIME;
     ctx.textAlign = "left";
     ctx.textBaseline = "top";

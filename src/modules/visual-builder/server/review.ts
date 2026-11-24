@@ -29,7 +29,7 @@ export function fullReport(measured: readonly string[], glance: string): string 
 }
 
 /** A look at the rendered sheet. Never a reason to block saving. */
-export async function glanceAt(jpegBase64: string, rules: string, referencePath = "files/referenz/styleguide-seite-4.jpg"): Promise<string> {
+export async function glanceAt(jpegBase64: string, rules: string, referencePath = "files/referenz/styleguide-seite-4.jpg", measured = ""): Promise<string> {
   const config = openRouterConfig(MODEL_VARIABLE, "anthropic/claude-sonnet-5.5");
   if (!config.configured) return "nicht gelaufen, weil die Prüfung nicht erreichbar ist.";
   if (!jpegBase64) return "nicht gelaufen, weil kein Bild vorlag.";
@@ -45,7 +45,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
         {
           role: "user",
           content: [
-            { type: "text", text: `Richtlinie:\n${rules.slice(0, 3500)}\nDas erste Bild ist der Entwurf, das zweite die Referenz.` },
+            { type: "text", text: `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nIm 9x16 ist kein Logo vorgesehen.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1800)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens fünf Sätze. Jeder Satz nennt einen konkreten Mangel und das Format.` },
             ...images,
           ],
         },

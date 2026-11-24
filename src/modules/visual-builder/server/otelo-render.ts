@@ -6,6 +6,7 @@ import type { RenderJob } from "../render-protocol";
 import type { CreativeState } from "../types";
 import { renderInBrowser } from "./browser-pool";
 import { listClientFiles, readClientFile, readClientText, type ClientFile } from "./client-volume";
+import { measureCutout } from "./cutout";
 import { resolveMotif } from "./motif";
 import { storePreview } from "./previews";
 import { uniqueFormatLabels } from "./preview-text";
@@ -72,6 +73,7 @@ export type RenderedCreative = {
   jpeg: string;
   formats: RenderedFormat[];
   hints: string[];
+  measureText: string;
 };
 
 export type RenderRequest = {
@@ -153,6 +155,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
   };
   const images: Record<string, string> = {};
   images[logo.path] = await asDataUrl(logo.path);
+  const cutout = person ? measureCutout(await readClientFile("otelo", person.path)) : undefined;
   if (person) images[person.path] = await asDataUrl(person.path);
   if (device) images[device.path] = await asDataUrl(device.path);
   if (energy && wantsProduct) images[energy.path] = await asDataUrl(energy.path);
@@ -186,7 +189,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
         hidden: parts.some((item) => item?.hidden),
       }];
     }));
-    const scene = buildScene(format, name, copy, shifts);
+    const scene = buildScene(format, name, copy, shifts, cutout);
     scene.logoKey = logo.path;
     if (person) scene.figureKey = person.path;
     if (device) scene.productKey = device.path;
@@ -216,6 +219,11 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
   }
   const token = await storePreview(`${randomUUID()}-kontakt.jpg`, Buffer.from(output.contactSheetBase64, "base64"));
   const hints = output.formats.flatMap((format) => format.hints.map((hint) => hint.sentence));
+  const measureText = Object.values(otelo).map((scene) => {
+    const head = scene.headBox ? Math.round((scene.headBox.y / scene.height) * 100) : undefined;
+    const top = scene.figure ? Math.round((scene.figure.y / scene.height) * 100) : undefined;
+    return `${scene.width}x${scene.height}: Kopf ${head ?? "kein"} Prozent, Figur oben ${top ?? "keine"} Prozent, Headline ${Math.round((scene.headline.box.w / scene.width) * 100)} Prozent, Deko ${scene.deko?.name ?? "keine"}, Logo ${scene.logo.box.w > 2 ? "ja" : "nein"}`;
+  }).join("\n");
   const motifName = [person?.name, device?.name].filter(Boolean).join(" + ");
   return {
     name,
@@ -228,6 +236,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     jpeg: output.contactSheetBase64,
     formats,
     hints,
+    measureText,
   };
 }
 

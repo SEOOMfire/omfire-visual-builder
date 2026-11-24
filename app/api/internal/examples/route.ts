@@ -37,7 +37,14 @@ export async function POST(request: Request) {
     try {
       const sheet = await renderTemplate(payload.custom as Parameters<typeof renderTemplate>[0]);
       const glance = payload.glance
-        ? await (await import("../../../../src/modules/visual-builder/server/review")).glanceAt(sheet.jpeg, "Vergleiche den Entwurf mit dem Referenzbanner. Höchstens fünf kurze deutsche Sätze.")
+        ? await (await import("../../../../src/modules/visual-builder/server/review")).glanceAt(
+          sheet.jpeg,
+          "",
+          String(payload.custom.name).startsWith("kachel")
+            ? "files/referenz/banner/Meta_Q4_1126_BW_Young_Classic_Woman_1x1.png"
+            : "files/referenz/styleguide-seite-4.jpg",
+          sheet.measureText,
+        )
         : "";
       return Response.json({
         name: sheet.name,

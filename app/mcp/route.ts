@@ -44,7 +44,7 @@ function renderedText(intro: string, rendered: { motifName: string; token: strin
   });
 }
 
-async function attachReview(draft: { vorlage?: string; glance?: string; hints: string[] }, measured: string[], jpeg: string): Promise<string> {
+async function attachReview(draft: { vorlage?: string; glance?: string; hints: string[] }, measured: string[], jpeg: string, measureText = ""): Promise<string> {
   const { readClientText } = await import("../../src/modules/visual-builder/server/client-volume");
   const { glanceAt, pruefungText } = await import("../../src/modules/visual-builder/server/review");
   const rules = await readClientText("otelo", "ci-richtlinie.md").catch(() => "");
@@ -53,7 +53,7 @@ async function attachReview(draft: { vorlage?: string; glance?: string; hints: s
     : draft.vorlage?.startsWith("kachel")
       ? "files/referenz/banner/Meta_Q4_1126_BW_Young_Classic_Woman_1x1.png"
       : "files/referenz/styleguide-seite-4.jpg";
-  draft.glance = await glanceAt(jpeg, rules ?? "", reference);
+  draft.glance = await glanceAt(jpeg, rules ?? "", reference, measureText);
   draft.hints = measured;
   await writeDraft(draft as Parameters<typeof writeDraft>[0]);
   return pruefungText(measured, draft.glance);
@@ -115,7 +115,7 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
       deko: fields.deko,
       geraetName: fields.geraetName,
     });
-    const checked = await attachReview(draft, rendered.hints, rendered.jpeg);
+    const checked = await attachReview(draft, rendered.hints, rendered.jpeg, rendered.measureText);
     return { text: `${renderedText(`Entwurf ${rendered.name}. ID ${draft.id}.`, rendered)}\n${checked}`, image: rendered.jpeg, mime: "image/jpeg" };
   }
   if (name === "adjust_creative") {
@@ -123,7 +123,7 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
       ? { text: args.aenderung }
       : args.aenderung && typeof args.aenderung === "object" ? args.aenderung as Record<string, unknown> : {};
     const { draft, rendered } = await adjustCreative(String(args.entwurf ?? ""), change);
-    const checked = await attachReview(draft, rendered.hints, rendered.jpeg);
+    const checked = await attachReview(draft, rendered.hints, rendered.jpeg, rendered.measureText);
     const summary = draft.summary ? `${draft.summary}\n` : "";
     return { text: `${summary}${renderedText(`Entwurf ${draft.id}, Version ${draft.layoutBook?.version ?? 1}.`, rendered)}\n${checked}`, image: rendered.jpeg, mime: "image/jpeg" };
   }

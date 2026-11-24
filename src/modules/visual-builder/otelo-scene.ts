@@ -1,3 +1,5 @@
+import { headInside, placeCutout, type Cutout } from "./server/cutout";
+
 export const LIME = "#D7EB00";
 export const ORANGE = "#FA5A14";
 export const BLACK = "#000000";
@@ -61,6 +63,9 @@ export type OteloScene = {
   figure?: Box;
   figureFlip?: boolean;
   figureKey?: string;
+  /** Opaque region of the source image, as fractions of that image. */
+  figureSource?: { x: number; y: number; w: number; h: number };
+  headBox?: Box;
   product?: Box;
   productKey?: string;
   energy?: Box;
@@ -320,6 +325,7 @@ function buildKachel(
   name: VorlageName,
   copy: SceneCopy,
   shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko", Shift>>,
+  cutout?: Cutout,
 ): OteloScene {
   const { w, h } = format;
   const wide = w / h > 1.5;
@@ -359,7 +365,7 @@ function buildKachel(
     box: showLogo ? box(w * 0.05, h * 0.94 - logoW / 5.58, logoW, logoW / 5.58) : box(0, 0, 0, 0),
     side: "left" as const,
   };
-  const figure = name === "kachel_geraet" ? undefined : mirrorBox(wide
+  let figure = name === "kachel_geraet" ? undefined : mirrorBox(wide
     ? box(w * 0.52, h * 0.06, w * 0.5, h * 0.96)
     : tall
       ? box(w * 0.28, h * 0.4, w * 0.78, h * 0.62)
@@ -372,6 +378,33 @@ function buildKachel(
   const stern = copy.sternText?.trim()
     ? { box: mirrorBox(box(tileRaw.x + tileRaw.w - sternSize * 0.55, tileRaw.y - sternSize * 0.28, sternSize, sternSize), w, flip), text: copy.sternText.trim() }
     : undefined;
+  let headBox: Box | undefined;
+  if (cutout && figure && name !== "kachel_geraet") {
+    const topFraction = tall ? 0.45 : 0.35;
+    const personTop = h * topFraction;
+    const inTheWay = [headline.box, subline.box, tile].filter((item) => item.y + item.h > personTop + 4 && item.w > 2);
+    const blockRight = inTheWay.length ? Math.max(...inTheWay.map((item) => item.x + item.w)) : w * 0.42;
+    const blockLeft = inTheWay.length ? Math.min(...inTheWay.map((item) => item.x)) : w * 0.5;
+    const onRight = blockLeft < w * 0.35;
+    const placedPerson = placeCutout({
+      canvasW: w,
+      canvasH: h,
+      cutout,
+      left: onRight ? blockRight + w * 0.012 : w * 0.02,
+      topFraction,
+      scale: shifts.person?.scale,
+    });
+    if (!onRight && placedPerson.figure.x + placedPerson.figure.w > blockLeft - w * 0.01) {
+      const room = Math.max(8, blockLeft - w * 0.03 - placedPerson.figure.x);
+      const shrink = room / placedPerson.figure.w;
+      placedPerson.figure.w *= shrink;
+      placedPerson.figure.h *= shrink;
+      placedPerson.head.w *= shrink;
+      placedPerson.head.h *= shrink;
+    }
+    figure = placedPerson.figure;
+    headBox = placedPerson.head;
+  }
   const dekoName = dekoFor(copy);
   const deko = shifts.deko?.hidden || dekoName === "keine"
     ? undefined
@@ -384,9 +417,9 @@ function buildKachel(
   if (stern) stern.box = fit(stern.box);
   const caps: string[] = [];
   const textLimits = { left: w * 0.04, top: h * (tall ? 0.1 : 0.04), right: w * (tiktok ? 0.84 : 0.955), bottom: h * (tiktok ? 0.78 : 0.955) };
-  const figureLimits = { left: -w * 0.04, top: 0, right: w * 1.04, bottom: h * 1.04 };
+  const figureLimits = { left: -w * 0.02, top: 0, right: w * 1.08, bottom: h * 1.08 };
   const placed = {
-    figure: figure ? applyShift(figure, shifts.person, w, h, "bottom-center", figureLimits, caps, "Frau") : undefined,
+    figure: figure ? applyShift(figure, shifts.person, w, h, "top-left", figureLimits, caps, "Frau") : undefined,
     product: device ? applyShift(device, shifts.geraet, w, h, "bottom-center", figureLimits, caps, "Gerät") : undefined,
     headline: applyShift(headline.box, shifts.headline, w, h, "top-left", textLimits, caps, "Headline") ?? headline.box,
     subline: applyShift(subline.box, shifts.subline, w, h, "top-left", textLimits, caps, "Unterzeile") ?? subline.box,
@@ -404,9 +437,21 @@ function buildKachel(
       hints.push(`${title} liegt außerhalb der sicheren Zone im ${label}${tiktok ? " (TikTok-Schutzzone)" : ""}.`);
     }
   }
-  if (placed.figure) {
-    if (placed.figure.h < h * 0.5) hints.push(`Die Person ist zu klein im ${label}.`);
-    else if (placed.figure.h < h * (tall ? 0.5 : 0.6)) hints.push(`Hinweis: Die Personenhöhe liegt unter dem Bestand im ${label}.`);
+  if (placed.figure && headBox) {
+    const movedHead = {
+      x: headBox.x + (placed.figure.x - (figure?.x ?? placed.figure.x)),
+      y: headBox.y + (placed.figure.y - (figure?.y ?? placed.figure.y)),
+      w: headBox.w * (figure && figure.w ? placed.figure.w / figure.w : 1),
+      h: headBox.h * (figure && figure.h ? placed.figure.h / figure.h : 1),
+    };
+    headBox = movedHead;
+    if (!headInside(headBox, w, h)) hints.push(`Der Kopf ist nicht vollständig sichtbar im ${label}.`);
+    const top = placed.figure.y / h;
+    const band = tall ? top < 0.4 || top > 0.5 : top < 0.3 || top > 0.4;
+    if (band) hints.push(`Hinweis: Der Kopf liegt bei ${Math.round(top * 100)} Prozent von oben im ${label}.`);
+  }
+  for (const [title, item] of [["Headline", placed.headline], ["Subline", placed.subline], ["Kachel", fittedTile]] as Array<[string, Box | undefined]>) {
+    if (placed.figure && item && item.w > 2 && overlaps(placed.figure, item)) hints.push(`Figur überlappt ${title} im ${label}.`);
   }
   if (placed.cta.h * 0.5 < h * (format.id.endsWith("9x16") ? 0.022 : format.id.startsWith("pmax") ? 0.03 : 0.025)) {
     hints.push(`Der CTA-Text ist zu klein im ${label}.`);
@@ -427,6 +472,8 @@ function buildKachel(
     style: "kachel",
     figure: placed.figure,
     figureFlip: Boolean(shifts.person?.flip),
+    figureSource: cutout ? { x: cutout.opaque.x / cutout.imageW, y: cutout.opaque.y / cutout.imageH, w: cutout.opaque.w / cutout.imageW, h: cutout.opaque.h / cutout.imageH } : undefined,
+    headBox,
     product: placed.product,
     headline: { ...headline, box: placed.headline },
     subline: { ...subline, box: placed.subline },
@@ -453,8 +500,9 @@ export function buildScene(
   name: VorlageName,
   copy: SceneCopy,
   shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko", Shift>> = {},
+  cutout?: Cutout,
 ): OteloScene {
-  if (name === "kachel_person" || name === "kachel_geraet" || name === "kachel_geraet_person") return buildKachel(format, name, copy, shifts);
+  if (name === "kachel_person" || name === "kachel_geraet" || name === "kachel_geraet_person") return buildKachel(format, name, copy, shifts, cutout);
   const { w, h } = format;
   const portrait = h > w;
   const prefer = TEMPLATE_ANGLE[name][portrait ? "portrait" : "landscape"];
