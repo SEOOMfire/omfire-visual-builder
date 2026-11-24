@@ -38,8 +38,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
     { type: "image_url", image_url: { url: `data:image/jpeg;base64,${reviewJpeg(Buffer.from(jpegBase64, "base64")).toString("base64")}` } },
   ];
   if (reference && images.length < 2) images.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${reviewJpeg(reference).toString("base64")}` } });
-  try {
-    const text = await openRouterComplete({
+  const ask = (reasoning?: { effort: "low" | "none"; exclude?: boolean }) => openRouterComplete({
       messages: [
         { role: "system", content: "Du vergleichst ein Werbemotiv mit der CI und, falls vorhanden, mit dem zweiten Bild als Referenz. Höchstens fünf kurze deutsche Sätze. Wenn es passt, beginne mit Bestanden. Kein Modellname." },
         {
@@ -53,9 +52,19 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
       config,
       appTitle: "OMfire Visual-Builder",
       temperature: 0.2,
-      maxTokens: 900,
+      maxTokens: 1500,
       timeoutMs: 30_000,
+      reasoning,
     });
+  try {
+    let text: string;
+    try {
+      text = await ask({ effort: "low", exclude: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (!/keine Antwort|abgelehnt/.test(message)) throw error;
+      text = await ask(undefined);
+    }
     return text.split(/(?<=\.)\s+/).slice(0, 5).join(" ");
   } catch (error) {
     const message = error instanceof Error ? error.message : "unbekannter Fehler";

@@ -1,4 +1,4 @@
-import { BLACK, LIME, ORANGE, WHITE, type OteloScene } from "../../../src/modules/visual-builder/otelo-scene";
+import { BLACK, LIME, ORANGE, WHITE, wavePaths, type OteloScene } from "../../../src/modules/visual-builder/otelo-scene";
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   const radius = Math.max(0, Math.min(r, w / 2, h / 2));
@@ -295,30 +295,24 @@ function paintedOrangeShare(ctx: CanvasRenderingContext2D, width: number, height
   return seen ? orange / seen : 0;
 }
 
-function drawWaves(ctx: CanvasRenderingContext2D, width: number, height: number, strength: number) {
-  const count = 11;
+function drawWaves(ctx: CanvasRenderingContext2D, width: number, height: number, strength: number, holes: Array<{ x: number; y: number; w: number; h: number }>) {
   const stroke = width * 0.0135 * strength;
   const alpha = Math.min(1, 0.95 * strength);
   ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, width, height);
+  for (const hole of holes) {
+    if (hole.w < 2 || hole.h < 2) continue;
+    ctx.rect(hole.x - stroke, hole.y - stroke, hole.w + stroke * 2, hole.h + stroke * 2);
+  }
+  ctx.clip("evenodd");
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.lineWidth = stroke;
-  const gradient = ctx.createLinearGradient(width * 0.42, 0, width, 0);
-  gradient.addColorStop(0, "rgba(250,90,20,0)");
-  gradient.addColorStop(0.35, `rgba(250,90,20,${0.35 * alpha})`);
-  gradient.addColorStop(1, `rgba(250,90,20,${alpha})`);
-  ctx.strokeStyle = gradient;
-  for (let index = 0; index < count; index += 1) {
-    const yBase = height * (0.2 + index * 0.072);
+  ctx.strokeStyle = `rgba(250,90,20,${alpha})`;
+  for (const path of wavePaths(width, height)) {
     ctx.beginPath();
-    let started = false;
-    for (let x = width * 0.38; x <= width + 4; x += 7) {
-      const y = yBase + Math.sin((x / width) * Math.PI * 5.5 + index) * height * 0.012;
-      if (!started) {
-        ctx.moveTo(x, y);
-        started = true;
-      } else ctx.lineTo(x, y);
-    }
+    path.forEach((point, index) => (index === 0 ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y)));
     ctx.stroke();
   }
   ctx.restore();
@@ -415,16 +409,19 @@ function drawKachel(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Re
     }
   } else {
     const amount = sizeForWidth(ctx, tile.datenmenge, 900, "Titillium Web", box.w * 0.78);
-    ctx.font = face(900, Math.min(amount, top * 0.46), "Titillium Web");
+    const amountSize = Math.min(amount, top * 0.46);
+    ctx.font = face(900, amountSize, "Titillium Web");
     ctx.fillText(tile.datenmenge, box.x + box.w * 0.5, box.y + top * (tile.alt ? 0.38 : 0.5));
     if (tile.alt) {
-      ctx.font = face(900, top * 0.18, "Titillium Web");
+      const altSize = amountSize * 0.45;
+      ctx.font = face(900, altSize, "Titillium Web");
       const text = tile.alt;
       const width = ctx.measureText(text).width;
       const y = box.y + top * 0.74;
+      ctx.fillStyle = BLACK;
       ctx.fillText(text, box.x + box.w * 0.5, y);
       ctx.strokeStyle = BLACK;
-      ctx.lineWidth = Math.max(2, top * 0.025);
+      ctx.lineWidth = Math.max(2, altSize * 0.09);
       ctx.beginPath();
       ctx.moveTo(box.x + box.w * 0.5 - width / 2, y);
       ctx.lineTo(box.x + box.w * 0.5 + width / 2, y);
@@ -470,7 +467,15 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
   if (scene.style === "kachel") {
     ctx.fillStyle = BLACK;
     ctx.fillRect(0, 0, scene.width, scene.height);
-    if (scene.deko?.name === "bw_wellen") drawWaves(ctx, scene.width, scene.height, scene.deko.strength ?? 1);
+    if (scene.deko?.name === "bw_wellen") {
+      drawWaves(ctx, scene.width, scene.height, scene.deko.strength ?? 1, [
+        scene.headline.box,
+        scene.subline.box,
+        scene.kachel?.box ?? { x: 0, y: 0, w: 0, h: 0 },
+        scene.cta.box,
+        scene.stern?.box ?? { x: 0, y: 0, w: 0, h: 0 },
+      ]);
+    }
     if (scene.deko?.name === "fruehling_blaetter" && scene.dekoKey && images[scene.dekoKey]) {
       drawImageBox(ctx, images[scene.dekoKey], scene.deko.box, "right");
     }

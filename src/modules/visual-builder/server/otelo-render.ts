@@ -6,7 +6,7 @@ import type { RenderJob } from "../render-protocol";
 import type { CreativeState } from "../types";
 import { renderInBrowser } from "./browser-pool";
 import { listClientFiles, readClientFile, readClientText, type ClientFile } from "./client-volume";
-import { measureCutout } from "./cutout";
+import { measureCutout, placeCutout } from "./cutout";
 import { resolveMotif } from "./motif";
 import { storePreview } from "./previews";
 import { uniqueFormatLabels } from "./preview-text";
@@ -102,6 +102,23 @@ export type RenderRequest = {
   layout?: AdjustSnap;
 };
 
+async function suggestPortrait(files: ClientFile[], current: string): Promise<string | undefined> {
+  const figures = files.filter((file) => file.role === "figur" && file.name !== current && file.name.toLowerCase().endsWith(".png")).slice(0, 16);
+  let best: { name: string; ratio: number } | undefined;
+  for (const file of figures) {
+    const bytes = await readClientFile("otelo", file.path).catch(() => null);
+    if (!bytes) continue;
+    const cutout = measureCutout(bytes);
+    if (!cutout) continue;
+    const placed = placeCutout({ canvasW: 1080, canvasH: 1920, cutout, left: 1080 * 0.58, topFraction: 0.45, pin: "edge", topMin: 0.35 });
+    const bottom = (placed.figure.y + placed.figure.h) / 1920;
+    if (placed.short || bottom < 0.995) continue;
+    const ratio = cutout.opaque.h / Math.max(1, cutout.opaque.w);
+    if (!best || ratio > best.ratio) best = { name: file.name, ratio };
+  }
+  return best?.name;
+}
+
 function products(files: ClientFile[]) {
   return files.filter((file) => file.role === "produkt" && file.name.toLowerCase().endsWith(".png") && !file.name.toLowerCase().includes("logo"));
 }
@@ -196,6 +213,14 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     if (energy && wantsProduct) scene.energyKey = energy.path;
     if (dekoFile) scene.dekoKey = dekoFile.path;
     otelo[format.id] = scene;
+  }
+  if (person && Object.values(otelo).some((scene) => scene.hints.some((hint) => hint.includes("zu kurz")))) {
+    const suggestion = await suggestPortrait(files, person.name);
+    if (suggestion) {
+      for (const scene of Object.values(otelo)) {
+        scene.hints = scene.hints.map((hint) => hint.includes("zu kurz") && !hint.includes("Vorschlag") ? `${hint} Vorschlag: ${suggestion}.` : hint);
+      }
+    }
   }
   const job: RenderJob = {
     formats: [],

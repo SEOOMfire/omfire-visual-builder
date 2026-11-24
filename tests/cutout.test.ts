@@ -61,11 +61,42 @@ test("transparent margins are ignored and the head stays in the frame", () => {
     assert.equal(scene.hints.some((hint) => hint.startsWith("Der Kopf ist nicht")), false, `${format.id} ${scene.hints.join(" | ")}`);
     assert.equal(scene.hints.some((hint) => /Figur überlappt Headline|Figur überlappt Subline|Figur überlappt Kachel/.test(hint)), false, scene.hints.join(" | "));
     const top = (scene.figure?.y ?? 0) / format.h;
-    const band = format.id.endsWith("9x16") ? [0.4, 0.5] : [0.3, 0.4];
+    const wide = format.w / format.h > 1.5;
+    const tall = format.id.endsWith("9x16");
+    const band = wide ? [0.1, 0.2] : tall ? [0.35, 0.5] : [0.3, 0.4];
     assert.ok(top >= band[0] - 0.02 && top <= band[1] + 0.02, `${format.id} ${top.toFixed(2)}`);
-    assert.ok(scene.figure && scene.figure.y + scene.figure.h > format.h, format.id);
+    const bottom = ((scene.figure?.y ?? 0) + (scene.figure?.h ?? 0)) / format.h;
+    if (tall) assert.ok(Math.abs(bottom - 1) <= 0.005, `${format.id} bottom ${bottom.toFixed(3)}`);
+    else assert.ok(bottom > 1, format.id);
     assert.ok(headInside(scene.headBox, format.w, format.h), format.id);
+    assert.equal(scene.hints.some((hint) => hint.includes("zu kurz")), false, scene.hints.join(" | "));
+    assert.equal(scene.hints.some((hint) => hint.includes("Stern überdeckt")), false, scene.hints.join(" | "));
+    assert.equal(scene.hints.some((hint) => hint.includes("Wellen überlagern")), false, scene.hints.join(" | "));
+    if (scene.stern && scene.kachel) {
+      const centerX = scene.stern.box.x + scene.stern.box.w / 2;
+      const centerY = scene.stern.box.y + scene.stern.box.h / 2;
+      const tile = scene.kachel.box;
+      const inside = centerX > tile.x && centerX < tile.x + tile.w && centerY > tile.y && centerY < tile.y + tile.h;
+      assert.equal(inside, false, format.id);
+    }
+    if (wide) {
+      assert.ok(Math.abs(scene.headline.box.w / format.w - 0.55) < 0.02, format.id);
+      assert.ok(scene.kachel && Math.abs(scene.kachel.box.w / format.w - 0.22) < 0.02, format.id);
+    }
   }
+});
+
+test("a short motif fails the 9x16 length rule", () => {
+  const cutout: Cutout = {
+    imageW: 800,
+    imageH: 300,
+    opaque: { x: 0, y: 0, w: 800, h: 220 },
+    head: { x: 80, y: 0, w: 640, h: 90 },
+  };
+  const story = OTELO_FORMATS.find((format) => format.id === "meta-9x16");
+  assert.ok(story);
+  const scene = buildScene(story, "kachel_person", copy(), {}, cutout);
+  assert.ok(scene.hints.some((hint) => hint.includes("nicht bestanden: Motiv für 9x16 zu kurz")), scene.hints.join(" | "));
 });
 
 test("placing a cutout keeps the hairline in the measured band", () => {

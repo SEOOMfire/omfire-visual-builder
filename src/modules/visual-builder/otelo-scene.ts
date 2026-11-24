@@ -245,6 +245,57 @@ function overlaps(left: Box, right: Box): boolean {
   return left.x < right.x + right.w && right.x < left.x + left.w && left.y < right.y + right.h && right.y < left.y + left.h;
 }
 
+/** Vertical waves on the right, rising toward the right edge, below the text block. */
+export function wavePaths(width: number, height: number): Array<Array<{ x: number; y: number }>> {
+  const count = 8;
+  return Array.from({ length: count }, (_, index) => {
+    const t = index / (count - 1);
+    const xBase = width * (0.72 + t * 0.26);
+    const yStart = height * (0.64 - t * 0.3);
+    const points: Array<{ x: number; y: number }> = [];
+    const step = Math.max(8, height * 0.02);
+    for (let y = yStart; y <= height + 2; y += step) {
+      const x = xBase + Math.sin((y / height) * Math.PI * 4.5 + index) * width * 0.016 + ((height - y) / height) * width * 0.03;
+      points.push({ x, y });
+    }
+    return points;
+  });
+}
+
+function starBox(tile: Box, radius: number, extra: Box[]): Box {
+  const ceiling = extra.filter((rect) => rect.h > 2 && rect.y + rect.h <= tile.y + 2).reduce((max, rect) => Math.max(max, rect.y + rect.h), 0);
+  const gap = tile.y - ceiling;
+  const fitted = gap > 6 ? Math.min(radius, gap * 0.7) : Math.min(radius, tile.w * 0.12);
+  let cx = tile.x + tile.w + fitted * 0.22;
+  const cy = tile.y - Math.max(2, Math.min(fitted * 0.12, gap * 0.3));
+  const blocked = [...tileInk(tile), ...extra];
+  for (let step = 0; step < 8 && blocked.some((rect) => circleHits(cx, cy, fitted * 0.82, rect)); step += 1) cx += fitted * 0.2;
+  const size = fitted / 0.48;
+  return { x: cx - size / 2, y: cy - size / 2, w: size, h: size };
+}
+
+function circleHits(cx: number, cy: number, radius: number, rect: Box): boolean {
+  if (rect.w < 2 || rect.h < 2) return false;
+  const x = Math.max(rect.x, Math.min(cx, rect.x + rect.w));
+  const y = Math.max(rect.y, Math.min(cy, rect.y + rect.h));
+  const dx = cx - x;
+  const dy = cy - y;
+  return dx * dx + dy * dy < radius * radius;
+}
+
+function tileInk(tile: Box): Box[] {
+  const limeH = tile.h * 0.52;
+  const amountH = limeH * 0.4;
+  const amountW = tile.w * 0.64;
+  const altH = amountH * 0.5;
+  const altW = tile.w * 0.38;
+  return [
+    { x: tile.x + (tile.w - amountW) / 2, y: tile.y + limeH * 0.38 - amountH / 2, w: amountW, h: amountH },
+    { x: tile.x + (tile.w - altW) / 2, y: tile.y + limeH * 0.74 - altH / 2, w: altW, h: altH },
+    { x: tile.x + tile.w * 0.16, y: tile.y + limeH + (tile.h - limeH) * 0.22, w: tile.w * 0.68, h: (tile.h - limeH) * 0.46 },
+  ];
+}
+
 export function priceNeedsLegal(copy: Pick<SceneCopy, "preis" | "preisZusatz" | "einmalpreis" | "pflichttext">): boolean {
   const priced = `${copy.preis} ${copy.preisZusatz} ${copy.einmalpreis}`;
   return /[¹*]/.test(priced) && !copy.pflichttext.trim();
@@ -334,8 +385,8 @@ function buildKachel(
   const tiktok = format.id === "tiktok-9x16";
   const flip = copy.orange === "links";
   const left = w * 0.06;
-  const headW = wide ? w * 0.5 : tall ? w * (tiktok ? 0.66 : 0.74) : w * 0.78;
-  const headH = tall ? h * 0.062 : wide ? h * 0.15 : h * 0.11;
+  const headW = wide ? w * 0.55 : tall ? w * (tiktok ? 0.66 : 0.74) : w * 0.78;
+  const headH = tall ? h * 0.062 : wide ? h * 0.12 : h * 0.11;
   const headY = tall ? h * 0.134 : h * 0.055;
   const headline = {
     lines: [copy.headline.replace(/\s+/g, " ").trim().toUpperCase() || "BLACK WEEK"],
@@ -345,10 +396,10 @@ function buildKachel(
   };
   const subline = {
     lines: copy.subline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 2).map((text) => ({ text: text.toUpperCase(), bold: true, color: ORANGE })),
-    box: mirrorBox(box(left, headline.box.y + headline.box.h + h * 0.012, wide ? w * 0.58 : w * 0.9, headH * 0.45), w, flip),
+    box: mirrorBox(box(left, headline.box.y + headline.box.h + h * 0.012, wide ? w * 0.55 : w * 0.9, headH * 0.45), w, flip),
   };
   const tileRaw = wide
-    ? box(left, subline.box.y + subline.box.h + h * 0.04, w * 0.3, h * 0.46)
+    ? box(left, subline.box.y + subline.box.h + h * 0.035, w * 0.22, h * 0.42)
     : box(left, tall ? h * 0.28 : h * 0.3, w * (tall ? 0.5 : 0.45), tall ? h * 0.28 : h * 0.4);
   const tile = mirrorBox(tileRaw, w, flip);
   const ctaH = Math.max(wide ? h * 0.14 : tall ? h * 0.05 : h * 0.082, h * ((format.id.startsWith("pmax") ? 0.03 : tall ? 0.022 : 0.025) / 0.48));
@@ -374,13 +425,14 @@ function buildKachel(
         : box(w * 0.4, h * 0.3, w * 0.64, h * 0.74), w, flip);
   const deviceH = h * (tall ? 0.42 : wide ? 0.72 : 0.58);
   const device = name === "kachel_person" ? undefined : mirrorBox(box(w * 0.52, h * 0.22, Math.min(w * 0.42, deviceH * 0.7), deviceH), w, flip);
-  const sternSize = tileRaw.w * 0.42;
+  const sternRadius = tileRaw.w * 0.17;
   const stern = copy.sternText?.trim()
-    ? { box: mirrorBox(box(tileRaw.x + tileRaw.w - sternSize * 0.55, tileRaw.y - sternSize * 0.28, sternSize, sternSize), w, flip), text: copy.sternText.trim() }
+    ? { box: mirrorBox(starBox(tileRaw, sternRadius, [headline.box, subline.box]), w, flip), text: copy.sternText.trim() }
     : undefined;
   let headBox: Box | undefined;
+  let motifShort = false;
   if (cutout && figure && name !== "kachel_geraet") {
-    const topFraction = tall ? 0.45 : 0.35;
+    const topFraction = wide ? 0.15 : tall ? 0.45 : 0.35;
     const personTop = h * topFraction;
     const inTheWay = [headline.box, subline.box, tile].filter((item) => item.y + item.h > personTop + 4 && item.w > 2);
     const blockRight = inTheWay.length ? Math.max(...inTheWay.map((item) => item.x + item.w)) : w * 0.42;
@@ -392,18 +444,17 @@ function buildKachel(
       cutout,
       left: onRight ? blockRight + w * 0.012 : w * 0.02,
       topFraction,
-      scale: shifts.person?.scale,
+      pin: tall ? "edge" : wide ? "past" : undefined,
+      topMin: tall ? 0.35 : undefined,
     });
     if (!onRight && placedPerson.figure.x + placedPerson.figure.w > blockLeft - w * 0.01) {
-      const room = Math.max(8, blockLeft - w * 0.03 - placedPerson.figure.x);
-      const shrink = room / placedPerson.figure.w;
-      placedPerson.figure.w *= shrink;
-      placedPerson.figure.h *= shrink;
-      placedPerson.head.w *= shrink;
-      placedPerson.head.h *= shrink;
+      const overflow = placedPerson.figure.x + placedPerson.figure.w - (blockLeft - w * 0.01);
+      placedPerson.figure.x -= overflow;
+      placedPerson.head.x -= overflow;
     }
     figure = placedPerson.figure;
     headBox = placedPerson.head;
+    motifShort = placedPerson.short;
   }
   const dekoName = dekoFor(copy);
   const deko = shifts.deko?.hidden || dekoName === "keine"
@@ -417,7 +468,7 @@ function buildKachel(
   if (stern) stern.box = fit(stern.box);
   const caps: string[] = [];
   const textLimits = { left: w * 0.04, top: h * (tall ? 0.1 : 0.04), right: w * (tiktok ? 0.84 : 0.955), bottom: h * (tiktok ? 0.78 : 0.955) };
-  const figureLimits = { left: -w * 0.02, top: 0, right: w * 1.08, bottom: h * 1.08 };
+  const figureLimits = { left: -w * 0.6, top: -h * 0.02, right: w * 3, bottom: h * 1.2 };
   const placed = {
     figure: figure ? applyShift(figure, shifts.person, w, h, "top-left", figureLimits, caps, "Frau") : undefined,
     product: device ? applyShift(device, shifts.geraet, w, h, "bottom-center", figureLimits, caps, "Gerät") : undefined,
@@ -447,8 +498,10 @@ function buildKachel(
     headBox = movedHead;
     if (!headInside(headBox, w, h)) hints.push(`Der Kopf ist nicht vollständig sichtbar im ${label}.`);
     const top = placed.figure.y / h;
-    const band = tall ? top < 0.4 || top > 0.5 : top < 0.3 || top > 0.4;
-    if (band) hints.push(`Hinweis: Der Kopf liegt bei ${Math.round(top * 100)} Prozent von oben im ${label}.`);
+    const band = wide ? [0.1, 0.2] : tall ? [0.35, 0.5] : [0.3, 0.4];
+    if (top < band[0] - 0.005 || top > band[1] + 0.005) hints.push(`Hinweis: Der Kopf liegt bei ${Math.round(top * 100)} Prozent von oben im ${label}.`);
+    const bottom = (placed.figure.y + placed.figure.h) / h;
+    if (tall && (motifShort || bottom < 0.995)) hints.push(`nicht bestanden: Motiv für 9x16 zu kurz.`);
   }
   for (const [title, item] of [["Headline", placed.headline], ["Subline", placed.subline], ["Kachel", fittedTile]] as Array<[string, Box | undefined]>) {
     if (placed.figure && item && item.w > 2 && overlaps(placed.figure, item)) hints.push(`Figur überlappt ${title} im ${label}.`);
@@ -456,8 +509,24 @@ function buildKachel(
   if (placed.cta.h * 0.5 < h * (format.id.endsWith("9x16") ? 0.022 : format.id.startsWith("pmax") ? 0.03 : 0.025)) {
     hints.push(`Der CTA-Text ist zu klein im ${label}.`);
   }
-  if (placed.headline.w < w * 0.7 || placed.headline.w > w * 0.96) hints.push(`Hinweis: Die Headline-Breite weicht vom Bestand ab im ${label}.`);
-  if (tile.w < w * 0.35 || tile.w > w * 0.6) hints.push(`Hinweis: Die Kachel-Breite weicht vom Bestand ab im ${label}.`);
+  if (placed.stern && placed.stern.w > 2) {
+    const cx = placed.stern.x + placed.stern.w / 2;
+    const cy = placed.stern.y + placed.stern.h / 2;
+    const radius = placed.stern.w * 0.48;
+    const outside = cx > fittedTile.x + fittedTile.w || cy < fittedTile.y || cx < fittedTile.x || cy > fittedTile.y + fittedTile.h;
+    const texts = [...tileInk(fittedTile), placed.headline, placed.subline, placed.cta];
+    if (!outside || texts.some((rect) => circleHits(cx, cy, radius * 0.82, rect))) hints.push(`Der Stern überdeckt Text im ${label}.`);
+  }
+  if (deko?.name === "bw_wellen") {
+    const pad = w * 0.012;
+    const texts = [placed.headline, placed.subline, fittedTile, placed.cta].filter((rect) => rect.w > 2);
+    const hits = wavePaths(w, h).some((path) => path.some((point) => texts.some((rect) => point.x >= rect.x - pad && point.x <= rect.x + rect.w + pad && point.y >= rect.y - pad && point.y <= rect.y + rect.h + pad)));
+    if (hits) hints.push(`Wellen überlagern die Textfläche im ${label}.`);
+  }
+  const headlineBand = wide ? [0.48, 0.62] : [0.7, 0.96];
+  if (placed.headline.w < w * headlineBand[0] || placed.headline.w > w * headlineBand[1]) hints.push(`Hinweis: Die Headline-Breite weicht vom Bestand ab im ${label}.`);
+  const tileBand = wide ? [0.18, 0.28] : [0.35, 0.6];
+  if (tile.w < w * tileBand[0] || tile.w > w * tileBand[1]) hints.push(`Hinweis: Die Kachel-Breite weicht vom Bestand ab im ${label}.`);
   const minCtaH = tall ? 0.038 : 0.07;
   if (placed.cta.h > 2 && placed.cta.h < h * minCtaH) hints.push(`Hinweis: Die CTA-Leiste ist niedriger als im Bestand im ${label}.`);
   for (const note of [...new Set(caps)]) hints.push(`Hinweis: ${note}.`);

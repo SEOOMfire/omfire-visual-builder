@@ -45,6 +45,7 @@ export async function openRouterComplete(input: {
   maxTokens: number;
   timeoutMs: number;
   responseFormat?: { type: "json_object" };
+  reasoning?: { effort?: "low" | "medium" | "high" | "none"; exclude?: boolean };
   tracking?: { purpose?: string; tenantId?: string; userId?: string; moduleSlug?: string; reason?: string };
 }): Promise<string> {
   if (!input.config.apiKey) throw new Error("Der Sprachdienst ist nicht konfiguriert.");
@@ -63,6 +64,7 @@ export async function openRouterComplete(input: {
         messages: input.messages,
         temperature: input.temperature,
         max_tokens: input.maxTokens,
+        ...(input.reasoning ? { reasoning: input.reasoning } : {}),
         ...(input.responseFormat ? { response_format: input.responseFormat } : {}),
       }),
       signal: AbortSignal.timeout(input.timeoutMs),
