@@ -258,6 +258,21 @@ function opaqueOverlap(image: HTMLImageElement, figure: { x: number; y: number; 
   return false;
 }
 
+function paintedOrangeShare(ctx: CanvasRenderingContext2D, width: number, height: number): number {
+  const step = Math.max(4, Math.round(Math.min(width, height) / 48));
+  const data = ctx.getImageData(0, 0, width, height).data;
+  let seen = 0;
+  let orange = 0;
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const index = (y * width + x) * 4;
+      seen += 1;
+      if (data[index] > 220 && data[index + 1] < 130 && data[index + 2] < 60) orange += 1;
+    }
+  }
+  return seen ? orange / seen : 0;
+}
+
 export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Record<string, HTMLImageElement | null>): string[] {
   const hints: string[] = [];
   const geist = document.fonts.check('700 32px "Geist"');
@@ -272,6 +287,8 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
     ctx.closePath();
     ctx.fillStyle = ORANGE;
     ctx.fill();
+    const share = paintedOrangeShare(ctx, scene.width, scene.height);
+    if (share > 0.5) hints.push(`Der Orange-Anteil ist ${Math.round(share * 100)} Prozent im ${scene.width}x${scene.height}. Erlaubt sind etwa ein Drittel, höchstens die Hälfte.`);
   }
   drawImageBox(ctx, scene.productKey ? images[scene.productKey] : null, scene.product, "center");
   const figureImage = scene.figureKey ? images[scene.figureKey] : null;

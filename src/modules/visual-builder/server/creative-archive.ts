@@ -36,7 +36,7 @@ export type CreativeDraft = {
   summary?: string;
 };
 
-const BLOCKING = /überlappt|unteren Rand|Orange-Anteil|Schrägteilung|CTA-Leiste|Fußnote|Ersatzschrift|mehr als/;
+const BLOCKING = /überlappt|unteren Rand|Orange-Anteil|Schräge|CTA-Leiste|CTA-Text|Fußnote|Ersatzschrift|mehr als|auf Orange|zu klein|zu weit|sicheren Zone/;
 
 export function blockingHints(hints: readonly string[]): string[] {
   return hints.filter((hint) => BLOCKING.test(hint));

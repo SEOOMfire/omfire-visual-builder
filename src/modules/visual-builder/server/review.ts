@@ -4,11 +4,20 @@ import { readClientFile } from "./client-volume";
 
 const MODEL_VARIABLE = "VISUAL_BUILDER_OPENROUTER_MODEL";
 
+function imageLine(glance: string): string {
+  const note = glance.trim();
+  if (!note) return "Bildprüfung: nicht gelaufen, weil keine Rückmeldung kam.";
+  if (/^nicht gelaufen/i.test(note)) return `Bildprüfung: ${note}`;
+  if (/^bestanden\b/i.test(note) || note === "keine Anmerkungen") return "Bildprüfung: keine Anmerkungen";
+  return `Bildprüfung: ${note}`;
+}
+
 export function pruefungText(measured: readonly string[], glance: string): string {
   const blocking = blockingHints(measured);
-  const advice = glance.trim() && !/^bestanden\b/i.test(glance.trim()) ? glance.trim() : "";
-  const status = blocking.length ? "nicht bestanden" : advice ? "Hinweise" : "bestanden";
-  return [`Prüfung: ${status}`, ...blocking, advice].filter(Boolean).join("\n");
+  const image = imageLine(glance);
+  const noted = !image.endsWith("keine Anmerkungen") && !/nicht gelaufen/i.test(image);
+  const status = blocking.length ? "nicht bestanden" : noted ? "Hinweise" : "bestanden";
+  return [`Prüfung: ${status}`, ...blocking, image].join("\n");
 }
 
 export function fullReport(measured: readonly string[], glance: string): string {
@@ -21,7 +30,8 @@ export function fullReport(measured: readonly string[], glance: string): string 
 /** A look at the rendered sheet. Never a reason to block saving. */
 export async function glanceAt(jpegBase64: string, rules: string): Promise<string> {
   const config = openRouterConfig(MODEL_VARIABLE, "anthropic/claude-sonnet-5.5");
-  if (!config.configured || !jpegBase64) return "";
+  if (!config.configured) return "nicht gelaufen, weil die Prüfung nicht erreichbar ist.";
+  if (!jpegBase64) return "nicht gelaufen, weil kein Bild vorlag.";
   const reference = await readClientFile("otelo", "files/referenz/styleguide-seite-4.jpg").catch(() => null);
   const images: Array<{ type: "image_url"; image_url: { url: string } }> = [
     { type: "image_url", image_url: { url: `data:image/jpeg;base64,${jpegBase64}` } },
@@ -47,6 +57,6 @@ export async function glanceAt(jpegBase64: string, rules: string): Promise<strin
     });
     return text.split(/(?<=\.)\s+/).slice(0, 5).join(" ");
   } catch {
-    return "";
+    return "nicht gelaufen, weil die Bildprüfung keine Antwort gegeben hat.";
   }
 }

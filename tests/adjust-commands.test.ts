@@ -13,11 +13,23 @@ test("Frau spiegeln und auf die andere Seite flips her and swaps the side", () =
   const step = applyToBook(newBook("rechts"), "Frau spiegeln und auf die andere Seite");
   assert.equal(step.book.snap.orange, "links");
   assert.equal(mergedNudge(step.book.snap, "meta-1x1", "person").flip, true);
+  assert.equal(mergedNudge(step.book.snap, "meta-1x1", "stoerer").flip, false);
+});
+
+test("the live sentence grows the badge, flips the woman and swaps the layout", () => {
+  const step = applyToBook(newBook("rechts"), "Störer deutlich größer und etwas tiefer, Frau spiegeln und auf die andere Seite");
+  assert.equal(step.summary, "Störer 25 % größer und 3 % tiefer, Frau gespiegelt, Layout getauscht.");
+  assert.equal(step.book.snap.orange, "links");
+  const badge = mergedNudge(step.book.snap, "meta-9x16", "stoerer");
+  assert.equal(badge.scale, 1.25);
+  assert.equal(badge.dy, 3);
+  assert.equal(badge.flip, false);
+  assert.equal(mergedNudge(step.book.snap, "meta-9x16", "person").flip, true);
 });
 
 test("Headline kleiner nur im 1200x628 stays on that format", () => {
   const step = applyToBook(newBook(), "Headline kleiner nur im 1200x628");
-  assert.equal(mergedNudge(step.book.snap, "1200x628", "headline").scale, 0.9);
+  assert.equal(mergedNudge(step.book.snap, "1200x628", "headline").scale, 0.85);
   assert.equal(mergedNudge(step.book.snap, "1080x1080", "headline").scale, 1);
 });
 

@@ -47,16 +47,56 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+const LABEL: Record<ElementId, string> = {
+  headline: "Headline",
+  subline: "Subline",
+  stoerer: "Störer",
+  person: "Frau",
+  geraet: "Gerät",
+  cta: "Leiste",
+  logo: "Logo",
+  pflichttext: "Pflichttext",
+  energielabel: "Energielabel",
+  schraege: "Schräge",
+};
+
 function elementIn(text: string): ElementId | undefined {
   return WORDS.find(([pattern]) => pattern.test(text))?.[1];
 }
 
-function amount(text: string, fallback: number): number {
-  const percent = text.match(/(\d+(?:[.,]\d+)?)\s*(?:%|prozent)/i);
+function windowAmount(text: string, verb: RegExp, kind: "move" | "size"): number {
+  const at = text.search(verb);
+  const before = at < 0 ? text : text.slice(Math.max(0, at - 28), at);
+  const after = at < 0 ? "" : text.slice(at, at + 14);
+  const percent = after.match(/(\d+(?:[.,]\d+)?)\s*(?:%|prozent)/i) ?? before.match(/(\d+(?:[.,]\d+)?)\s*(?:%|prozent)/i);
   if (percent) return Number(percent[1].replace(",", "."));
-  if (/deutlich/i.test(text)) return 10;
-  if (/etwas/i.test(text)) return 3;
-  return fallback;
+  const slice = before;
+  if (kind === "move") {
+    if (/etwas/i.test(slice)) return 3;
+    if (/deutlich/i.test(slice)) return 12;
+    return 6;
+  }
+  if (/etwas/i.test(slice)) return 5;
+  if (/deutlich/i.test(slice)) return 25;
+  return 15;
+}
+
+function splitClauses(text: string): string[] {
+  const out: string[] = [];
+  for (const chunk of text.split(/\s*,\s*/)) {
+    const bits = chunk.split(/\s+und\s+/i);
+    let current = bits[0] ?? "";
+    for (const bit of bits.slice(1)) {
+      const next = elementIn(bit);
+      const currentElement = elementIn(current);
+      if ((next && next !== currentElement) || /^auf die andere seite/i.test(bit.trim())) {
+        out.push(current.trim());
+        current = bit;
+      } else current = `${current} und ${bit}`;
+    }
+    if (current.trim()) out.push(current.trim());
+  }
+  return out;
 }
 
 function formatsIn(text: string): string[] | undefined {
@@ -64,44 +104,85 @@ function formatsIn(text: string): string[] | undefined {
   return found.length ? found : undefined;
 }
 
+function commandsFromClause(clause: string, inherited: ElementId | undefined, formate?: string[]): { commands: AdjustCommand[]; element?: ElementId; question?: string } {
+  const element = elementIn(clause) ?? inherited;
+  const commands: AdjustCommand[] = [];
+  if (/auf die andere seite/i.test(clause)) commands.push({ op: "seite_tauschen", formate });
+  if (/spiegel/i.test(clause)) {
+    if (!element) return { commands, question: "Welches Element soll ich spiegeln?" };
+    commands.push({ op: "spiegeln", element, formate });
+  }
+  if (/kleiner/i.test(clause)) {
+    if (!element) return { commands, question: "Welches Element soll kleiner werden?" };
+    commands.push({ op: "groesse", element, faktor: 1 - windowAmount(clause, /kleiner/i, "size") / 100, formate });
+  } else if (/gr[öo]ßer|groesser/i.test(clause)) {
+    if (!element) return { commands, question: "Welches Element soll größer werden?" };
+    commands.push({ op: "groesse", element, faktor: 1 + windowAmount(clause, /gr[öo]ßer|groesser/i, "size") / 100, formate });
+  }
+  const down = /tiefer|nach unten|runter/i;
+  const up = /h[öo]her|nach oben/i;
+  const left = /nach links/i;
+  const right = /nach rechts/i;
+  if (down.test(clause) || up.test(clause) || left.test(clause) || right.test(clause)) {
+    if (!element) return { commands, question: "Welches Element soll ich verschieben?" };
+    const richtung = down.test(clause) ? "unten" : up.test(clause) ? "oben" : left.test(clause) ? "links" : "rechts";
+    const verb = richtung === "unten" ? down : richtung === "oben" ? up : richtung === "links" ? left : right;
+    commands.push({ op: "verschieben", element, richtung, prozent: windowAmount(clause, verb, "move"), formate });
+  }
+  if (/ausblenden|verstecken/i.test(clause)) {
+    if (!element) return { commands, question: "Welches Element soll ich ausblenden?" };
+    commands.push({ op: "sichtbarkeit", element, sichtbar: false, formate });
+  }
+  if (/einblenden/i.test(clause)) {
+    if (!element) return { commands, question: "Welches Element soll ich einblenden?" };
+    commands.push({ op: "sichtbarkeit", element, sichtbar: true, formate });
+  }
+  return { commands, element };
+}
+
 export function parseAdjustText(text: string): { commands: AdjustCommand[]; question?: string } {
   const raw = text.trim();
   if (!raw) return { commands: [], question: "Welches Element soll ich ändern?" };
-  if (/r[üu]ckg[äa]ngig/i.test(raw)) return { commands: [{ op: "rueckgaengig" }] };
+  if (/^r[üu]ckg[äa]ngig\.?$/i.test(raw) || /\br[üu]ckg[äa]ngig\b/i.test(raw) && raw.split(/\s+/).length < 4) return { commands: [{ op: "rueckgaengig" }] };
   const restore = raw.match(/version\s+(\d+)/i);
   if (restore && /wiederherstell/i.test(raw)) return { commands: [{ op: "version", nummer: Number(restore[1]) }] };
   const formate = formatsIn(raw);
-  const element = elementIn(raw);
   const commands: AdjustCommand[] = [];
-  if (/auf die andere seite/i.test(raw)) commands.push({ op: "seite_tauschen", formate });
-  if (/spiegel/i.test(raw)) {
-    if (!element) return { commands: [], question: "Welches Element soll ich spiegeln?" };
-    commands.push({ op: "spiegeln", element, formate });
+  let carried: ElementId | undefined;
+  for (const clause of splitClauses(raw)) {
+    const parsed = commandsFromClause(clause, carried, formate);
+    if (parsed.question && !parsed.commands.length) return { commands: [], question: parsed.question };
+    commands.push(...parsed.commands);
+    if (parsed.element) carried = parsed.element;
   }
-  if (/tiefer|nach unten|runter/i.test(raw)) {
-    if (!element) return { commands: [], question: "Welches Element soll nach unten?" };
-    commands.push({ op: "verschieben", element, richtung: "unten", prozent: amount(raw, 10), formate });
-  } else if (/h[öo]her|nach oben/i.test(raw)) {
-    if (!element) return { commands: [], question: "Welches Element soll nach oben?" };
-    commands.push({ op: "verschieben", element, richtung: "oben", prozent: amount(raw, 10), formate });
-  } else if (/nach links/i.test(raw)) {
-    if (!element) return { commands: [], question: "Welches Element soll nach links?" };
-    commands.push({ op: "verschieben", element, richtung: "links", prozent: amount(raw, 10), formate });
-  } else if (/nach rechts/i.test(raw)) {
-    if (!element) return { commands: [], question: "Welches Element soll nach rechts?" };
-    commands.push({ op: "verschieben", element, richtung: "rechts", prozent: amount(raw, 10), formate });
-  }
-  if (/kleiner/i.test(raw)) {
-    if (!element) return { commands: [], question: "Welches Element soll kleiner werden?" };
-    commands.push({ op: "groesse", element, faktor: 1 - amount(raw, 10) / 100, formate });
-  } else if (/gr[öo]ßer|groesser/i.test(raw)) {
-    if (!element) return { commands: [], question: "Welches Element soll größer werden?" };
-    commands.push({ op: "groesse", element, faktor: 1 + amount(raw, 10) / 100, formate });
-  }
-  if (/ausblenden|verstecken|weg/i.test(raw) && element) commands.push({ op: "sichtbarkeit", element, sichtbar: false, formate });
-  if (/einblenden|zeigen/i.test(raw) && element) commands.push({ op: "sichtbarkeit", element, sichtbar: true, formate });
   if (!commands.length) return { commands: [], question: "Welches Element ist gemeint? Zum Beispiel Störer, Frau, Headline oder Leiste." };
   return { commands };
+}
+
+export function describeAdjust(commands: readonly AdjustCommand[]): string {
+  const parts: string[] = [];
+  let last = "";
+  const add = (who: string, phrase: string) => {
+    if (who && who === last) parts[parts.length - 1] += ` und ${phrase}`;
+    else {
+      parts.push(who ? `${who} ${phrase}` : phrase);
+      last = who;
+    }
+  };
+  for (const command of commands) {
+    if (command.op === "seite_tauschen") add("", "Layout getauscht");
+    else if (command.op === "rueckgaengig" || command.op === "version") add("", `Version ${"nummer" in command ? command.nummer : ""} wiederhergestellt`.replace("  ", " "));
+    else if (command.op === "verschieben") {
+      const word = command.richtung === "unten" ? "tiefer" : command.richtung === "oben" ? "höher" : command.richtung === "links" ? "nach links" : "nach rechts";
+      add(LABEL[command.element], `${command.prozent} % ${word}`);
+    } else if (command.op === "groesse") {
+      const percent = Math.round(Math.abs(command.faktor - 1) * 100);
+      add(LABEL[command.element], `${percent} % ${command.faktor >= 1 ? "größer" : "kleiner"}`);
+    } else if (command.op === "spiegeln") add(LABEL[command.element], "gespiegelt");
+    else if (command.op === "sichtbarkeit") add(LABEL[command.element], command.sichtbar ? "eingeblendet" : "ausgeblendet");
+  }
+  const sentence = parts.join(", ");
+  return sentence.endsWith(".") ? sentence : `${sentence}.`;
 }
 
 export function parseAdjust(input: unknown): { commands: AdjustCommand[]; question?: string } {
@@ -138,14 +219,14 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
     ? book.history
     : [...book.history, { n: book.version, summary: "", snap: clone(book.snap) }];
   const snap = clone(book.snap);
-  const bits: string[] = [];
+  const bits: AdjustCommand[] = [];
   for (const command of parsed.commands) {
     if (command.op === "rueckgaengig") {
       const prev = [...history].reverse().find((entry) => entry.n < book.version);
       if (!prev) return { book, summary: "", question: "Es gibt keine frühere Version." };
       snap.orange = prev.snap.orange;
       snap.nudges = clone(prev.snap.nudges);
-      bits.push(`Version ${prev.n} wiederhergestellt`);
+      bits.push(command);
       continue;
     }
     if (command.op === "version") {
@@ -153,12 +234,12 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
       if (!found) return { book, summary: "", question: `Version ${command.nummer} kenne ich nicht.` };
       snap.orange = found.snap.orange;
       snap.nudges = clone(found.snap.nudges);
-      bits.push(`Version ${command.nummer} wiederhergestellt`);
+      bits.push(command);
       continue;
     }
     if (command.op === "seite_tauschen") {
       snap.orange = snap.orange === "links" ? "rechts" : "links";
-      bits.push("Person oder Gerät und die Schräge wechseln die Seite");
+      bits.push(command);
       continue;
     }
     for (const format of formatsOf(command)) {
@@ -168,20 +249,13 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
         if (command.richtung === "oben") nudge.dy -= command.prozent;
         if (command.richtung === "links") nudge.dx -= command.prozent;
         if (command.richtung === "rechts") nudge.dx += command.prozent;
-        bits.push(`${command.element} ${command.prozent} Prozent nach ${command.richtung}`);
-      } else if (command.op === "groesse") {
-        nudge.scale *= command.faktor;
-        bits.push(`${command.element} auf ${Math.round(command.faktor * 100)} Prozent`);
-      } else if (command.op === "spiegeln") {
-        nudge.flip = !nudge.flip;
-        bits.push(`${command.element} gespiegelt`);
-      } else if (command.op === "sichtbarkeit") {
-        nudge.hidden = !command.sichtbar;
-        bits.push(command.sichtbar ? `${command.element} eingeblendet` : `${command.element} ausgeblendet`);
-      }
+      } else if (command.op === "groesse") nudge.scale *= command.faktor;
+      else if (command.op === "spiegeln") nudge.flip = !nudge.flip;
+      else if (command.op === "sichtbarkeit") nudge.hidden = !command.sichtbar;
     }
+    bits.push(command);
   }
-  const summary = `${bits.join(", ")}.`;
+  const summary = describeAdjust(bits);
   return {
     book: { version: book.version + 1, snap, history },
     summary,
