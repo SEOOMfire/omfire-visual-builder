@@ -58,6 +58,33 @@ export function zipFileName(input: Omit<NameInput, "format">): string {
 }
 
 /** Next free version. Existing names may be paths; only the file name is compared. Never returns a used number. */
+export type OteloName = {
+  channel: "PMAX" | "Meta" | "Tiktok";
+  quarter: string;
+  monthYear: string;
+  campaign: string;
+  motif: string;
+  format: string;
+  extra?: string;
+  audience: string;
+};
+
+/** Bestand: `{Kanal}_{Quartal}_{MMJJ}_{Kampagne}_{Motiv}_{Format}[_{Zusatz}].png` */
+export function oteloFileName(input: OteloName, version = 1): string {
+  const parts = [input.channel, input.quarter, input.monthYear, input.campaign, input.motif, input.format];
+  if (input.extra) parts.push(input.extra);
+  const base = parts.join("_");
+  return version <= 1 ? `${base}.png` : `${base}_v${version}.png`;
+}
+
+export function oteloFolder(input: OteloName): string {
+  const wave = `${input.channel}_${input.monthYear}`;
+  const set = `${input.channel}_${input.quarter}_${input.monthYear}_${input.campaign}`;
+  if (input.channel === "PMAX") return `Werbemittel/${wave}/${set}/Stills/${input.audience}/${input.motif}`;
+  if (input.channel === "Meta") return `Werbemittel/${wave}/${set}/${input.audience}/Stills/${input.format}`;
+  return `Werbemittel/TikTok_${input.monthYear}/${set}/${input.audience}/Stills`;
+}
+
 export function nextVersion(existing: readonly string[], stem: string): number {
   const pattern = new RegExp(`^${stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}_v(\\d+)\\.[a-z0-9]+$`, "i");
   let highest = 0;

@@ -1,10 +1,13 @@
 # Offene Punkte
 
-Annahmen, mit denen der Dienst weitergebaut wird. Ändern, wenn eine andere Entscheidung gilt.
-
-- Ein Drive-Kunde ist eine Zeile im Mandanten der angemeldeten Person, kein eigenes Login. Wer `visual-builder.read` auf diesem Mandanten hat, sieht alle Kunden dieses Mandanten.
-- Die Benennung folgt dem Standard `{kunde}_{kampagne}_{motiv}_{format}_{sprache}_v{nn}`. `marke.json` darf sie später überschreiben; der Code liest das Feld, die Überschreibung ist noch nicht in jedem Export-Pfad aktiv.
-- Überlappung von Stickern und Figuren ignoriert die Drehung und nimmt das ungedrehte Rechteck.
-- Golden-Bilder werden nicht ins Repo gelegt. Die Toleranz steht in `docs/RENDER.md`. Schrift-Rasterung unterscheidet sich zwischen Rechnern.
-- Das Repo bleibt öffentlich, bis die App in der Coolify-Oberfläche auf den Deploy-Key `jrqq3inafzghvemn1cuoblnu` umgestellt ist. Die API kann eine bestehende öffentliche App nicht umhängen.
-- CSV-Stapel, Speichern und Drive-Sync melden den nächsten fehlenden Schritt, solange Drive oder ein synchronisierter Kunde fehlt. Sie legen dann nichts an.
+- Neon wird nicht verwendet. Quelle ist der lokale Ordner `13_SEA`, nur gelesen.
+- Kunden sind Zeilen im Mandanten der Person, die den API-Schlüssel besitzt. Standardmandant für otelo heißt `otelo`.
+- Logo-Schutzzone und Mindestgröße stehen im gelesenen Styleguide nicht in Millimetern. Bis dahin 5 Prozent Rand je Format.
+- `snow.svg` ist vorläufig ein Sticker. Der genaue Einsatz ist unklar.
+- Die beiden Black-Week-XLSX sind Schaltpläne, keine Motiv-CSV.
+- Pixelmaße sind nur an Stichproben gemessen. Der Katalog nennt die Rolle für jede Datei, die Maße nur dort, wo die Datei gelesen wurde.
+- Vorlagen-Prozente sind aus drei Stills geschätzt, nicht aus den PSD-Ebenen.
+- Der Renderer kennt die sechs otelo-Formate noch nicht als eigene Zeichenflächen. Die drei alten Formate bleiben gültig.
+- Die Oberfläche ist aus, solange `ENABLE_WEB_UI` beim Bauen nicht `true` ist. Der Wert wird beim Image-Bau gelesen, nicht erst zur Laufzeit.
+- Google Drive bleibt unverbunden und ist kein Fehler. Der Export dafür bleibt im Code, kommt zuletzt.
+- Das Repo bleibt öffentlich, bis der Deploy-Key in der Coolify-Oberfläche hängt.
