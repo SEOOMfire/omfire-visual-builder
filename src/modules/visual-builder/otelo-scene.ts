@@ -250,12 +250,12 @@ export function wavePaths(width: number, height: number): Array<Array<{ x: numbe
   const count = 8;
   return Array.from({ length: count }, (_, index) => {
     const t = index / (count - 1);
-    const xBase = width * (0.72 + t * 0.26);
-    const yStart = height * (0.64 - t * 0.3);
+    const xBase = width * (0.68 + t * 0.3);
+    const yStart = height * (0.7 - t * 0.32);
     const points: Array<{ x: number; y: number }> = [];
     const step = Math.max(8, height * 0.02);
     for (let y = yStart; y <= height + 2; y += step) {
-      const x = xBase + Math.sin((y / height) * Math.PI * 4.5 + index) * width * 0.016 + ((height - y) / height) * width * 0.03;
+      const x = xBase + Math.sin((y / height) * Math.PI * 5 + index * 0.7) * width * 0.022 + ((height - y) / height) * width * 0.04;
       points.push({ x, y });
     }
     return points;
@@ -265,11 +265,15 @@ export function wavePaths(width: number, height: number): Array<Array<{ x: numbe
 function starBox(tile: Box, radius: number, extra: Box[]): Box {
   const ceiling = extra.filter((rect) => rect.h > 2 && rect.y + rect.h <= tile.y + 2).reduce((max, rect) => Math.max(max, rect.y + rect.h), 0);
   const gap = tile.y - ceiling;
-  const fitted = gap > 6 ? Math.min(radius, gap * 0.7) : Math.min(radius, tile.w * 0.12);
-  let cx = tile.x + tile.w + fitted * 0.22;
-  const cy = tile.y - Math.max(2, Math.min(fitted * 0.12, gap * 0.3));
+  const fitted = radius;
+  let cx = tile.x + tile.w + fitted * 0.16;
+  let cy = tile.y - Math.max(2, fitted * 0.1);
+  if (gap < fitted * 1.15) {
+    cy = Math.max(tile.y - 2, ceiling + fitted * 0.92);
+    cx = tile.x + tile.w + fitted * 0.42;
+  }
   const blocked = [...tileInk(tile), ...extra];
-  for (let step = 0; step < 8 && blocked.some((rect) => circleHits(cx, cy, fitted * 0.82, rect)); step += 1) cx += fitted * 0.2;
+  for (let step = 0; step < 8 && blocked.some((rect) => circleHits(cx, cy, fitted * 0.82, rect)); step += 1) cx += fitted * 0.16;
   const size = fitted / 0.48;
   return { x: cx - size / 2, y: cy - size / 2, w: size, h: size };
 }
