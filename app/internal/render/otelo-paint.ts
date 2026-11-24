@@ -298,23 +298,26 @@ function paintedOrangeShare(ctx: CanvasRenderingContext2D, width: number, height
 function drawWaves(ctx: CanvasRenderingContext2D, width: number, height: number, strength: number) {
   const count = 11;
   const stroke = width * 0.0135 * strength;
-  const alpha = Math.min(1, 0.92 * strength);
+  const alpha = Math.min(1, 0.95 * strength);
   ctx.save();
   ctx.lineCap = "round";
+  ctx.lineJoin = "round";
   ctx.lineWidth = stroke;
-  const gradient = ctx.createLinearGradient(width * 0.28, height * 0.15, width, height);
+  const gradient = ctx.createLinearGradient(width * 0.42, 0, width, 0);
   gradient.addColorStop(0, "rgba(250,90,20,0)");
-  gradient.addColorStop(0.42, `rgba(250,90,20,${0.08 * alpha})`);
+  gradient.addColorStop(0.35, `rgba(250,90,20,${0.35 * alpha})`);
   gradient.addColorStop(1, `rgba(250,90,20,${alpha})`);
   ctx.strokeStyle = gradient;
   for (let index = 0; index < count; index += 1) {
+    const yBase = height * (0.2 + index * 0.072);
     ctx.beginPath();
-    const shift = (index - count / 2) * stroke * 2.15;
-    for (let x = width * 0.22; x <= width + stroke; x += 8) {
-      const along = (x / width) * Math.PI * 7 + index * 0.35;
-      const y = height * 0.18 + (x / width) * height * 0.7 + Math.sin(along) * height * 0.018 + shift;
-      if (x === width * 0.22) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    let started = false;
+    for (let x = width * 0.38; x <= width + 4; x += 7) {
+      const y = yBase + Math.sin((x / width) * Math.PI * 5.5 + index) * height * 0.012;
+      if (!started) {
+        ctx.moveTo(x, y);
+        started = true;
+      } else ctx.lineTo(x, y);
     }
     ctx.stroke();
   }
@@ -474,7 +477,8 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
     if (scene.headlinePfeile) drawArrows(ctx, scene.headline.box.x + ctx.measureText(headText).width, scene.headline.box.y, headSize);
     ctx.fillStyle = ORANGE;
     const subText = scene.subline.lines[0]?.text ?? "";
-    ctx.font = face(900, headSize * 0.45, "Titillium Web");
+    const subFit = sizeForWidth(ctx, subText, 900, "Titillium Web", scene.subline.box.w);
+    ctx.font = face(900, Math.min(headSize * 0.45, subFit), "Titillium Web");
     ctx.fillText(subText, scene.subline.box.x, scene.subline.box.y);
     drawKachel(ctx, scene, images);
     if (scene.cta.text.trim()) drawCta(ctx, scene);

@@ -75,8 +75,13 @@ export async function openRouterComplete(input: {
       throw new Error(`Der Sprachdienst hat die Anfrage abgelehnt (${response.status}${detail ? `: ${detail.slice(0, 500)}` : ""}).`);
     }
     const json = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
-    const text = textOf(json.choices?.[0]?.message?.content).trim();
-    if (!text) throw new Error("Der Sprachdienst hat keine Antwort geliefert.");
+    const message = json.choices?.[0]?.message;
+    const text = textOf(message?.content).trim();
+    if (!text) {
+      const keys = message && typeof message === "object" ? Object.keys(message) : [];
+      console.error(JSON.stringify({ area: "bildpruefung-leer", model, keys, sample: JSON.stringify(message ?? json).slice(0, 2000) }));
+      throw new Error(`Der Sprachdienst hat keine Antwort geliefert (${keys.join(", ") || "ohne Felder"}).`);
+    }
     return text;
   }
   console.error(JSON.stringify({ area: input.tracking?.purpose ?? "assist", status: lastStatus }));

@@ -339,7 +339,7 @@ function buildKachel(
   };
   const subline = {
     lines: copy.subline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 2).map((text) => ({ text: text.toUpperCase(), bold: true, color: ORANGE })),
-    box: mirrorBox(box(left, headline.box.y + headline.box.h + h * 0.012, wide ? w * 0.58 : headW * 0.92, headH * 0.45), w, flip),
+    box: mirrorBox(box(left, headline.box.y + headline.box.h + h * 0.012, wide ? w * 0.58 : w * 0.9, headH * 0.45), w, flip),
   };
   const tileRaw = wide
     ? box(left, subline.box.y + subline.box.h + h * 0.04, w * 0.3, h * 0.46)
@@ -383,7 +383,7 @@ function buildKachel(
   cta.box = fit(cta.box);
   if (stern) stern.box = fit(stern.box);
   const caps: string[] = [];
-  const textLimits = { left: w * 0.04, top: h * (tall ? 0.1 : 0.04), right: w * (tiktok ? 0.84 : 0.97), bottom: h * (tiktok ? 0.78 : 0.96) };
+  const textLimits = { left: w * 0.04, top: h * (tall ? 0.1 : 0.04), right: w * (tiktok ? 0.84 : 0.955), bottom: h * (tiktok ? 0.78 : 0.955) };
   const figureLimits = { left: -w * 0.04, top: 0, right: w * 1.04, bottom: h * 1.04 };
   const placed = {
     figure: figure ? applyShift(figure, shifts.person, w, h, "bottom-center", figureLimits, caps, "Frau") : undefined,

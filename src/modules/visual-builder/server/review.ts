@@ -53,7 +53,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
       config,
       appTitle: "OMfire Visual-Builder",
       temperature: 0.2,
-      maxTokens: 280,
+      maxTokens: 900,
       timeoutMs: 30_000,
     });
     return text.split(/(?<=\.)\s+/).slice(0, 5).join(" ");
