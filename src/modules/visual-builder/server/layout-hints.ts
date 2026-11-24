@@ -3,13 +3,13 @@ import type { Fmt } from "../types";
 
 export type Box = { x: number; y: number; w: number; h: number };
 
-export type HintElement = "Headline" | "Subline" | "Störer" | "Logo" | "Button" | "Sticker" | "Figur";
+export type HintElement = "Headline" | "Subline" | "Störer" | "Logo" | "Button" | "Sticker" | "Figur" | "Produkt" | "Produktlogo" | "Energielabel";
 
 export type LayoutHint = {
-  format: Fmt;
+  format: string;
   pixelSize: string;
   elements: HintElement[];
-  kind: "overlap" | "safe-zone" | "shrunk" | "clipped";
+  kind: "overlap" | "safe-zone" | "shrunk" | "clipped" | "missing";
   sentence: string;
 };
 
@@ -24,6 +24,11 @@ export type MeasuredElement = {
 };
 
 const SHRINK_RATIO = 0.75;
+
+function pixelLabel(format: string): string {
+  if (format === "1x1" || format === "191x1" || format === "1x191") return formatPixelSize(format);
+  return format;
+}
 
 export function formatPixelSize(format: Fmt): string {
   const spec = formatOf(format);
@@ -50,8 +55,7 @@ function overlapAllowed(left: HintElement, right: HintElement): boolean {
   return key === "Figur|Sticker";
 }
 
-export function layoutHints(format: Fmt, zone: Box, elements: readonly MeasuredElement[]): LayoutHint[] {
-  const pixelSize = formatPixelSize(format);
+export function layoutHints(format: string, zone: Box, elements: readonly MeasuredElement[], pixelSize = pixelLabel(format)): LayoutHint[] {
   const hints: LayoutHint[] = [];
   const seen = new Set<string>();
   const push = (hint: LayoutHint) => {

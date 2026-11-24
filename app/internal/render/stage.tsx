@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { clampToZone, figureRect, formatOf, placeInZone, zoneBox } from "../../../src/modules/visual-builder/layout";
-import type { RenderJob, RenderOutput } from "../../../src/modules/visual-builder/render-protocol";
+import type { RenderCanvas, RenderJob, RenderOutput } from "../../../src/modules/visual-builder/render-protocol";
 import { badgeRect, ctaLabel, drawCanvas, stickerSize, textCtaMetrics } from "../../../src/modules/visual-builder/render";
 import type { CtaPlacement, LogoPlacement, Rect } from "../../../src/modules/visual-builder/types";
 import { layoutHints, type MeasuredElement } from "../../../src/modules/visual-builder/server/layout-hints";
@@ -49,8 +49,16 @@ async function paint(job: RenderJob): Promise<RenderOutput> {
   }
   const results: RenderOutput["formats"] = [];
   const sheets: Array<{ label: string; canvas: HTMLCanvasElement }> = [];
-  for (const format of job.formats) {
-    const spec = formatOf(format);
+  const frames: RenderCanvas[] = job.canvases?.length
+    ? job.canvases
+    : job.formats.map((id) => {
+        const spec = formatOf(id);
+        return { id, w: spec.w, h: spec.h, label: spec.label };
+      });
+  for (const frame of frames) {
+    const format = (job.formats.find((id) => id === frame.id) ?? "1x1") as typeof job.formats[number];
+    const layout = job.layouts?.[frame.id];
+    const spec = { w: frame.w, h: frame.h, label: frame.label };
     const canvas = document.createElement("canvas");
     canvas.width = spec.w;
     canvas.height = spec.h;
@@ -68,11 +76,14 @@ async function paint(job: RenderJob): Promise<RenderOutput> {
       return original(text as string, x, y, maxWidth);
     };
     const state = job.state;
-    const bg = await loadImage(state.bgPaths[format] ? job.images[state.bgPaths[format]!] : null);
-    const figure = await loadImage(state.figurePaths?.[format] ? job.images[state.figurePaths[format]!] : null);
-    const logoAsset = job.logos.find((logo) => logo.id === state.logoId[format]) ?? null;
+    const bg = await loadImage(!layout && state.bgPaths[format] ? job.images[state.bgPaths[format]!] : null);
+    const figure = await loadImage(layout?.figurePath ? job.images[layout.figurePath] : state.figurePaths?.[format] ? job.images[state.figurePaths[format]!] : null);
+    const product = await loadImage(layout?.productPath ? job.images[layout.productPath] : null);
+    const productLogo = await loadImage(layout?.productLogoPath ? job.images[layout.productLogoPath] : null);
+    const energyLabel = await loadImage(layout?.energyPath ? job.images[layout.energyPath] : null);
+    const logoAsset = job.logos.find((logo) => logo.id === (layout?.logoId ?? state.logoId[format])) ?? null;
     const logo = await loadImage(logoAsset?.dataUrl);
-    const ctaAsset = job.ctas.find((cta) => cta.id === state.ctaId[format]) ?? null;
+    const ctaAsset = job.ctas.find((cta) => cta.id === (layout?.ctaId ?? state.ctaId[format])) ?? null;
     const ctaImage = await loadImage(ctaAsset?.dataUrl);
     const stickerItems = state.stickers?.[format] ?? [];
     const stickers = [];
@@ -86,21 +97,25 @@ async function paint(job: RenderJob): Promise<RenderOutput> {
       h: spec.h,
       bg,
       crop: state.bgCrop[format],
-      bgColor: state.bgColor,
+      bgColor: layout?.bgColor ?? state.bgColor ?? "#000000",
       figure,
-      figureBox: state.figure?.[format],
-      blocks: state.blocks[format],
+      figureBox: layout?.figure ?? state.figure?.[format],
+      blocks: layout?.blocks ?? state.blocks[format],
       fontFamily: state.fontFamily,
       logo,
-      logoPlacement: state.logoPlacement[format],
+      logoPlacement: state.logoPlacement[format] ?? "bottom-left",
       logoPos: state.logoPos[format],
-      logoScale: state.logoScale[format],
+      logoScale: layout?.logoScale ?? state.logoScale[format],
       cta: ctaAsset ? { ...ctaAsset, url: ctaAsset.dataUrl } : null,
-      ctaText: state.ctaText[format],
+      ctaText: layout?.ctaText ?? state.ctaText[format],
       ctaImg: ctaImage,
-      ctaPlacement: state.ctaPlacement[format],
+      ctaPlacement: layout ? (layout.ctaId ? "bottom-left" : "none") : state.ctaPlacement[format],
       ctaPos: state.ctaPos[format],
-      ctaScale: state.ctaScale[format],
+      ctaScale: layout?.ctaScale ?? state.ctaScale[format],
+      product,
+      productBox: layout?.productBox,
+      productLogo,
+      energyLabel,
       safeZone: job.safeZone,
       emptyLabel: "Motiv fehlt",
       ctaFont: state.fontFamily,
@@ -109,9 +124,18 @@ async function paint(job: RenderJob): Promise<RenderOutput> {
       stickers,
     });
     const elements = measureElements(format, spec.w, spec.h, job, ink, context);
-    const hints = layoutHints(format, zoneBox(job.safeZone, spec.w, spec.h), elements);
+    const hints = layoutHints(frame.id, zoneBox(job.safeZone, spec.w, spec.h), elements, `${spec.w}x${spec.h}`);
+    if (product && !energyLabel) {
+      hints.push({
+        format: frame.id,
+        pixelSize: `${spec.w}x${spec.h}`,
+        elements: ["Produkt", "Energielabel"],
+        kind: "missing",
+        sentence: `Zum Produkt fehlt das Energielabel im ${spec.w}x${spec.h}.`,
+      });
+    }
     results.push({
-      format,
+      format: frame.id,
       pixelSize: `${spec.w}x${spec.h}`,
       width: spec.w,
       height: spec.h,

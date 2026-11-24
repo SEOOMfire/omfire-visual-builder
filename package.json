@@ -11,7 +11,10 @@
     "start": "next start",
     "test": "tsx --test tests/*.test.ts tests/**/*.test.ts",
     "db:migrate": "node scripts/db-migrate.mjs",
-    "bootstrap": "tsx scripts/bootstrap-admin.ts"
+    "bootstrap": "tsx scripts/bootstrap-admin.ts",
+    "create-key": "node scripts/keys.mjs create",
+    "list-keys": "node scripts/keys.mjs list",
+    "revoke-key": "node scripts/keys.mjs revoke"
   },
   "dependencies": {
     "jszip": "^3.10.2",

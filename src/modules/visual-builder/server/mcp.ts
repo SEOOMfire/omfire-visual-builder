@@ -74,15 +74,8 @@ export function driveNextStep(): string {
 }
 
 export async function systemStatus(): Promise<string> {
-  const drive = isDriveConfigured();
-  const root = Boolean(process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID?.trim() || driveParentFolderId());
-  const router = Boolean(process.env.OPENROUTER_API_KEY?.trim());
-  const lines = [
-    drive ? "Google Drive ist verbunden." : "Google Drive ist noch nicht verbunden. Trag GOOGLE_DRIVE_CLIENT_EMAIL und GOOGLE_DRIVE_PRIVATE_KEY in Coolify ein.",
-    root ? "Der Wurzelordner ist gesetzt." : "Der Ordner „Visual Builder“ fehlt. Trag GOOGLE_DRIVE_ROOT_FOLDER_ID in Coolify ein.",
-    router ? "Übersetzung und Prüfung sind erreichbar." : "Übersetzung und Prüfung sind noch nicht freigeschaltet. Trag OPENROUTER_API_KEY in Coolify ein.",
-  ];
-  return lines.join(" ");
+  const { oteloStatus } = await import("./otelo-render");
+  return oteloStatus();
 }
 
 export async function pingImage(): Promise<{ base64: string; token: string | null; note: string }> {

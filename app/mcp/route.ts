@@ -40,12 +40,47 @@ async function callTool(name: ToolName, args: Record<string, unknown>, origin: s
     return { text: link ? `${ping.note} ${link}` : ping.note, image: ping.base64 };
   }
   if (name === "system_status") return { text: await systemStatus() };
-  const missing = driveNextStep() || "Für diesen Kunden ist noch nichts synchronisiert. Ruf sync_client auf, sobald der Ordner im Drive liegt.";
-  if (name === "init_client" || name === "sync_client" || name === "brand_assets" || name === "search_motifs" || name === "compose_creative" || name === "adjust_creative" || name === "translate" || name === "check_guidelines" || name === "save_creative" || name === "check_batch" || name === "run_batch" || name === "batch_status" || name === "list_archive" || name === "list_clients" || name === "open_in_editor") {
-    if (name === "list_clients") return { text: `${await systemStatus()} Eine Kundenliste gibt es, sobald der Wurzelordner verbunden ist.` };
-    return { text: missing };
+  if (name === "list_clients") {
+    const { listClientFiles } = await import("../../src/modules/visual-builder/server/client-volume");
+    const files = await listClientFiles("otelo").catch(() => []);
+    return { text: files.length ? "otelo" : "Noch kein Kunde auf dem Volume." };
   }
-  return { text: "Dieses Werkzeug kenne ich nicht." };
+  if (name === "brand_assets") {
+    const { brandSummary } = await import("../../src/modules/visual-builder/server/otelo-render");
+    return { text: await brandSummary() };
+  }
+  if (name === "search_motifs") {
+    const { motifNames } = await import("../../src/modules/visual-builder/server/client-volume");
+    const query = String(args.suche ?? "").toLowerCase();
+    const names = (await motifNames("otelo")).filter((name) => name.toLowerCase().includes(query));
+    return { text: names.length ? names.slice(0, 30).join(", ") : "Kein Motiv mit diesem Namen." };
+  }
+  if (name === "compose_creative") {
+    const { renderTemplate } = await import("../../src/modules/visual-builder/server/otelo-render");
+    const vorlage = String(args.vorlage ?? "young");
+    const nameOf = vorlage === "standard" || vorlage === "hardware" ? vorlage : "young";
+    const sheet = await renderTemplate(nameOf, String(args.headline ?? ""), String(args.subline ?? ""));
+    const link = `${origin}/p/${sheet.token}`;
+    const hints = sheet.hints.length ? ` Hinweise: ${sheet.hints.slice(0, 4).join(" ")}` : "";
+    return { text: `Entwurf ${nameOf}. Kontaktbogen: ${link}.${hints}`, image: sheet.jpeg };
+  }
+  if (name === "check_guidelines") {
+    const { checkOteloCopy } = await import("../../src/modules/visual-builder/server/otelo-rules");
+    const { readClientText } = await import("../../src/modules/visual-builder/server/client-volume");
+    const findings = checkOteloCopy(String(args.text ?? args.headline ?? ""));
+    const ready = await readClientText("otelo", "ci-richtlinie.md");
+    if (!ready) return { text: "Die CI-Richtlinie für otelo liegt noch nicht auf dem Volume." };
+    return { text: findings.length ? findings.map((finding) => finding.message).join(" ") : "Der Text besteht die otelo-Prüfung." };
+  }
+  if (name === "check_batch") {
+    const { parseBatchCsv } = await import("../../src/modules/visual-builder/server/csv-batch");
+    const parsed = parseBatchCsv(String(args.text ?? args.inhalt ?? ""));
+    if (parsed.errors.length) return { text: parsed.errors.join(" ") };
+    return { text: `${parsed.rows.length} von ${parsed.rows.length} Zeilen gelesen. Speichern prüft jede Zeile einzeln.` };
+  }
+  if (name === "open_in_editor") return { text: "Einen Editor-Link gibt es nicht. Feinarbeit geht über adjust_creative." };
+  if (name === "init_client" || name === "sync_client") return { text: "Die Dateien kommen über den Import auf das Volume, nicht über Drive." };
+  return { text: driveNextStep() || "Für diesen Schritt fehlt noch ein Entwurf. Ruf zuerst compose_creative auf." };
 }
 
 export async function POST(request: Request) {

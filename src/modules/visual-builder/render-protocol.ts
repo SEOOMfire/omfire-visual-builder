@@ -1,4 +1,4 @@
-import type { CreativeState, CtaStyle, Fmt, Rect } from "./types";
+import type { CreativeState, CtaStyle, FigureBox, Fmt, Rect, TextBlock } from "./types";
 
 export type RenderFont = {
   family: string;
@@ -18,9 +18,30 @@ export type RenderCta = {
 };
 export type RenderSticker = { id: string; name: string; dataUrl: string };
 
+export type RenderCanvas = { id: string; w: number; h: number; label: string };
+
+/** Explicit layout for one canvas. Used for customer formats beyond the original three. */
+export type RenderLayout = {
+  blocks: [TextBlock, TextBlock];
+  bgColor?: string | null;
+  figurePath?: string | null;
+  figure?: FigureBox;
+  logoId?: string | null;
+  logoScale: number;
+  ctaId?: string | null;
+  ctaText?: string;
+  ctaScale: number;
+  productPath?: string | null;
+  productBox?: FigureBox;
+  productLogoPath?: string | null;
+  energyPath?: string | null;
+};
+
 /** Everything the browser needs to paint. Images are data URLs, paths are the keys of `images`. */
 export type RenderJob = {
   formats: Fmt[];
+  canvases?: RenderCanvas[];
+  layouts?: Record<string, RenderLayout>;
   state: CreativeState;
   images: Record<string, string>;
   fonts: RenderFont[];
@@ -31,13 +52,13 @@ export type RenderJob = {
 };
 
 export type RenderFormatResult = {
-  format: Fmt;
+  format: string;
   pixelSize: string;
   width: number;
   height: number;
   pngBase64: string;
   hints: Array<{
-    format: Fmt;
+    format: string;
     pixelSize: string;
     elements: string[];
     kind: string;

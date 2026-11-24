@@ -33,6 +33,11 @@ export type DrawOptions = {
   badgeFont?: string;
   /** Placed stickers with their loaded images; missing images are skipped. */
   stickers?: ReadonlyArray<{ item: StickerItem; image: HTMLImageElement | null }>;
+  product?: HTMLImageElement | null;
+  productBox?: FigureBox;
+  productLogo?: HTMLImageElement | null;
+  energyLabel?: HTMLImageElement | null;
+  energyBox?: { x_pct: number; y_pct: number; h_pct: number };
 };
 
 /** Button text as typed; `**…**` marks bold parts (e.g. the domain in an arrow bar). */
@@ -121,6 +126,23 @@ export function drawCanvas(o: DrawOptions): void {
     const box = o.figureBox ?? DEFAULT_FIGURE;
     const rect = figureRect(box, o.figure.width / o.figure.height, o.w, o.h);
     drawRotated(ctx, o.figure, rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, box.rotate ?? 0, box.flip);
+  }
+
+  if (o.product) {
+    const box = o.productBox ?? { x_pct: 70, bottom_pct: 96, h_pct: 48, flip: false };
+    const rect = figureRect(box, o.product.width / o.product.height, o.w, o.h);
+    ctx.drawImage(o.product, rect.x, rect.y, rect.w, rect.h);
+  }
+  if (o.product && o.productLogo) {
+    const w = Math.min(o.w, o.h) * 0.28;
+    const h = w / (o.productLogo.width / o.productLogo.height);
+    ctx.drawImage(o.productLogo, o.w * 0.08, o.h * 0.08, w, h);
+  }
+  if (o.energyLabel) {
+    const box = o.energyBox ?? { x_pct: 8, y_pct: 78, h_pct: 8 };
+    const h = (box.h_pct / 100) * o.h;
+    const w = h * (o.energyLabel.width / o.energyLabel.height);
+    ctx.drawImage(o.energyLabel, (box.x_pct / 100) * o.w, (box.y_pct / 100) * o.h, w, h);
   }
 
   for (const { item, image } of stickers) if (!item.behind && image) drawSticker(ctx, item, image, o.w, o.h);
