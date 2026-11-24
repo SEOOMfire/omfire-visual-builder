@@ -5,23 +5,34 @@ import JSZip from "jszip";
 import { OTELO_FORMATS } from "../otelo-formats";
 import { clientRoot } from "./client-volume";
 import { namePart, nextVersion, oteloFileName, oteloFolder, type OteloName } from "./naming";
+import { DEFAULT_PFLICHTTEXT, normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
 import { renderTemplate, type RenderedCreative } from "./otelo-render";
 import { signPreview } from "./previews";
 
-export type VorlageName = "young" | "standard" | "hardware";
+export type { VorlageName };
 
 export type CreativeDraft = {
   id: string;
   vorlage: VorlageName;
   motiv: string;
+  person: string;
   headline: string;
   subline: string;
   button: string;
   kampagne: string;
   hints: string[];
+  stoererTyp: StoererTyp;
+  preis: string;
+  preisZusatz: string;
+  einmalpreis: string;
+  aktionText: string;
+  pflichttext: string;
+  headlineVariante: HeadlineVariant;
+  orange: OrangeSide;
+  produktname: string;
 };
 
-const BLOCKING = /überlappt|zu klein|außerhalb|Schrägteilung|Titillium/;
+const BLOCKING = /überlappt|unteren Rand|Orange-Anteil|Schrägteilung|CTA-Leiste|Fußnote|Ersatzschrift|mehr als/;
 
 export function blockingHints(hints: readonly string[]): string[] {
   return hints.filter((hint) => BLOCKING.test(hint));
@@ -38,8 +49,28 @@ export function archivePeriod(now = new Date()): { quarter: string; monthYear: s
 
 function audience(name: VorlageName): string {
   if (name === "young") return "Young";
-  if (name === "hardware") return "Hardware-Standard";
+  if (name === "product" || name === "product_person") return "Hardware-Standard";
   return "Standard";
+}
+
+function requestFrom(draft: CreativeDraft) {
+  return {
+    name: draft.vorlage,
+    motiv: draft.motiv,
+    person: draft.person,
+    headline: draft.headline,
+    subline: draft.subline,
+    button: draft.button,
+    stoererTyp: draft.stoererTyp,
+    preis: draft.preis,
+    preisZusatz: draft.preisZusatz,
+    einmalpreis: draft.einmalpreis,
+    aktionText: draft.aktionText,
+    pflichttext: draft.pflichttext,
+    headlineVariante: draft.headlineVariante,
+    orange: draft.orange,
+    produktname: draft.produktname,
+  };
 }
 
 function campaignToken(value: string): string {
@@ -78,24 +109,47 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   if (typeof change.subline === "string") draft.subline = change.subline;
   if (typeof change.motiv === "string") draft.motiv = change.motiv;
   if (typeof change.kampagne === "string") draft.kampagne = change.kampagne;
-  if (change.vorlage === "young" || change.vorlage === "standard" || change.vorlage === "hardware") draft.vorlage = change.vorlage;
-  const rendered = await renderTemplate({ name: draft.vorlage, motiv: draft.motiv, headline: draft.headline, subline: draft.subline });
-  draft.motiv = rendered.motifName;
+  if (typeof change.person === "string") draft.person = change.person;
+  if (typeof change.vorlage === "string") draft.vorlage = normalizeVorlage(change.vorlage);
+  if (change.orange === "links" || change.orange === "rechts") draft.orange = change.orange;
+  if (change.headline_variante === "direkt" || change.headline_variante === "box") draft.headlineVariante = change.headline_variante;
+  if (typeof change.stoerer_typ === "string") draft.stoererTyp = change.stoerer_typ as CreativeDraft["stoererTyp"];
+  if (typeof change.preis === "string") draft.preis = change.preis;
+  if (typeof change.preis_zusatz === "string") draft.preisZusatz = change.preis_zusatz;
+  if (typeof change.einmalpreis === "string") draft.einmalpreis = change.einmalpreis;
+  if (typeof change.aktion_text === "string") draft.aktionText = change.aktion_text;
+  if (typeof change.pflichttext === "string") draft.pflichttext = change.pflichttext;
+  if (typeof change.produktname === "string") draft.produktname = change.produktname;
+  if (typeof change.button === "string") draft.button = change.button;
+  const rendered = await renderTemplate(requestFrom(draft));
+  if (rendered.deviceFile) draft.motiv = rendered.deviceFile;
+  else if (rendered.personFile) draft.motiv = rendered.personFile;
+  if (rendered.personFile && draft.vorlage === "product_person") draft.person = rendered.personFile;
   draft.hints = rendered.hints;
   await writeDraft(draft);
   return { draft, rendered };
 }
 
-export async function storeRenderedDraft(rendered: RenderedCreative, fields: { headline: string; subline: string; button: string; kampagne: string }): Promise<CreativeDraft> {
+export async function storeRenderedDraft(rendered: RenderedCreative, fields: Omit<CreativeDraft, "id" | "vorlage" | "motiv" | "person" | "hints"> & { motiv: string; person?: string }): Promise<CreativeDraft> {
   const draft: CreativeDraft = {
     id: randomUUID(),
     vorlage: rendered.name,
-    motiv: rendered.motifName,
+    motiv: rendered.deviceFile || rendered.personFile || fields.motiv,
+    person: rendered.personFile,
     headline: fields.headline,
     subline: fields.subline,
     button: fields.button,
     kampagne: fields.kampagne,
     hints: rendered.hints,
+    stoererTyp: fields.stoererTyp,
+    preis: fields.preis,
+    preisZusatz: fields.preisZusatz,
+    einmalpreis: fields.einmalpreis,
+    aktionText: fields.aktionText,
+    pflichttext: fields.pflichttext || DEFAULT_PFLICHTTEXT,
+    headlineVariante: fields.headlineVariante,
+    orange: fields.orange,
+    produktname: fields.produktname,
   };
   await writeDraft(draft);
   return draft;
@@ -119,7 +173,7 @@ export async function saveCreative(id: string, now = new Date()): Promise<{
   const draft = await readDraft(id);
   if (!draft) throw new Error("Diesen Entwurf kenne ich nicht. Ruf zuerst compose_creative auf.");
   if (!draft.kampagne.trim()) throw new Error("Die Kampagne fehlt. Nenne sie, dann kann ich ablegen.");
-  const rendered = await renderTemplate({ name: draft.vorlage, motiv: draft.motiv, headline: draft.headline, subline: draft.subline });
+  const rendered = await renderTemplate(requestFrom(draft));
   const blocked = blockingHints(rendered.hints);
   if (blocked.length) throw new Error(`Nicht gespeichert. ${blocked.join(" ")}`);
   const { quarter, monthYear } = archivePeriod(now);

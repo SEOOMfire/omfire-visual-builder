@@ -30,15 +30,26 @@ export async function POST(request: Request) {
   try {
     const files = await listClientFiles("otelo");
     const figure = files.find((file) => file.role === "figur");
-    const product = files.find((file) => file.role === "produkt" && file.name.toLowerCase().endsWith(".png") && !file.name.toLowerCase().includes("logo"));
-    const names: Array<"young" | "standard" | "hardware"> = payload?.only === "young" || payload?.only === "standard" || payload?.only === "hardware"
-      ? [payload.only]
-      : ["young", "standard", "hardware"];
+    const product = files.find((file) => file.role === "produkt" && /a56|galaxy/i.test(file.name) && file.name.toLowerCase().endsWith(".png"))
+      ?? files.find((file) => file.role === "produkt" && file.name.toLowerCase().endsWith(".png") && !file.name.toLowerCase().includes("logo"));
+    const names = ["tarif", "product", "product_person", "young"] as const;
+    const only = names.find((name) => name === payload?.only);
     const sheets = [];
-    for (const name of names) {
-      const motiv = name === "hardware" ? product?.name : figure?.name;
-      if (!motiv) throw new Error("Für das Beispiel fehlt ein Motiv auf dem Volume.");
-      sheets.push(await renderTemplate({ name, motiv }));
+    for (const name of (only ? [only] : names)) {
+      const motiv = name === "tarif" || name === "young" ? figure?.name : product?.name;
+      if (!motiv || !figure) throw new Error("Für das Beispiel fehlt ein Motiv auf dem Volume.");
+      sheets.push(await renderTemplate({
+        name,
+        motiv,
+        person: name === "product_person" ? figure.name : undefined,
+        headline: "UNLIMITED ON DEMAND",
+        subline: "100 GB monatlich\ninkl. unendlich oft 1 GB abrufen",
+        button: "Jetzt sichern auf **otelo.de**",
+        stoererTyp: "tarif",
+        preis: "29,99 €",
+        preisZusatz: "monatlich¹",
+        produktname: "SAMSUNG Galaxy A56 5G",
+      }));
     }
     return Response.json({
       sheets: sheets.map((sheet) => ({

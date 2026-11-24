@@ -12,11 +12,11 @@ const TOOLS = [
   { name: "list_clients", description: "Kunden, auf die diese Person Zugriff hat.", inputSchema: { type: "object", properties: {} } },
   { name: "brand_assets", description: "Logos, Buttons, Störer, Schriften, Sprachen und Vorlagen eines Kunden.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" } } } },
   { name: "search_motifs", description: "Sucht Motive nach Name, Ordner oder Ausrichtung.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" }, suche: { type: "string" } } } },
-  { name: "compose_creative", description: "Baut einen Entwurf aus Vorlage, Motiv und Texten. Liefert Kontaktbogen, Links, Hinweise und eine Entwurfs-ID.", inputSchema: { type: "object", required: ["kunde", "vorlage", "motiv"], properties: { kunde: { type: "string" }, vorlage: { type: "string" }, motiv: { type: "string" }, headline: { type: "string" }, subline: { type: "string" }, button: { type: "string" }, kampagne: { type: "string" } } } },
+  { name: "compose_creative", description: "Baut einen Entwurf aus Vorlage, Motiv und Texten. Liefert Kontaktbogen, Links je Format, Hinweise und eine Entwurfs-ID.", inputSchema: { type: "object", required: ["kunde", "vorlage", "motiv"], properties: { kunde: { type: "string" }, vorlage: { type: "string" }, motiv: { type: "string" }, person: { type: "string" }, headline: { type: "string" }, subline: { type: "string" }, button: { type: "string" }, kampagne: { type: "string" }, stoerer_typ: { type: "string" }, preis: { type: "string" }, preis_zusatz: { type: "string" }, einmalpreis: { type: "string" }, aktion_text: { type: "string" }, pflichttext: { type: "string" }, headline_variante: { type: "string" }, orange: { type: "string" }, produktname: { type: "string" } } } },
   { name: "adjust_creative", description: "Ändert einen Entwurf und liefert eine neue Vorschau.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" }, aenderung: { type: "object" } } } },
   { name: "translate", description: "Überträgt die Texte eines Entwurfs in weitere Sprachen.", inputSchema: { type: "object", required: ["entwurf", "sprachen"], properties: { entwurf: { type: "string" }, sprachen: { type: "array", items: { type: "string" } } } } },
   { name: "check_guidelines", description: "Prüft die Texte eines Entwurfs gegen die CI-Richtlinie.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" } } } },
-  { name: "save_creative", description: "Speichert einen bestandenen Entwurf auf dem Volume und liefert die PNG-Links und ein ZIP.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" }, kampagne: { type: "string" } } } },
+  { name: "save_creative", description: "Speichert die PNG-Dateien und ein ZIP auf dem Volume und liefert signierte Links. Es wird nichts nach Drive geschrieben.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" }, kampagne: { type: "string" } } } },
   { name: "check_batch", description: "Prüft jede Zeile einer CSV, ohne Dateien zu erzeugen.", inputSchema: { type: "object", required: ["kunde", "datei"], properties: { kunde: { type: "string" }, datei: { type: "string" } } } },
   { name: "run_batch", description: "Startet den geprüften Stapel im Hintergrund.", inputSchema: { type: "object", required: ["kunde", "datei"], properties: { kunde: { type: "string" }, datei: { type: "string" }, nur_zeilen: { type: "array", items: { type: "integer" } } } } },
   { name: "batch_status", description: "Fortschritt eines Hintergrundauftrags.", inputSchema: { type: "object", required: ["auftrag"], properties: { auftrag: { type: "string" } } } },
@@ -68,14 +68,44 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
   }
   if (name === "compose_creative") {
     const { renderTemplate } = await import("../../src/modules/visual-builder/server/otelo-render");
-    const vorlage = String(args.vorlage ?? "young");
-    const nameOf = vorlage === "standard" || vorlage === "hardware" ? vorlage : "young";
-    const headline = String(args.headline ?? "");
-    const subline = String(args.subline ?? "");
-    const button = String(args.button ?? "");
-    const kampagne = String(args.kampagne ?? "");
-    const rendered = await renderTemplate({ name: nameOf, motiv: String(args.motiv ?? ""), headline, subline });
-    const draft = await storeRenderedDraft(rendered, { headline, subline, button, kampagne });
+    const text = (key: string) => typeof args[key] === "string" ? String(args[key]) : undefined;
+    const headline = text("headline") ?? "";
+    const subline = text("subline") ?? "";
+    const button = text("button") ?? "";
+    const kampagne = text("kampagne") ?? "";
+    const rendered = await renderTemplate({
+      name: String(args.vorlage ?? "young"),
+      motiv: String(args.motiv ?? ""),
+      person: text("person"),
+      headline: text("headline"),
+      subline: text("subline"),
+      button: text("button"),
+      stoererTyp: text("stoerer_typ"),
+      preis: text("preis"),
+      preisZusatz: text("preis_zusatz"),
+      einmalpreis: text("einmalpreis"),
+      aktionText: text("aktion_text"),
+      pflichttext: text("pflichttext"),
+      headlineVariante: text("headline_variante"),
+      orange: text("orange"),
+      produktname: text("produktname"),
+    });
+    const { defaultHeadline, defaultOrange, defaultStoerer, normalizeVorlage } = await import("../../src/modules/visual-builder/otelo-scene");
+    const name = normalizeVorlage(String(args.vorlage ?? "young"));
+    const draft = await storeRenderedDraft(rendered, {
+      motiv: String(args.motiv ?? ""),
+      person: text("person") ?? "",
+      headline, subline, button, kampagne,
+      stoererTyp: (text("stoerer_typ") as "tarif") || defaultStoerer(name),
+      preis: text("preis") ?? "29,99 €",
+      preisZusatz: text("preis_zusatz") ?? "monatlich¹",
+      einmalpreis: text("einmalpreis") ?? "1 €",
+      aktionText: text("aktion_text") ?? "",
+      pflichttext: text("pflichttext") ?? "",
+      headlineVariante: text("headline_variante") === "box" ? "box" : text("headline_variante") === "direkt" ? "direkt" : defaultHeadline(name),
+      orange: text("orange") === "links" ? "links" : text("orange") === "rechts" ? "rechts" : defaultOrange(name),
+      produktname: text("produktname") ?? "",
+    });
     return { text: renderedText(`Entwurf ${rendered.name}. ID ${draft.id}.`, rendered), image: rendered.jpeg, mime: "image/jpeg" };
   }
   if (name === "adjust_creative") {

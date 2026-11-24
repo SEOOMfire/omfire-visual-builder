@@ -1,3 +1,4 @@
+import type { OteloScene } from "./otelo-scene";
 import type { CreativeState, CtaStyle, FigureBox, Fmt, Rect, TextBlock } from "./types";
 
 export type RenderFont = {
@@ -54,6 +55,7 @@ export type RenderJob = {
   ctas: RenderCta[];
   stickers: RenderSticker[];
   safeZone: Rect;
+  otelo?: Record<string, OteloScene>;
 };
 
 export type RenderFormatResult = {

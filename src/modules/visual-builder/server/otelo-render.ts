@@ -1,12 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { OTELO_FORMATS } from "../otelo-formats";
-import { templateLayout } from "../otelo-templates";
+import { buildScene, defaultHeadline, defaultOrange, defaultStoerer, normalizeVorlage, DEFAULT_PFLICHTTEXT, type HeadlineVariant, type OrangeSide, type OteloScene, type SceneCopy, type StoererTyp, type VorlageName } from "../otelo-scene";
 import type { RenderJob } from "../render-protocol";
 import type { CreativeState } from "../types";
 import { renderInBrowser } from "./browser-pool";
 import { listClientFiles, readClientFile, readClientText, type ClientFile } from "./client-volume";
 import { resolveMotif } from "./motif";
-import { checkHeadlineFont, checkSplitAngle } from "./otelo-rules";
 import { storePreview } from "./previews";
 import { uniqueFormatLabels } from "./preview-text";
 
@@ -62,59 +61,121 @@ function pick(files: { role: string; name: string; path: string }[], role: strin
 export type RenderedFormat = { id: string; label: string; token: string; pngBase64: string };
 
 export type RenderedCreative = {
-  name: "young" | "standard" | "hardware";
+  name: VorlageName;
   motifName: string;
   motifPath: string;
   buttonName: string | null;
+  personFile: string;
+  deviceFile: string;
   token: string;
   jpeg: string;
   formats: RenderedFormat[];
   hints: string[];
 };
 
-function motifPool(files: ClientFile[], name: "young" | "standard" | "hardware"): ClientFile[] {
-  if (name !== "hardware") return files.filter((file) => file.role === "figur");
+export type RenderRequest = {
+  name: string;
+  motiv: string;
+  person?: string;
+  headline?: string;
+  subline?: string;
+  button?: string;
+  stoererTyp?: string;
+  preis?: string;
+  preisZusatz?: string;
+  einmalpreis?: string;
+  aktionText?: string;
+  pflichttext?: string;
+  headlineVariante?: string;
+  orange?: string;
+  produktname?: string;
+};
+
+function products(files: ClientFile[]) {
   return files.filter((file) => file.role === "produkt" && file.name.toLowerCase().endsWith(".png") && !file.name.toLowerCase().includes("logo"));
 }
 
-export async function renderTemplate(input: { name: "young" | "standard" | "hardware"; motiv: string; headline?: string; subline?: string }): Promise<RenderedCreative> {
+function asStoerer(value: string | undefined, fallback: StoererTyp): StoererTyp {
+  const allowed: StoererTyp[] = ["tarif", "product", "bonus", "stern", "kreis", "ohne_preis"];
+  return allowed.includes(value as StoererTyp) ? value as StoererTyp : fallback;
+}
+
+function asOrange(value: string | undefined, fallback: OrangeSide): OrangeSide {
+  return value === "links" || value === "rechts" ? value : fallback;
+}
+
+function asHeadline(value: string | undefined, fallback: HeadlineVariant): HeadlineVariant {
+  return value === "direkt" || value === "box" ? value : fallback;
+}
+
+export async function renderTemplate(input: RenderRequest): Promise<RenderedCreative> {
   const files = await listClientFiles("otelo");
   if (!files.length) throw new Error("Für otelo liegt noch nichts auf dem Volume.");
+  const name = normalizeVorlage(input.name);
   const logo = pick(files, "logo", "wortmarke_weiss") ?? pick(files, "logo", "weiss");
-  const cta = pick(files, "button", "jetzt_sichern") ?? pick(files, "button", "rgb") ?? pick(files, "button", "cta");
-  const motif = resolveMotif(motifPool(files, input.name), input.motiv, input.name === "hardware" ? "produkt" : "figur");
-  const energy = pick(files, "energielabel", "class_arrows_ag_a.svg") ?? pick(files, "energielabel", "_a.");
-  const font = pick(files, "schrift", "titillium");
   if (!logo) throw new Error("Die Wortmarke fehlt auf dem Volume.");
-  const withProduct = input.name === "hardware";
-  const layout = templateLayout(input.name, input.headline ?? "", input.subline ?? "", withProduct);
+  const wantsProduct = name === "product" || name === "product_person";
+  const wantsPerson = name !== "product" || Boolean(input.person?.trim());
+  const device = wantsProduct ? resolveMotif(products(files), input.motiv, "produkt") : null;
+  const personQuery = name === "product_person" ? (input.person?.trim() || "") : input.motiv;
+  const person = wantsPerson && personQuery ? resolveMotif(files.filter((file) => file.role === "figur"), personQuery, "figur") : null;
+  if (name === "product_person" && !person) throw new Error("Für product_person fehlt die Person. Nenne sie im Feld person.");
+  const energy = pick(files, "energielabel", "class_arrows_ag_a.svg") ?? pick(files, "energielabel", "_a.");
+  const copy: SceneCopy = {
+    headline: input.headline?.trim() || "Unlimited on demand",
+    subline: input.subline?.trim() || "100 GB monatlich\ninkl. unendlich oft 1 GB abrufen",
+    button: input.button?.trim() || "Jetzt sichern auf **otelo.de**",
+    stoererTyp: asStoerer(input.stoererTyp, defaultStoerer(name)),
+    preis: input.preis?.trim() || "29,99 €",
+    preisZusatz: input.preisZusatz?.trim() || "monatlich¹",
+    einmalpreis: input.einmalpreis?.trim() || "1 €",
+    aktionText: input.aktionText?.trim() || "",
+    pflichttext: input.pflichttext === undefined ? DEFAULT_PFLICHTTEXT : input.pflichttext.trim(),
+    headlineVariante: asHeadline(input.headlineVariante, defaultHeadline(name)),
+    orange: asOrange(input.orange, defaultOrange(name)),
+    produktname: input.produktname?.trim() || (device ? device.name.replace(/\.[a-z0-9]+$/i, "").replace(/_/g, " ") : ""),
+  };
   const images: Record<string, string> = {};
-  if (withProduct) {
-    layout.productPath = motif.path;
-    images[motif.path] = await asDataUrl(motif.path);
-    if (energy) {
-      layout.energyPath = energy.path;
-      images[energy.path] = await asDataUrl(energy.path);
-    }
-  } else {
-    layout.figurePath = motif.path;
-    images[motif.path] = await asDataUrl(motif.path);
+  images[logo.path] = await asDataUrl(logo.path);
+  if (person) images[person.path] = await asDataUrl(person.path);
+  if (device) images[device.path] = await asDataUrl(device.path);
+  if (energy && wantsProduct) images[energy.path] = await asDataUrl(energy.path);
+  const fonts = [];
+  const used = new Set<string>();
+  for (const spec of [
+    [/titillium/i, "Titillium Web", 900],
+    [/geist-regular/i, "Geist", 400],
+    [/geist-medium/i, "Geist", 500],
+    [/geist-semibold/i, "Geist", 600],
+    [/geist-extrabold/i, "Geist", 800],
+    [/geist-bold/i, "Geist", 700],
+  ] as const) {
+    const file = files.find((item) => item.role === "schrift" && spec[0].test(item.name) && !used.has(item.path));
+    if (!file) continue;
+    used.add(file.path);
+    fonts.push({ family: spec[1], weight: spec[2], style: "normal" as const, dataUrl: await asDataUrl(file.path) });
   }
-  layout.logoId = "wortmarke-weiss";
-  const logoUrl = await asDataUrl(logo.path);
-  const ctaUrl = cta ? await asDataUrl(cta.path) : null;
-  const fonts = font ? [{ family: "Titillium Web", weight: 900, style: "normal" as const, dataUrl: await asDataUrl(font.path) }] : [];
+  const otelo: Record<string, OteloScene> = {};
+  for (const format of OTELO_FORMATS) {
+    const scene = buildScene(format, name, copy);
+    scene.logoKey = logo.path;
+    if (person) scene.figureKey = person.path;
+    if (device) scene.productKey = device.path;
+    if (energy && wantsProduct) scene.energyKey = energy.path;
+    otelo[format.id] = scene;
+  }
   const job: RenderJob = {
     formats: [],
     canvases: OTELO_FORMATS.map((format) => ({ id: format.id, w: format.w, h: format.h, label: `${format.channel} ${format.token}` })),
-    layouts: Object.fromEntries(OTELO_FORMATS.map((format) => [format.id, layout])),
+    layouts: {},
     state: emptyState(),
     images,
     fonts,
-    logos: [{ id: "wortmarke-weiss", name: logo.name, variant: "wide", dataUrl: logoUrl }],
-    ctas: cta && ctaUrl ? [{ id: "cta", name: cta.name, variant: "graphic", text: null, style: {}, dataUrl: ctaUrl }] : [],
+    logos: [],
+    ctas: [],
     stickers: [],
     safeZone: { x_pct: 5, y_pct: 5, w_pct: 90, h_pct: 90 },
+    otelo,
   };
   const output = await renderInBrowser(job);
   const labels = uniqueFormatLabels(OTELO_FORMATS.map((format) => ({ id: format.id, pixel: `${format.w}x${format.h}`, channel: format.channel })));
@@ -125,15 +186,19 @@ export async function renderTemplate(input: { name: "young" | "standard" | "hard
   }
   const token = await storePreview(`${randomUUID()}-kontakt.jpg`, Buffer.from(output.contactSheetBase64, "base64"));
   const hints = output.formats.flatMap((format) => format.hints.map((hint) => hint.sentence));
-  const fontHint = checkHeadlineFont("Titillium Web");
-  if (fontHint) hints.push(fontHint);
-  if (layout.splitAngle) {
-    for (const format of OTELO_FORMATS) {
-      const message = checkSplitAngle(layout.splitAngle, format.w, format.h);
-      if (message) hints.push(message);
-    }
-  }
-  return { name: input.name, motifName: motif.name, motifPath: motif.path, buttonName: cta?.name ?? null, token, jpeg: output.contactSheetBase64, formats, hints };
+  const motifName = [person?.name, device?.name].filter(Boolean).join(" + ");
+  return {
+    name,
+    motifName,
+    motifPath: (person ?? device)?.path ?? "",
+    buttonName: "Geist",
+    personFile: person?.name ?? "",
+    deviceFile: device?.name ?? "",
+    token,
+    jpeg: output.contactSheetBase64,
+    formats,
+    hints,
+  };
 }
 
 export async function oteloStatus(): Promise<string> {
@@ -152,5 +217,5 @@ export async function brandSummary(): Promise<string> {
   if (!raw) return "Für otelo liegt noch keine Marke auf dem Volume.";
   const marke = JSON.parse(raw) as { palette?: Array<{ name: string; hex: string }>; logos?: Array<{ name: string }> };
   const colors = (marke.palette ?? []).map((color) => `${color.name} ${color.hex}`).join(", ");
-  return `otelo. Farben: ${colors}. Logos: ${(marke.logos ?? []).map((logo) => logo.name).join(", ")}. Vorlagen: young, standard, hardware.`;
+  return `otelo. Farben: ${colors}. Logos: ${(marke.logos ?? []).map((logo) => logo.name).join(", ")}. Vorlagen: tarif, product, product_person, young.`;
 }

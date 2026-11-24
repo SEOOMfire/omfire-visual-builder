@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { drawOtelo } from "./otelo-paint";
 import { contactScale } from "../../../src/modules/visual-builder/contact-sheet";
 import { clampToZone, figureRect, formatOf, graphicBounds, placeInZone, zoneBox } from "../../../src/modules/visual-builder/layout";
 import type { RenderCanvas, RenderJob, RenderLayout, RenderOutput } from "../../../src/modules/visual-builder/render-protocol";
@@ -48,6 +49,7 @@ async function paint(job: RenderJob): Promise<RenderOutput> {
     await face.load();
     document.fonts.add(face);
   }
+  await document.fonts.ready;
   const results: RenderOutput["formats"] = [];
   const sheets: Array<{ label: string; canvas: HTMLCanvasElement }> = [];
   const frames: RenderCanvas[] = job.canvases?.length
@@ -65,6 +67,25 @@ async function paint(job: RenderJob): Promise<RenderOutput> {
     canvas.height = spec.h;
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Die Zeichenfläche steht nicht bereit.");
+    const scene = job.otelo?.[frame.id];
+    if (scene) {
+      const images: Record<string, HTMLImageElement | null> = {};
+      for (const key of [scene.figureKey, scene.productKey, scene.energyKey, scene.logoKey]) {
+        if (key) images[key] = await loadImage(job.images[key]);
+      }
+      const extra = drawOtelo(context, scene, images);
+      const pixelSize = `${spec.w}x${spec.h}`;
+      const hints = [...scene.hints, ...extra].map((sentence) => ({
+        format: frame.id,
+        pixelSize,
+        elements: [] as string[],
+        kind: "missing",
+        sentence,
+      }));
+      results.push({ format: frame.id, pixelSize, width: spec.w, height: spec.h, pngBase64: canvas.toDataURL("image/png").split(",")[1] ?? "", hints });
+      sheets.push({ label: `${spec.w}×${spec.h}`, canvas });
+      continue;
+    }
     const ink: Array<{ x: number; y: number; w: number; h: number; size: number }> = [];
     const original = context.fillText.bind(context);
     context.fillText = (text, x, y, maxWidth) => {
