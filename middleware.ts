@@ -35,5 +35,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/visual-builder/:path*", "/konto", "/login", "/auth/:path*", "/api/visual-builder/:path*", "/api/auth/:path*", "/api/account/:path*", "/internal/:path*", "/api/internal/:path*"],
+  matcher: ["/", "/visual-builder/:path*", "/konto", "/login", "/auth/:path*", "/api/visual-builder/:path*", "/api/auth/:path*", "/api/account/:path*", "/internal/:path*"],
 };
