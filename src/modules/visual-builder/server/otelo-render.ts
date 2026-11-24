@@ -40,8 +40,23 @@ function emptyState(): CreativeState {
 async function asDataUrl(relative: string): Promise<string> {
   const bytes = await readClientFile("otelo", relative);
   const ext = relative.split(".").pop()?.toLowerCase() ?? "png";
-  const mime = ext === "svg" ? "image/svg+xml" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
+  const mime = ext === "svg" ? "image/svg+xml"
+    : ext === "jpg" || ext === "jpeg" ? "image/jpeg"
+    : ext === "png" ? "image/png"
+    : ext === "ttf" ? "font/ttf"
+    : ext === "otf" ? "font/otf"
+    : ext === "woff" ? "font/woff"
+    : ext === "woff2" ? "font/woff2"
+    : "application/octet-stream";
   return `data:${mime};base64,${bytes.toString("base64")}`;
+}
+
+function pickModestProduct(files: { role: string; name: string; path: string }[]) {
+  const pngs = files.filter((file) => file.role === "produkt" && file.name.toLowerCase().endsWith(".png") && !file.name.toLowerCase().includes("logo"));
+  return pngs.find((file) => file.name.includes("1000px"))
+    ?? pngs.find((file) => /hero|180/i.test(file.name))
+    ?? pngs[0]
+    ?? null;
 }
 
 function pick(files: { role: string; name: string; path: string }[], role: string, includes?: string) {
@@ -55,7 +70,7 @@ export async function renderTemplate(name: "young" | "standard" | "hardware", he
   const logo = pick(files, "logo", "wortmarke_weiss") ?? pick(files, "logo", "weiss");
   const cta = pick(files, "button", "cta");
   const figure = pick(files, "figur", "young") ?? pick(files, "figur");
-  const product = pick(files, "produkt", "png") ?? pick(files, "produkt");
+  const product = pickModestProduct(files);
   const energy = pick(files, "energielabel", "class_arrows_ag_a.svg") ?? pick(files, "energielabel", "_a.");
   const font = pick(files, "schrift", "titillium");
   if (!logo || !figure) throw new Error("Logo oder Figur fehlt auf dem Volume.");

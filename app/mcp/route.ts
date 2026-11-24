@@ -33,7 +33,7 @@ function fail(id: unknown, message: string) {
   return Response.json({ jsonrpc: "2.0", id, error: { code: -32000, message } });
 }
 
-async function callTool(name: ToolName, args: Record<string, unknown>, origin: string): Promise<{ text: string; image?: string }> {
+async function callTool(name: ToolName, args: Record<string, unknown>, origin: string): Promise<{ text: string; image?: string; mime?: string }> {
   if (name === "ping_image") {
     const ping = await pingImage();
     const link = ping.token ? `${origin}/p/${ping.token}` : "";
@@ -62,7 +62,7 @@ async function callTool(name: ToolName, args: Record<string, unknown>, origin: s
     const sheet = await renderTemplate(nameOf, String(args.headline ?? ""), String(args.subline ?? ""));
     const link = `${origin}/p/${sheet.token}`;
     const hints = sheet.hints.length ? ` Hinweise: ${sheet.hints.slice(0, 4).join(" ")}` : "";
-    return { text: `Entwurf ${nameOf}. Kontaktbogen: ${link}.${hints}`, image: sheet.jpeg };
+    return { text: `Entwurf ${nameOf}. Kontaktbogen: ${link}.${hints}`, image: sheet.jpeg, mime: "image/jpeg" };
   }
   if (name === "check_guidelines") {
     const { checkOteloCopy } = await import("../../src/modules/visual-builder/server/otelo-rules");
@@ -108,7 +108,7 @@ export async function POST(request: Request) {
   const origin = new URL(request.url).origin;
   const result = await callTool(name, body.params?.arguments ?? {}, origin);
   const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [{ type: "text", text: result.text }];
-  if (result.image) content.push({ type: "image", data: result.image, mimeType: "image/png" });
+  if (result.image) content.push({ type: "image", data: result.image, mimeType: result.mime ?? "image/png" });
   return rpc(body.id, { content, isError: false });
 }
 

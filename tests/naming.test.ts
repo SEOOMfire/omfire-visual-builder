@@ -32,6 +32,12 @@ test("otelo names follow the files already in the library", () => {
   assert.equal(oteloFolder({
     channel: "Tiktok", quarter: "Q4", monthYear: "1126", campaign: "BW", motif: "S26", format: "9x16", audience: "Hardware-Standard",
   }), "Werbemittel/TikTok_1126/Tiktok_Q4_1126_BW/Hardware-Standard/Stills");
+  assert.equal(oteloFolder({
+    channel: "Meta", quarter: "Q4", monthYear: "1126", campaign: "BW", motif: "Xiaomi_UL", format: "9x16", audience: "Hardware-Standard",
+  }), "Werbemittel/Meta_1126/Meta_Q4_1126_BW/Hardware-Standard/Stills/9x16");
+  assert.equal(oteloFolder({
+    channel: "PMAX", quarter: "Q4", monthYear: "1126", campaign: "BW", motif: "P10a_Classic", format: "1200x628", audience: "Hardware-Standard",
+  }), "Werbemittel/PMAX_1126/PMAX_Q4_1126_BW/Stills/Hardware-Standard/P10a_Classic");
   assert.equal(nextVersion(["PMAX_Q4_1126_BW_S26_1200x628.png", "PMAX_Q4_1126_BW_S26_1200x628_v2.png"], "PMAX_Q4_1126_BW_S26_1200x628"), 3);
 });
 

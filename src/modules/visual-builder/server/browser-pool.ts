@@ -41,8 +41,10 @@ export async function renderInBrowser(job: RenderJob): Promise<RenderOutput> {
     const page = await context.newPage();
     try {
       const port = process.env.PORT || "3000";
-      const response = await page.goto(`http://127.0.0.1:${port}/internal/render`, { waitUntil: "domcontentloaded", timeout: 30_000 });
-      if (!response || response.status() >= 400) throw new Error("Die Render-Seite ist intern nicht erreichbar.");
+      const response = await page.goto(`http://127.0.0.1:${port}/internal/render?token=${encodeURIComponent(token)}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      if (!response || response.status() >= 400) {
+        throw new Error(`Die Render-Seite ist intern nicht erreichbar (${response?.status() ?? "keine Antwort"}).`);
+      }
       await page.waitForFunction("window.__vbReady === true", undefined, { timeout: 15_000 });
       return await page.evaluate((payload) => {
         const render = (window as unknown as { __vbRender?: (job: RenderJob) => Promise<RenderOutput> }).__vbRender;
