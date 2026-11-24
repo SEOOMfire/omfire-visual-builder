@@ -235,6 +235,29 @@ function drawCta(ctx: CanvasRenderingContext2D, scene: OteloScene) {
   });
 }
 
+function opaqueOverlap(image: HTMLImageElement, figure: { x: number; y: number; w: number; h: number }, texts: Array<{ x: number; y: number; w: number; h: number }>): boolean {
+  const sample = document.createElement("canvas");
+  sample.width = 24;
+  sample.height = 24;
+  const context = sample.getContext("2d", { willReadFrequently: true });
+  if (!context) return false;
+  context.drawImage(image, 0, 0, 24, 24);
+  const pixels = context.getImageData(0, 0, 24, 24).data;
+  for (const text of texts) {
+    for (let row = 1; row <= 2; row += 1) {
+      for (let col = 1; col <= 2; col += 1) {
+        const x = text.x + (text.w * col) / 3;
+        const y = text.y + (text.h * row) / 3;
+        if (x < figure.x || x > figure.x + figure.w || y < figure.y || y > figure.y + figure.h) continue;
+        const px = Math.min(23, Math.max(0, Math.floor(((x - figure.x) / figure.w) * 24)));
+        const py = Math.min(23, Math.max(0, Math.floor(((y - figure.y) / figure.h) * 24)));
+        if (pixels[(py * 24 + px) * 4 + 3] > 40) return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Record<string, HTMLImageElement | null>): string[] {
   const hints: string[] = [];
   const geist = document.fonts.check('700 32px "Geist"');
@@ -251,7 +274,20 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
     ctx.fill();
   }
   drawImageBox(ctx, scene.productKey ? images[scene.productKey] : null, scene.product, "center");
-  drawImageBox(ctx, scene.figureKey ? images[scene.figureKey] : null, scene.figure, scene.orangeSide === "rechts" ? "right" : "left");
+  const figureImage = scene.figureKey ? images[scene.figureKey] : null;
+  if (figureImage && scene.figure && scene.figureFlip) {
+    const box = scene.figure;
+    ctx.save();
+    ctx.translate(box.x + box.w / 2, box.y + box.h / 2);
+    ctx.scale(-1, 1);
+    ctx.drawImage(figureImage, -box.w / 2, -box.h / 2, box.w, box.h);
+    ctx.restore();
+  } else {
+    drawImageBox(ctx, figureImage, scene.figure, scene.orangeSide === "rechts" ? "right" : "left");
+  }
+  if (figureImage && scene.figure && opaqueOverlap(figureImage, scene.figure, [scene.headline.box, scene.subline.box])) {
+    hints.push(`Text überlappt deckende Pixel der Figur im ${scene.width}x${scene.height}.`);
+  }
   drawHeadline(ctx, scene);
   drawSubline(ctx, scene);
   drawBadge(ctx, scene);

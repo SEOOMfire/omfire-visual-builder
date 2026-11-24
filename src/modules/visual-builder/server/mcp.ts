@@ -31,6 +31,7 @@ export const MCP_INSTRUCTIONS = [
   "Hinweise immer nennen. Vor save_creative nachfragen.",
   "Bei einer CSV immer erst check_batch, danach run_batch.",
   "Fehlt eine Kampagne, nachfragen und nichts raten.",
+  "Sprachbefehle für adjust_creative immer in die festen Befehle übersetzen. Bei Unklarheit nachfragen, welches Element gemeint ist: headline, subline, stoerer, person, geraet, cta, logo, pflichttext, energielabel oder schraege.",
 ].join(" ");
 
 export function bearerToken(request: Request): string | null {

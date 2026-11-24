@@ -48,6 +48,7 @@ export async function POST(request: Request) {
         stoererTyp: "tarif",
         preis: "29,99 €",
         preisZusatz: "monatlich¹",
+        pflichttext: "Alle Preise inklusive MwSt. · otelo – eine Marke der Vodafone GmbH · Ferdinand-Braun-Platz 1 · 40549 Düsseldorf · otelo.de",
         produktname: "SAMSUNG Galaxy A56 5G",
       }));
     }

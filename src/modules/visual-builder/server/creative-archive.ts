@@ -5,7 +5,8 @@ import JSZip from "jszip";
 import { OTELO_FORMATS } from "../otelo-formats";
 import { clientRoot } from "./client-volume";
 import { namePart, nextVersion, oteloFileName, oteloFolder, type OteloName } from "./naming";
-import { DEFAULT_PFLICHTTEXT, normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
+import { applyToBook, newBook, type AdjustBook } from "./adjust-commands";
+import { normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
 import { renderTemplate, type RenderedCreative } from "./otelo-render";
 import { signPreview } from "./previews";
 
@@ -30,6 +31,9 @@ export type CreativeDraft = {
   headlineVariante: HeadlineVariant;
   orange: OrangeSide;
   produktname: string;
+  layoutBook?: AdjustBook;
+  glance?: string;
+  summary?: string;
 };
 
 const BLOCKING = /überlappt|unteren Rand|Orange-Anteil|Schrägteilung|CTA-Leiste|Fußnote|Ersatzschrift|mehr als/;
@@ -68,8 +72,9 @@ function requestFrom(draft: CreativeDraft) {
     aktionText: draft.aktionText,
     pflichttext: draft.pflichttext,
     headlineVariante: draft.headlineVariante,
-    orange: draft.orange,
+    orange: draft.layoutBook?.snap.orange ?? draft.orange,
     produktname: draft.produktname,
+    layout: draft.layoutBook?.snap,
   };
 }
 
@@ -121,6 +126,14 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   if (typeof change.pflichttext === "string") draft.pflichttext = change.pflichttext;
   if (typeof change.produktname === "string") draft.produktname = change.produktname;
   if (typeof change.button === "string") draft.button = change.button;
+  const spoken = typeof change.text === "string" ? change.text : typeof change.satz === "string" ? change.satz : "";
+  if (spoken || Array.isArray(change.befehle)) {
+    const result = applyToBook(draft.layoutBook ?? newBook(draft.orange), spoken || { befehle: change.befehle });
+    if (result.question) throw new Error(result.question);
+    draft.layoutBook = result.book;
+    draft.orange = result.book.snap.orange;
+    draft.summary = result.summary;
+  }
   const rendered = await renderTemplate(requestFrom(draft));
   if (rendered.deviceFile) draft.motiv = rendered.deviceFile;
   else if (rendered.personFile) draft.motiv = rendered.personFile;
@@ -146,10 +159,11 @@ export async function storeRenderedDraft(rendered: RenderedCreative, fields: Omi
     preisZusatz: fields.preisZusatz,
     einmalpreis: fields.einmalpreis,
     aktionText: fields.aktionText,
-    pflichttext: fields.pflichttext || DEFAULT_PFLICHTTEXT,
+    pflichttext: fields.pflichttext,
     headlineVariante: fields.headlineVariante,
     orange: fields.orange,
     produktname: fields.produktname,
+    layoutBook: newBook(fields.orange),
   };
   await writeDraft(draft);
   return draft;

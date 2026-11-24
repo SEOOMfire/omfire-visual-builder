@@ -12,12 +12,6 @@ Vier Vorlagen, jeweils in den sechs Formaten: `tarif`, `product`, `product_perso
 
 Die Schräge steigt durchgehend von links unten nach rechts oben. Orange liegt bei etwa einem Drittel der Fläche, ersatzweise bei der Hälfte. `orange` ist `links` oder `rechts` und lässt sich mit `adjust_creative` ändern. `headline_variante` ist `direkt` (Lime auf Schwarz) oder `box` (schwarze Treppen-Box mit weißer Kontur).
 
-Pflichttext im Motiv, abgeleitet aus den Stills und den Styleguide-Bannern:
+Pflichttext im Motiv, abgeleitet aus Stills unter `Werbemittel/` (PMax 1200×1200 Standard Classic, PMax 1200×628 S26, Meta 1:1 Standard Classic, TikTok 9:16 Standard Classic). In keiner dieser Dateien steht der lange Rechtssatz. Er ist deshalb bei PMax, Meta und TikTok optional und wird nur gezeichnet, wenn das Feld gefüllt ist.
 
-| Format | Pflichttext im Motiv |
-| --- | --- |
-| PMax 1200×1200, 1200×628, 960×1200 | ja, wie die Banner im Styleguide |
-| Meta 1:1 und 9:16 | nein, die Social-Stills tragen den langen Rechtssatz nicht |
-| TikTok 9:16 | nein |
-
-Ein Preis mit `¹` oder `*` ohne Pflichttext lässt sich nicht speichern. Fehlt das Feld, gilt der Standardsatz.
+Ein Preis mit `¹` oder `*` ohne Pflichttext lässt sich nicht speichern. Das ist eine Messung, keine Bildmeinung.

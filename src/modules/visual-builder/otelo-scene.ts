@@ -6,11 +6,14 @@ export const WHITE = "#FFFFFF";
 export const DEFAULT_PFLICHTTEXT =
   "Alle Preise inklusive MwSt. · otelo – eine Marke der Vodafone GmbH · Ferdinand-Braun-Platz 1 · 40549 Düsseldorf · otelo.de";
 
-/** Meta- und TikTok-Stills tragen den langen Rechtssatz nicht im Motiv. Die PMax-Formate folgen den Styleguide-Bannern. */
+/**
+ * Stichprobe aus Werbemittel/ (PMax 1200×1200 und 1200×628, Meta 1:1, TikTok 9:16):
+ * keines der Motive trägt den langen Rechtssatz. Der Pflichttext ist deshalb überall optional.
+ */
 export const PFLICHTTEXT_IN_MOTIV: Record<string, boolean> = {
-  "pmax-1200x1200": true,
-  "pmax-1200x628": true,
-  "pmax-960x1200": true,
+  "pmax-1200x1200": false,
+  "pmax-1200x628": false,
+  "pmax-960x1200": false,
   "meta-1x1": false,
   "meta-9x16": false,
   "tiktok-9x16": false,
@@ -48,6 +51,7 @@ export type OteloScene = {
   orangeRatio: number;
   orangeSide: OrangeSide;
   figure?: Box;
+  figureFlip?: boolean;
   figureKey?: string;
   product?: Box;
   productKey?: string;
@@ -207,10 +211,36 @@ export function priceNeedsLegal(copy: Pick<SceneCopy, "preis" | "preisZusatz" | 
   return /[¹*]/.test(priced) && !copy.pflichttext.trim();
 }
 
+type Shift = { dx?: number; dy?: number; scale?: number; flip?: boolean; hidden?: boolean };
+
+function moved(target: Box, shift: Shift | undefined, width: number, height: number): Box | undefined {
+  if (shift?.hidden) return undefined;
+  if (!shift) return target;
+  const scale = shift.scale && shift.scale > 0 ? shift.scale : 1;
+  const cx = target.x + target.w / 2 + ((shift.dx ?? 0) / 100) * width;
+  const cy = target.y + target.h / 2 + ((shift.dy ?? 0) / 100) * height;
+  return { x: cx - (target.w * scale) / 2, y: cy - (target.h * scale) / 2, w: target.w * scale, h: target.h * scale };
+}
+
+function pointInPolygon(x: number, y: number, points: readonly Pt[]): boolean {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
+    const [xi, yi] = points[i];
+    const [xj, yj] = points[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function outsideSafe(target: Box, width: number, height: number): boolean {
+  return target.x < width * 0.05 - 1 || target.y < height * 0.05 - 1 || target.x + target.w > width * 0.95 + 1 || target.y + target.h > height * 0.95 + 1;
+}
+
 export function buildScene(
   format: { id: string; w: number; h: number },
   name: VorlageName,
   copy: SceneCopy,
+  shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege", Shift>> = {},
 ): OteloScene {
   const { w, h } = format;
   const portrait = h > w;
@@ -233,7 +263,7 @@ export function buildScene(
   const headline = {
     lines,
     variant: copy.headlineVariante,
-    box: box(w * 0.05, h * 0.04, headlineWidth, (portrait ? h * 0.07 : h * 0.11) * Math.max(1, Math.min(2, lines.length))),
+    box: box(w * 0.055, h * 0.055, headlineWidth, (portrait ? h * 0.065 : h * 0.1) * Math.max(1, Math.min(2, lines.length))),
     step: w * 0.04,
   };
   const subLines = copy.subline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 4);
@@ -256,12 +286,28 @@ export function buildScene(
   };
   const logoW = Math.min(w, h) * 0.2;
   const logoH = logoW / 5.58;
-  const logo = copy.orange === "rechts"
-    ? { box: box(w * 0.05, h * 0.86, logoW, logoH), side: "left" as const }
-    : { box: box(w - logoW - w * 0.05, h * 0.86, logoW, logoH), side: "right" as const };
-  const pflicht = PFLICHTTEXT_IN_MOTIV[format.id] && copy.pflichttext.trim()
-    ? { text: copy.pflichttext.trim(), box: box(w * 0.05, h - Math.max(10, h * 0.018) - 4, w * 0.9, Math.max(8, h * 0.014)) }
+  let logoBox = copy.orange === "rechts"
+    ? box(w * 0.055, h * 0.78, logoW, logoH)
+    : box(w - logoW - w * 0.055, h * 0.78, logoW, logoH);
+  const corners = (target: Box): Pt[] => [[target.x, target.y], [target.x + target.w, target.y], [target.x, target.y + target.h], [target.x + target.w, target.y + target.h]];
+  for (let step = 0; step < 10 && corners(logoBox).some(([x, y]) => pointInPolygon(x, y, split.polygon)); step += 1) {
+    logoBox = { ...logoBox, y: logoBox.y - h * 0.025 };
+  }
+  const logo = { box: logoBox, side: (copy.orange === "rechts" ? "left" : "right") as "left" | "right" };
+  const placed = {
+    figure: figure ? moved(figure, shifts.person, w, h) : undefined,
+    product: product ? moved(product, shifts.geraet, w, h) : undefined,
+    energy: energy ? moved(energy, shifts.energielabel, w, h) : undefined,
+    headline: moved(headline.box, shifts.headline, w, h) ?? headline.box,
+    subline: moved(subline.box, shifts.subline, w, h) ?? subline.box,
+    stoerer: moved(stoerer.box, shifts.stoerer, w, h) ?? stoerer.box,
+    cta: moved(cta.box, shifts.cta, w, h) ?? cta.box,
+    logo: moved(logo.box, shifts.logo, w, h),
+  };
+  const pflichtBox = copy.pflichttext.trim()
+    ? moved(box(w * 0.05, h * 0.9, w * 0.7, Math.max(8, h * 0.016)), shifts.pflichttext, w, h)
     : undefined;
+  const pflicht = pflichtBox ? { text: copy.pflichttext.trim(), box: pflichtBox } : undefined;
   const hints: string[] = [];
   if (split.angle < (portrait ? 11 : 25) || split.angle > 45 || split.polygon.length < 3) {
     hints.push(`Die Schrägteilung hat ${split.angle} Grad im ${w}x${h}.`);
@@ -271,16 +317,18 @@ export function buildScene(
   if (!third && !half) {
     hints.push(`Der Orange-Anteil ist ${Math.round(split.ratio * 100)} Prozent im ${w}x${h}. Vorgabe ist etwa ein Drittel oder die Hälfte.`);
   }
-  if (figure && figure.y + figure.h < h - 1) {
+  if (placed.figure && placed.figure.y + placed.figure.h < h - 1) {
     hints.push(`Die Figur berührt den unteren Rand nicht im ${w}x${h}.`);
   }
   if (headline.lines.length > 2) hints.push(`Die Headline hat mehr als zwei Zeilen im ${w}x${h}.`);
   if (subline.lines.length > 3) hints.push(`Die Subline hat mehr als drei Zeilen im ${w}x${h}.`);
-  if (cta.box.w < w * 0.4 || cta.box.w > w * 0.55) hints.push(`Die CTA-Leiste hat nicht 40 bis 55 Prozent der Breite im ${w}x${h}.`);
-  if (figure) {
-    for (const item of [headline.box, subline.box]) {
-      if (overlaps(item, figure)) hints.push(`Text überlappt die Figur im ${w}x${h}.`);
-    }
+  if (placed.cta.w < w * 0.4 || placed.cta.w > w * 0.55) hints.push(`Die CTA-Leiste hat nicht 40 bis 55 Prozent der Breite im ${w}x${h}.`);
+  if (placed.logo && outsideSafe(placed.logo, w, h)) hints.push(`Das Logo liegt außerhalb der Schutzzone im ${w}x${h}.`);
+  if (placed.logo && pointInPolygon(placed.logo.x + placed.logo.w / 2, placed.logo.y + placed.logo.h / 2, split.polygon)) {
+    hints.push(`Die weiße Wortmarke liegt auf Orange im ${w}x${h}.`);
+  }
+  for (const item of [placed.headline, placed.subline, placed.cta]) {
+    if (outsideSafe(item, w, h)) hints.push(`Ein Element liegt außerhalb der sicheren Zone im ${w}x${h}.`);
   }
   if (priceNeedsLegal(copy)) hints.push("Zum Preis mit Fußnote fehlt der Pflichttext.");
   return {
@@ -291,15 +339,16 @@ export function buildScene(
     angle: split.angle,
     orangeRatio: split.ratio,
     orangeSide: copy.orange,
-    figure,
-    product,
-    energy,
+    figure: placed.figure,
+    figureFlip: Boolean(shifts.person?.flip),
+    product: placed.product,
+    energy: placed.energy,
     productName,
-    headline,
-    subline,
-    stoerer,
-    cta,
-    logo,
+    headline: { ...headline, box: placed.headline },
+    subline: { ...subline, box: placed.subline },
+    stoerer: { ...stoerer, box: placed.stoerer },
+    cta: { ...cta, box: placed.cta },
+    logo: placed.logo ? { ...logo, box: placed.logo } : { ...logo, box: { x: 0, y: 0, w: 0, h: 0 } },
     pflichttext: pflicht,
     hints,
   };

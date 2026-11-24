@@ -2,7 +2,11 @@ import { openRouterModelChain } from "./openrouter-policy";
 
 export const OPENROUTER_API_KEY_VARIABLE = "OPENROUTER_API_KEY";
 
-export type OpenRouterMessage = { role: "system" | "user" | "assistant"; content: string };
+export type OpenRouterContent =
+  | string
+  | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
+
+export type OpenRouterMessage = { role: "system" | "user" | "assistant"; content: OpenRouterContent };
 
 export type OpenRouterConfig = {
   apiKey: string | undefined;

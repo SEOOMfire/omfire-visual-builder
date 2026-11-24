@@ -13,7 +13,7 @@ const TOOLS = [
   { name: "brand_assets", description: "Logos, Buttons, Störer, Schriften, Sprachen und Vorlagen eines Kunden.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" } } } },
   { name: "search_motifs", description: "Sucht Motive nach Name, Ordner oder Ausrichtung.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" }, suche: { type: "string" } } } },
   { name: "compose_creative", description: "Baut einen Entwurf aus Vorlage, Motiv und Texten. Liefert Kontaktbogen, Links je Format, Hinweise und eine Entwurfs-ID.", inputSchema: { type: "object", required: ["kunde", "vorlage", "motiv"], properties: { kunde: { type: "string" }, vorlage: { type: "string" }, motiv: { type: "string" }, person: { type: "string" }, headline: { type: "string" }, subline: { type: "string" }, button: { type: "string" }, kampagne: { type: "string" }, stoerer_typ: { type: "string" }, preis: { type: "string" }, preis_zusatz: { type: "string" }, einmalpreis: { type: "string" }, aktion_text: { type: "string" }, pflichttext: { type: "string" }, headline_variante: { type: "string" }, orange: { type: "string" }, produktname: { type: "string" } } } },
-  { name: "adjust_creative", description: "Ändert einen Entwurf und liefert eine neue Vorschau.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" }, aenderung: { type: "object" } } } },
+  { name: "adjust_creative", description: "Ändert einen Entwurf per Sprache und liefert eine neue Version. Elemente: headline (Überschrift), subline (Unterzeile), stoerer (Störer/Preis/Raute), person (Frau/Model/Person), geraet (Gerät/Handy), cta (Button/CTA/Leiste), logo (Wortmarke), pflichttext, energielabel, schraege. Befehle: verschieben (oben/unten/links/rechts, etwas=3 Prozent, deutlich=10 Prozent), größer/kleiner, spiegeln, seite_tauschen, ausblenden/einblenden, text_ersetzen, stoerer_typ_wechseln, motiv_tauschen, vorlage_wechseln, rueckgaengig, Version wiederherstellen. Standard gilt für alle Formate, sonst z. B. nur 1200x628. Feld aenderung.text ist der Satz, aenderung.befehle die übersetzten Befehle.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" }, aenderung: { type: "object" } } } },
   { name: "translate", description: "Überträgt die Texte eines Entwurfs in weitere Sprachen.", inputSchema: { type: "object", required: ["entwurf", "sprachen"], properties: { entwurf: { type: "string" }, sprachen: { type: "array", items: { type: "string" } } } } },
   { name: "check_guidelines", description: "Prüft die Texte eines Entwurfs gegen die CI-Richtlinie.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" } } } },
   { name: "save_creative", description: "Speichert die PNG-Dateien und ein ZIP auf dem Volume und liefert signierte Links. Es wird nichts nach Drive geschrieben.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" }, kampagne: { type: "string" } } } },
@@ -42,6 +42,16 @@ function renderedText(intro: string, rendered: { motifName: string; token: strin
     hints: rendered.hints,
     extra: [rendered.buttonName ? `Button: ${rendered.buttonName}` : "", extra ?? ""].filter(Boolean).join(" "),
   });
+}
+
+async function attachReview(draft: { glance?: string; hints: string[] }, measured: string[], jpeg: string): Promise<string> {
+  const { readClientText } = await import("../../src/modules/visual-builder/server/client-volume");
+  const { glanceAt, pruefungText } = await import("../../src/modules/visual-builder/server/review");
+  const rules = await readClientText("otelo", "ci-richtlinie.md").catch(() => "");
+  draft.glance = await glanceAt(jpeg, rules ?? "");
+  draft.hints = measured;
+  await writeDraft(draft as Parameters<typeof writeDraft>[0]);
+  return pruefungText(measured, draft.glance);
 }
 
 async function callTool(name: ToolName, args: Record<string, unknown>): Promise<{ text: string; image?: string; mime?: string }> {
@@ -98,7 +108,7 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
       headline, subline, button, kampagne,
       stoererTyp: (text("stoerer_typ") as "tarif") || defaultStoerer(name),
       preis: text("preis") ?? "29,99 €",
-      preisZusatz: text("preis_zusatz") ?? "monatlich¹",
+      preisZusatz: text("preis_zusatz") ?? "monatlich",
       einmalpreis: text("einmalpreis") ?? "1 €",
       aktionText: text("aktion_text") ?? "",
       pflichttext: text("pflichttext") ?? "",
@@ -106,12 +116,17 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
       orange: text("orange") === "links" ? "links" : text("orange") === "rechts" ? "rechts" : defaultOrange(name),
       produktname: text("produktname") ?? "",
     });
-    return { text: renderedText(`Entwurf ${rendered.name}. ID ${draft.id}.`, rendered), image: rendered.jpeg, mime: "image/jpeg" };
+    const checked = await attachReview(draft, rendered.hints, rendered.jpeg);
+    return { text: `${renderedText(`Entwurf ${rendered.name}. ID ${draft.id}.`, rendered)}\n${checked}`, image: rendered.jpeg, mime: "image/jpeg" };
   }
   if (name === "adjust_creative") {
-    const change = args.aenderung && typeof args.aenderung === "object" ? args.aenderung as Record<string, unknown> : {};
+    const change = typeof args.aenderung === "string"
+      ? { text: args.aenderung }
+      : args.aenderung && typeof args.aenderung === "object" ? args.aenderung as Record<string, unknown> : {};
     const { draft, rendered } = await adjustCreative(String(args.entwurf ?? ""), change);
-    return { text: renderedText(`Entwurf ${draft.id} angepasst.`, rendered), image: rendered.jpeg, mime: "image/jpeg" };
+    const checked = await attachReview(draft, rendered.hints, rendered.jpeg);
+    const summary = draft.summary ? `${draft.summary}\n` : "";
+    return { text: `${summary}${renderedText(`Entwurf ${draft.id}, Version ${draft.layoutBook?.version ?? 1}.`, rendered)}\n${checked}`, image: rendered.jpeg, mime: "image/jpeg" };
   }
   if (name === "save_creative") {
     const id = String(args.entwurf ?? "");
@@ -137,8 +152,8 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
     const layout = draft ? blockingHints(draft.hints) : [];
     const ready = await readClientText("otelo", "ci-richtlinie.md");
     if (!ready) return { text: "Die CI-Richtlinie für otelo liegt noch nicht auf dem Volume." };
-    const messages = [...findings.map((finding) => finding.message), ...layout];
-    return { text: messages.length ? messages.join(" ") : "Der Text und das Layout bestehen die otelo-Prüfung." };
+    const { fullReport } = await import("../../src/modules/visual-builder/server/review");
+    return { text: fullReport([...(draft?.hints ?? []), ...findings.map((finding) => finding.message), ...layout], draft?.glance ?? "") };
   }
   if (name === "check_batch") {
     const { parseBatchCsv } = await import("../../src/modules/visual-builder/server/csv-batch");

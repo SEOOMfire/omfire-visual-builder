@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { OTELO_FORMATS } from "../otelo-formats";
-import { buildScene, defaultHeadline, defaultOrange, defaultStoerer, normalizeVorlage, DEFAULT_PFLICHTTEXT, type HeadlineVariant, type OrangeSide, type OteloScene, type SceneCopy, type StoererTyp, type VorlageName } from "../otelo-scene";
+import { type AdjustSnap, type ElementId } from "./adjust-commands";
+import { buildScene, defaultHeadline, defaultOrange, defaultStoerer, normalizeVorlage, type HeadlineVariant, type OrangeSide, type OteloScene, type SceneCopy, type StoererTyp, type VorlageName } from "../otelo-scene";
 import type { RenderJob } from "../render-protocol";
 import type { CreativeState } from "../types";
 import { renderInBrowser } from "./browser-pool";
@@ -89,6 +90,7 @@ export type RenderRequest = {
   headlineVariante?: string;
   orange?: string;
   produktname?: string;
+  layout?: AdjustSnap;
 };
 
 function products(files: ClientFile[]) {
@@ -127,10 +129,10 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     button: input.button?.trim() || "Jetzt sichern auf **otelo.de**",
     stoererTyp: asStoerer(input.stoererTyp, defaultStoerer(name)),
     preis: input.preis?.trim() || "29,99 €",
-    preisZusatz: input.preisZusatz?.trim() || "monatlich¹",
+    preisZusatz: input.preisZusatz?.trim() || "monatlich",
     einmalpreis: input.einmalpreis?.trim() || "1 €",
     aktionText: input.aktionText?.trim() || "",
-    pflichttext: input.pflichttext === undefined ? DEFAULT_PFLICHTTEXT : input.pflichttext.trim(),
+    pflichttext: input.pflichttext?.trim() ?? "",
     headlineVariante: asHeadline(input.headlineVariante, defaultHeadline(name)),
     orange: asOrange(input.orange, defaultOrange(name)),
     produktname: input.produktname?.trim() || (device ? device.name.replace(/\.[a-z0-9]+$/i, "").replace(/_/g, " ") : ""),
@@ -157,7 +159,18 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
   }
   const otelo: Record<string, OteloScene> = {};
   for (const format of OTELO_FORMATS) {
-    const scene = buildScene(format, name, copy);
+    const elements: ElementId[] = ["headline", "subline", "stoerer", "person", "geraet", "cta", "logo", "pflichttext", "energielabel", "schraege"];
+    const shifts = Object.fromEntries(elements.map((element) => {
+      const parts = ["*", format.id, format.token, `${format.w}x${format.h}`].map((key) => input.layout?.nudges[key]?.[element]).filter((item) => item);
+      return [element, {
+        dx: parts.reduce((sum, item) => sum + (item?.dx ?? 0), 0),
+        dy: parts.reduce((sum, item) => sum + (item?.dy ?? 0), 0),
+        scale: parts.reduce((product, item) => product * (item?.scale ?? 1), 1),
+        flip: parts.some((item) => item?.flip),
+        hidden: parts.some((item) => item?.hidden),
+      }];
+    }));
+    const scene = buildScene(format, name, copy, shifts);
     scene.logoKey = logo.path;
     if (person) scene.figureKey = person.path;
     if (device) scene.productKey = device.path;
