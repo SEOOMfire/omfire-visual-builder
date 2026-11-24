@@ -46,6 +46,6 @@ export async function loadPreview(token: string): Promise<{ bytes: Buffer; conte
   const root = process.env.FILE_STORAGE_ROOT?.trim();
   if (!root) return null;
   const bytes = await readFile(join(root, relative));
-  const contentType = relative.endsWith(".png") ? "image/png" : "image/jpeg";
+  const contentType = relative.endsWith(".png") ? "image/png" : relative.endsWith(".zip") ? "application/zip" : "image/jpeg";
   return { bytes, contentType };
 }

@@ -25,6 +25,8 @@ type PrincipalRow = {
 };
 
 export const MCP_INSTRUCTIONS = [
+  "Gib Vorschauen immer als Markdown-Bild mit dem gelieferten Link aus.",
+  "Nenne den Dateinamen des Motivs aus der Antwort.",
   "Ablauf: erst system_status, dann brand_assets des Kunden, dann compose_creative.",
   "Hinweise immer nennen. Vor save_creative nachfragen.",
   "Bei einer CSV immer erst check_batch, danach run_batch.",

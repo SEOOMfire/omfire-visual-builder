@@ -28,13 +28,18 @@ export type RenderLayout = {
   figure?: FigureBox;
   logoId?: string | null;
   logoScale: number;
+  logoPos?: { x_pct: number; y_pct: number } | null;
   ctaId?: string | null;
   ctaText?: string;
   ctaScale: number;
+  ctaPos?: { x_pct: number; y_pct: number } | null;
+  /** Degrees of the orange split, rising from left to right. */
+  splitAngle?: number;
   productPath?: string | null;
   productBox?: FigureBox;
   productLogoPath?: string | null;
   energyPath?: string | null;
+  energyBox?: { x_pct: number; y_pct: number; h_pct: number };
 };
 
 /** Everything the browser needs to paint. Images are data URLs, paths are the keys of `images`. */

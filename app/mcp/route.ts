@@ -1,4 +1,7 @@
-import { MCP_INSTRUCTIONS, bearerToken, driveNextStep, pingImage, principalFromToken, systemStatus } from "../../src/modules/visual-builder/server/mcp";
+import { adjustCreative, readDraft, saveCreative, signedPath, storeRenderedDraft, writeDraft } from "../../src/modules/visual-builder/server/creative-archive";
+import { MCP_INSTRUCTIONS, bearerToken, pingImage, principalFromToken, systemStatus } from "../../src/modules/visual-builder/server/mcp";
+import { markdownPreview } from "../../src/modules/visual-builder/server/preview-text";
+import { previewUrl } from "../../src/modules/visual-builder/server/public-url";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -7,20 +10,17 @@ const TOOLS = [
   { name: "ping_image", description: "Gibt ein kleines Testbild zurück, damit sichtbar wird, ob Bilder im Chat ankommen.", inputSchema: { type: "object", properties: {} } },
   { name: "system_status", description: "Sagt in Klartext, was bereit ist und was noch fehlt.", inputSchema: { type: "object", properties: {} } },
   { name: "list_clients", description: "Kunden, auf die diese Person Zugriff hat.", inputSchema: { type: "object", properties: {} } },
-  { name: "init_client", description: "Legt die Drive-Ordnerstruktur und Beispieldateien für einen neuen Kunden an.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" } } } },
-  { name: "sync_client", description: "Liest _system eines Kunden und schreibt den gültigen Stand in den Zwischenspeicher.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" } } } },
   { name: "brand_assets", description: "Logos, Buttons, Störer, Schriften, Sprachen und Vorlagen eines Kunden.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" } } } },
   { name: "search_motifs", description: "Sucht Motive nach Name, Ordner oder Ausrichtung.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" }, suche: { type: "string" } } } },
   { name: "compose_creative", description: "Baut einen Entwurf aus Vorlage, Motiv und Texten. Liefert Kontaktbogen, Links, Hinweise und eine Entwurfs-ID.", inputSchema: { type: "object", required: ["kunde", "vorlage", "motiv"], properties: { kunde: { type: "string" }, vorlage: { type: "string" }, motiv: { type: "string" }, headline: { type: "string" }, subline: { type: "string" }, button: { type: "string" }, kampagne: { type: "string" } } } },
   { name: "adjust_creative", description: "Ändert einen Entwurf und liefert eine neue Vorschau.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" }, aenderung: { type: "object" } } } },
   { name: "translate", description: "Überträgt die Texte eines Entwurfs in weitere Sprachen.", inputSchema: { type: "object", required: ["entwurf", "sprachen"], properties: { entwurf: { type: "string" }, sprachen: { type: "array", items: { type: "string" } } } } },
   { name: "check_guidelines", description: "Prüft die Texte eines Entwurfs gegen die CI-Richtlinie.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" } } } },
-  { name: "save_creative", description: "Speichert nur einen bestandenen Entwurf und legt die Dateien im Drive ab. Sonst nur Hinweise.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" }, kampagne: { type: "string" } } } },
+  { name: "save_creative", description: "Speichert einen bestandenen Entwurf auf dem Volume und liefert die PNG-Links und ein ZIP.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" }, kampagne: { type: "string" } } } },
   { name: "check_batch", description: "Prüft jede Zeile einer CSV, ohne Dateien zu erzeugen.", inputSchema: { type: "object", required: ["kunde", "datei"], properties: { kunde: { type: "string" }, datei: { type: "string" } } } },
   { name: "run_batch", description: "Startet den geprüften Stapel im Hintergrund.", inputSchema: { type: "object", required: ["kunde", "datei"], properties: { kunde: { type: "string" }, datei: { type: "string" }, nur_zeilen: { type: "array", items: { type: "integer" } } } } },
   { name: "batch_status", description: "Fortschritt eines Hintergrundauftrags.", inputSchema: { type: "object", required: ["auftrag"], properties: { auftrag: { type: "string" } } } },
   { name: "list_archive", description: "Letzte Werbemittel eines Kunden.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" }, kampagne: { type: "string" } } } },
-  { name: "open_in_editor", description: "Link zum Entwurf oder Archiv-Eintrag im Editor.", inputSchema: { type: "object", properties: { entwurf: { type: "string" }, archiv: { type: "string" } } } },
 ] as const;
 
 type ToolName = (typeof TOOLS)[number]["name"];
@@ -33,11 +33,22 @@ function fail(id: unknown, message: string) {
   return Response.json({ jsonrpc: "2.0", id, error: { code: -32000, message } });
 }
 
-async function callTool(name: ToolName, args: Record<string, unknown>, origin: string): Promise<{ text: string; image?: string; mime?: string }> {
+function renderedText(intro: string, rendered: { motifName: string; token: string; formats: Array<{ label: string; token: string }>; hints: string[]; buttonName: string | null }, extra?: string) {
+  return markdownPreview({
+    intro,
+    motifName: rendered.motifName,
+    contactUrl: previewUrl(rendered.token),
+    formats: rendered.formats.map((format) => ({ label: format.label, url: previewUrl(format.token) })),
+    hints: rendered.hints,
+    extra: [rendered.buttonName ? `Button: ${rendered.buttonName}` : "", extra ?? ""].filter(Boolean).join(" "),
+  });
+}
+
+async function callTool(name: ToolName, args: Record<string, unknown>): Promise<{ text: string; image?: string; mime?: string }> {
   if (name === "ping_image") {
     const ping = await pingImage();
-    const link = ping.token ? `${origin}/p/${ping.token}` : "";
-    return { text: link ? `${ping.note} ${link}` : ping.note, image: ping.base64 };
+    const link = ping.token ? previewUrl(ping.token) : "";
+    return { text: link ? `${ping.note}\n![Testbild](${link})` : ping.note, image: ping.base64 };
   }
   if (name === "system_status") return { text: await systemStatus() };
   if (name === "list_clients") {
@@ -59,18 +70,45 @@ async function callTool(name: ToolName, args: Record<string, unknown>, origin: s
     const { renderTemplate } = await import("../../src/modules/visual-builder/server/otelo-render");
     const vorlage = String(args.vorlage ?? "young");
     const nameOf = vorlage === "standard" || vorlage === "hardware" ? vorlage : "young";
-    const sheet = await renderTemplate(nameOf, String(args.headline ?? ""), String(args.subline ?? ""));
-    const link = `${origin}/p/${sheet.token}`;
-    const hints = sheet.hints.length ? ` Hinweise: ${sheet.hints.slice(0, 4).join(" ")}` : "";
-    return { text: `Entwurf ${nameOf}. Kontaktbogen: ${link}.${hints}`, image: sheet.jpeg, mime: "image/jpeg" };
+    const headline = String(args.headline ?? "");
+    const subline = String(args.subline ?? "");
+    const button = String(args.button ?? "");
+    const kampagne = String(args.kampagne ?? "");
+    const rendered = await renderTemplate({ name: nameOf, motiv: String(args.motiv ?? ""), headline, subline });
+    const draft = await storeRenderedDraft(rendered, { headline, subline, button, kampagne });
+    return { text: renderedText(`Entwurf ${rendered.name}. ID ${draft.id}.`, rendered), image: rendered.jpeg, mime: "image/jpeg" };
+  }
+  if (name === "adjust_creative") {
+    const change = args.aenderung && typeof args.aenderung === "object" ? args.aenderung as Record<string, unknown> : {};
+    const { draft, rendered } = await adjustCreative(String(args.entwurf ?? ""), change);
+    return { text: renderedText(`Entwurf ${draft.id} angepasst.`, rendered), image: rendered.jpeg, mime: "image/jpeg" };
+  }
+  if (name === "save_creative") {
+    const id = String(args.entwurf ?? "");
+    if (typeof args.kampagne === "string" && args.kampagne.trim()) {
+      const existing = await readDraft(id);
+      if (existing) {
+        existing.kampagne = args.kampagne;
+        await writeDraft(existing);
+      }
+    }
+    const saved = await saveCreative(id);
+    const links = saved.files.map((file) => `[${file.label}](${previewUrl(signedPath(file.relative))})`).join(" ");
+    const zip = `[ZIP](${previewUrl(signedPath(saved.zipRelative))})`;
+    return { text: `Gespeichert als ${saved.quarter} ${saved.monthYear}.\nMotiv: ${saved.draft.motiv}\n${links}\n${zip}` };
   }
   if (name === "check_guidelines") {
     const { checkOteloCopy } = await import("../../src/modules/visual-builder/server/otelo-rules");
     const { readClientText } = await import("../../src/modules/visual-builder/server/client-volume");
-    const findings = checkOteloCopy(String(args.text ?? args.headline ?? ""));
+    const { blockingHints } = await import("../../src/modules/visual-builder/server/creative-archive");
+    const id = String(args.entwurf ?? "");
+    const draft = /^[0-9a-f-]{36}$/i.test(id) ? await readDraft(id) : null;
+    const findings = checkOteloCopy(draft ? `${draft.headline}\n${draft.subline}` : String(args.text ?? args.headline ?? ""));
+    const layout = draft ? blockingHints(draft.hints) : [];
     const ready = await readClientText("otelo", "ci-richtlinie.md");
     if (!ready) return { text: "Die CI-Richtlinie für otelo liegt noch nicht auf dem Volume." };
-    return { text: findings.length ? findings.map((finding) => finding.message).join(" ") : "Der Text besteht die otelo-Prüfung." };
+    const messages = [...findings.map((finding) => finding.message), ...layout];
+    return { text: messages.length ? messages.join(" ") : "Der Text und das Layout bestehen die otelo-Prüfung." };
   }
   if (name === "check_batch") {
     const { parseBatchCsv } = await import("../../src/modules/visual-builder/server/csv-batch");
@@ -78,9 +116,7 @@ async function callTool(name: ToolName, args: Record<string, unknown>, origin: s
     if (parsed.errors.length) return { text: parsed.errors.join(" ") };
     return { text: `${parsed.rows.length} von ${parsed.rows.length} Zeilen gelesen. Speichern prüft jede Zeile einzeln.` };
   }
-  if (name === "open_in_editor") return { text: "Einen Editor-Link gibt es nicht. Feinarbeit geht über adjust_creative." };
-  if (name === "init_client" || name === "sync_client") return { text: "Die Dateien kommen über den Import auf das Volume, nicht über Drive." };
-  return { text: driveNextStep() || "Für diesen Schritt fehlt noch ein Entwurf. Ruf zuerst compose_creative auf." };
+  return { text: "Dieser Schritt ist noch nicht an der Reihe. compose_creative, adjust_creative und save_creative arbeiten auf dem Volume." };
 }
 
 export async function POST(request: Request) {
@@ -100,13 +136,18 @@ export async function POST(request: Request) {
   }
   if (body.method !== "tools/call") return fail(body.id, "Diese MCP-Methode wird nicht unterstützt.");
   const secret = bearerToken(request);
-  if (!secret) return fail(body.id, "Der Aufruf braucht einen API-Schlüssel. Lege ihn unter /konto an und sende Authorization: Bearer oder x-api-key.");
+  if (!secret) return fail(body.id, "Der Aufruf braucht einen API-Schlüssel. Lege ihn im Coolify-Terminal an: npm run create-key -- --email … --name … --tenant otelo. Sende ihn als Authorization: Bearer oder x-api-key.");
   const person = await principalFromToken(secret).catch(() => null);
   if (!person) return fail(body.id, "Der API-Schlüssel ist ungültig oder widerrufen.");
   const name = body.params?.name as ToolName | undefined;
   if (!name || !TOOLS.some((tool) => tool.name === name)) return fail(body.id, "Dieses Werkzeug kenne ich nicht.");
-  const origin = new URL(request.url).origin;
-  const result = await callTool(name, body.params?.arguments ?? {}, origin);
+  let result: { text: string; image?: string; mime?: string };
+  try {
+    result = await callTool(name, body.params?.arguments ?? {});
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Der Aufruf ist fehlgeschlagen.";
+    return fail(body.id, message);
+  }
   const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [{ type: "text", text: result.text }];
   if (result.image) content.push({ type: "image", data: result.image, mimeType: result.mime ?? "image/png" });
   return rpc(body.id, { content, isError: false });

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
-import { clampToZone, figureRect, formatOf, placeInZone, zoneBox } from "../../../src/modules/visual-builder/layout";
-import type { RenderCanvas, RenderJob, RenderOutput } from "../../../src/modules/visual-builder/render-protocol";
+import { contactScale } from "../../../src/modules/visual-builder/contact-sheet";
+import { clampToZone, figureRect, formatOf, graphicBounds, placeInZone, zoneBox } from "../../../src/modules/visual-builder/layout";
+import type { RenderCanvas, RenderJob, RenderLayout, RenderOutput } from "../../../src/modules/visual-builder/render-protocol";
 import { badgeRect, ctaLabel, drawCanvas, stickerSize, textCtaMetrics } from "../../../src/modules/visual-builder/render";
 import type { CtaPlacement, LogoPlacement, Rect } from "../../../src/modules/visual-builder/types";
 import { layoutHints, type MeasuredElement } from "../../../src/modules/visual-builder/server/layout-hints";
@@ -104,18 +105,20 @@ async function paint(job: RenderJob): Promise<RenderOutput> {
       fontFamily: state.fontFamily,
       logo,
       logoPlacement: state.logoPlacement[format] ?? "bottom-left",
-      logoPos: state.logoPos[format],
+      logoPos: layout?.logoPos ?? state.logoPos[format],
       logoScale: layout?.logoScale ?? state.logoScale[format],
       cta: ctaAsset ? { ...ctaAsset, url: ctaAsset.dataUrl } : null,
       ctaText: layout?.ctaText ?? state.ctaText[format],
       ctaImg: ctaImage,
       ctaPlacement: layout ? (layout.ctaId ? "bottom-left" : "none") : state.ctaPlacement[format],
-      ctaPos: state.ctaPos[format],
+      ctaPos: layout?.ctaPos ?? state.ctaPos[format],
       ctaScale: layout?.ctaScale ?? state.ctaScale[format],
+      splitAngle: layout?.splitAngle,
       product,
       productBox: layout?.productBox,
       productLogo,
       energyLabel,
+      energyBox: layout?.energyBox,
       safeZone: job.safeZone,
       emptyLabel: "Motiv fehlt",
       ctaFont: state.fontFamily,
@@ -123,7 +126,7 @@ async function paint(job: RenderJob): Promise<RenderOutput> {
       badgeFont: state.fontFamily,
       stickers,
     });
-    const elements = measureElements(format, spec.w, spec.h, job, ink, context);
+    const elements = measureElements(format, spec.w, spec.h, job, ink, context, layout, logo, ctaImage, figure);
     const hints = layoutHints(frame.id, zoneBox(job.safeZone, spec.w, spec.h), elements, `${spec.w}x${spec.h}`);
     if (product && !energyLabel) {
       hints.push({
@@ -155,6 +158,10 @@ function measureElements(
   job: RenderJob,
   ink: Array<{ x: number; y: number; w: number; h: number; size: number }>,
   context: CanvasRenderingContext2D,
+  layout: RenderLayout | undefined,
+  logoImage: HTMLImageElement | null,
+  ctaImage: HTMLImageElement | null,
+  figureImage: HTMLImageElement | null,
 ): MeasuredElement[] {
   const state = job.state;
   const shorter = Math.min(width, height);
@@ -196,9 +203,25 @@ function measureElements(
       elements.push({ name: "Button", box: placedBox(state.ctaPos[format], state.ctaPlacement[format], metrics.width, metrics.height, job.safeZone, width, height) });
     }
   }
-  const figurePath = state.figurePaths?.[format];
-  if (figurePath && state.figure?.[format]) {
-    elements.push({ name: "Figur", box: figureRect(state.figure[format], 0.45, width, height) });
+  if (layout?.logoId && logoImage) {
+    elements.push({
+      name: "Logo",
+      box: graphicBounds(layout.logoScale, logoImage.width / logoImage.height, layout.logoPos ?? null, "bottom-left", job.safeZone, width, height),
+    });
+  }
+  if (layout?.ctaId && ctaImage) {
+    elements.push({
+      name: "Button",
+      box: graphicBounds(layout.ctaScale, ctaImage.width / ctaImage.height, layout.ctaPos ?? null, "bottom-left", job.safeZone, width, height),
+    });
+  }
+  if (layout?.figure && figureImage) {
+    elements.push({ name: "Figur", box: figureRect(layout.figure, figureImage.width / figureImage.height, width, height) });
+  } else {
+    const figurePath = state.figurePaths?.[format];
+    if (figurePath && state.figure?.[format]) {
+      elements.push({ name: "Figur", box: figureRect(state.figure[format], 0.45, width, height) });
+    }
   }
   for (const sticker of state.stickers?.[format] ?? []) {
     const size = stickerSize(sticker, 1, width, height);
@@ -234,7 +257,7 @@ function contactSheet(sheets: Array<{ label: string; canvas: HTMLCanvasElement }
   const gap = 16;
   const rawWidth = sheets.reduce((sum, sheet) => sum + sheet.canvas.width, 0) + gap * (sheets.length + 1);
   const rawHeight = Math.max(...sheets.map((sheet) => sheet.canvas.height)) + labelHeight + gap * 2;
-  const scale = 1400 / Math.max(rawWidth, rawHeight);
+  const scale = contactScale(rawWidth, rawHeight);
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(rawWidth * scale));
   canvas.height = Math.max(1, Math.round(rawHeight * scale));

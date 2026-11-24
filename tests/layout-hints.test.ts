@@ -25,3 +25,12 @@ test("text below the shrink threshold and outside the safe zone is reported", ()
   assert.deepEqual(hints.map((hint) => hint.kind).sort(), ["clipped", "safe-zone", "shrunk"]);
   assert.match(hints.find((hint) => hint.kind === "shrunk")!.sentence, /stark verkleinert im 1080x1080/);
 });
+
+test("a short button on 1080x1080 is named, and it reports the overlap", () => {
+  const hints = layoutHints("meta-1x1", zone, [
+    { name: "Button", box: { x: 80, y: 900, w: 420, h: 30 } },
+    { name: "Logo", box: { x: 80, y: 860, w: 220, h: 60 } },
+  ], "1080x1080");
+  assert.equal(hints.some((hint) => hint.kind === "small" && hint.sentence === "Der Button ist zu klein im 1080x1080."), true);
+  assert.equal(hints.some((hint) => hint.kind === "overlap" && hint.elements.includes("Button") && hint.elements.includes("Logo")), true);
+});

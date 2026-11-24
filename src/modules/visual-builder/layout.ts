@@ -131,6 +131,27 @@ export function clampToZone(x: number, y: number, w: number, h: number, zone: Re
   };
 }
 
+/** Width comes from `scalePct` of the shorter side. Height follows the image aspect. Position is the top-left. */
+export function graphicBounds(
+  scalePct: number,
+  widthOverHeight: number,
+  pos: { x_pct: number; y_pct: number } | null,
+  placement: LogoPlacement | CtaPlacement,
+  zone: Rect,
+  width: number,
+  height: number,
+): { x: number; y: number; w: number; h: number } {
+  const shorter = Math.min(width, height);
+  const w = (scalePct / 100) * shorter;
+  const h = widthOverHeight > 0 ? w / widthOverHeight : w;
+  const pad = shorter * 0.03;
+  const raw = pos
+    ? { x: (pos.x_pct / 100) * width, y: (pos.y_pct / 100) * height }
+    : placeInZone(placement, w, h, zone, width, height, pad);
+  const clamped = clampToZone(raw.x, raw.y, w, h, zone, width, height);
+  return { x: clamped.x, y: clamped.y, w, h };
+}
+
 /** Preset position relative to the safe zone instead of the image edge. */
 export function placeInZone(
   placement: LogoPlacement | CtaPlacement,

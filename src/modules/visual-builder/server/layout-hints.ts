@@ -9,7 +9,7 @@ export type LayoutHint = {
   format: string;
   pixelSize: string;
   elements: HintElement[];
-  kind: "overlap" | "safe-zone" | "shrunk" | "clipped" | "missing";
+  kind: "overlap" | "safe-zone" | "shrunk" | "clipped" | "missing" | "small";
   sentence: string;
 };
 
@@ -24,6 +24,14 @@ export type MeasuredElement = {
 };
 
 const SHRINK_RATIO = 0.75;
+/** A Leiste shorter than this, relative to the shorter canvas side, is too small to read. */
+export const MIN_BUTTON_HEIGHT_RATIO = 0.06;
+
+function shorterSide(pixelSize: string): number {
+  const match = /^(\d+)x(\d+)$/.exec(pixelSize);
+  if (!match) return 0;
+  return Math.min(Number(match[1]), Number(match[2]));
+}
 
 function pixelLabel(format: string): string {
   if (format === "1x1" || format === "191x1" || format === "1x191") return formatPixelSize(format);
@@ -74,6 +82,15 @@ export function layoutHints(format: string, zone: Box, elements: readonly Measur
         elements: [element.name],
         kind: "safe-zone",
         sentence: `${element.name} liegt außerhalb der sicheren Zone im ${pixelSize}.`,
+      });
+    }
+    if (element.name === "Button" && element.box.h < shorterSide(pixelSize) * MIN_BUTTON_HEIGHT_RATIO) {
+      push({
+        format,
+        pixelSize,
+        elements: ["Button"],
+        kind: "small",
+        sentence: `Der Button ist zu klein im ${pixelSize}.`,
       });
     }
     if (element.clipped) {

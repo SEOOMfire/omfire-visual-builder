@@ -38,7 +38,32 @@ export type DrawOptions = {
   productLogo?: HTMLImageElement | null;
   energyLabel?: HTMLImageElement | null;
   energyBox?: { x_pct: number; y_pct: number; h_pct: number };
+  /** Orange wedge under the content. The angle is the rise of its top edge. */
+  splitAngle?: number;
 };
+
+/** Orange below a diagonal of `angleDeg`, kept in the lower part of the canvas so the rise stays the given angle. */
+export function drawOrangeSplit(ctx: CanvasRenderingContext2D, width: number, height: number, angleDeg: number) {
+  const slope = Math.tan((angleDeg * Math.PI) / 180);
+  const rise = Math.min(height * 0.34, Math.max(8, slope * width * 0.45));
+  const run = slope > 0 ? rise / slope : width;
+  const x1 = Math.max(0, width / 2 - run / 2);
+  const x2 = Math.min(width, x1 + run);
+  const y2 = height * 0.66;
+  const y1 = y2 + rise;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(0, y1);
+  ctx.lineTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.lineTo(width, y2);
+  ctx.lineTo(width, height);
+  ctx.lineTo(0, height);
+  ctx.closePath();
+  ctx.fillStyle = "#FA5A14";
+  ctx.fill();
+  ctx.restore();
+}
 
 /** Button text as typed; `**…**` marks bold parts (e.g. the domain in an arrow bar). */
 export function ctaLabel(cta: CtaAsset, text: string | undefined): string {
@@ -109,6 +134,7 @@ export function drawCanvas(o: DrawOptions): void {
   } else if (o.bgColor || o.figure) {
     ctx.fillStyle = o.bgColor || "#000000";
     ctx.fillRect(0, 0, o.w, o.h);
+    if (o.splitAngle) drawOrangeSplit(ctx, o.w, o.h, o.splitAngle);
   } else {
     ctx.fillStyle = "#e5e5e5";
     ctx.fillRect(0, 0, o.w, o.h);

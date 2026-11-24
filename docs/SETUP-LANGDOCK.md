@@ -2,7 +2,7 @@
 
 1. In Langdock eine MCP-Integration anlegen.
 2. URL: `https://visual-builder.coolify-host-0.omx.services/mcp`
-3. Authentifizierung: API-Schlüssel. Jede Person erzeugt ihren eigenen unter `https://visual-builder.coolify-host-0.omx.services/konto` und trägt ihn als Bearer ein. `x-api-key` wird ebenfalls akzeptiert.
+3. Authentifizierung: API-Schlüssel. Im Coolify-Terminal des Containers: `npm run create-key -- --email … --name … --tenant otelo`. Den einmalig gedruckten Schlüssel als Bearer eintragen. `x-api-key` wird ebenfalls akzeptiert. Die Seite `/konto` ist aus.
 4. `ping_image` muss ein kleines Bild im Chat zeigen und einen Link `/p/…` nennen.
 5. `system_status` nennt, was noch fehlt.
 
