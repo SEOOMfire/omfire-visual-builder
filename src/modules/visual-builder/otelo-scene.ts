@@ -334,7 +334,7 @@ function buildKachel(
   const tiktok = format.id === "tiktok-9x16";
   const flip = copy.orange === "links";
   const left = w * 0.06;
-  const headW = wide ? w * 0.58 : tall ? w * (tiktok ? 0.74 : 0.8) : w * 0.86;
+  const headW = wide ? w * 0.5 : tall ? w * (tiktok ? 0.66 : 0.74) : w * 0.78;
   const headH = tall ? h * 0.062 : wide ? h * 0.15 : h * 0.11;
   const headY = tall ? h * 0.134 : h * 0.055;
   const headline = {

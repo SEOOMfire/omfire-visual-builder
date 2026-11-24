@@ -324,19 +324,27 @@ function drawWaves(ctx: CanvasRenderingContext2D, width: number, height: number,
   ctx.restore();
 }
 
-function drawArrows(ctx: CanvasRenderingContext2D, x: number, y: number, height: number) {
-  const colors = ["#D7EB00", "#7C8A00", "#2C3300"];
-  let cursor = x + height * 0.04;
+function drawArrows(ctx: CanvasRenderingContext2D, x: number, y: number, fontSize: number) {
+  const colors = ["#D7EB00", "#818D00", "#414700"];
+  const height = fontSize * 0.72;
+  const top = y + fontSize * 0.14;
+  const notch = height * (21.606 / 73.924);
+  const mid = height * (36.962 / 73.924);
+  const tip = height * (58.568 / 73.924);
+  const step = height * (41.08 / 73.924);
+  let cursor = x + fontSize * 0.08;
   for (let index = 0; index < 3; index += 1) {
-    ctx.fillStyle = colors[index] ?? "#2C3300";
+    ctx.fillStyle = colors[index] ?? "#414700";
     ctx.beginPath();
-    ctx.moveTo(cursor, y);
-    ctx.lineTo(cursor + height * 0.42, y + height / 2);
-    ctx.lineTo(cursor, y + height);
-    ctx.lineTo(cursor + height * 0.14, y + height / 2);
+    ctx.moveTo(cursor, top);
+    ctx.lineTo(cursor + mid, top + height / 2);
+    ctx.lineTo(cursor, top + height);
+    ctx.lineTo(cursor + notch, top + height);
+    ctx.lineTo(cursor + tip, top + height / 2);
+    ctx.lineTo(cursor + notch, top);
     ctx.closePath();
     ctx.fill();
-    cursor += height * 0.34;
+    cursor += step;
   }
 }
 
