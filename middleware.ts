@@ -7,7 +7,7 @@ export function middleware(request: NextRequest) {
     return new NextResponse(null, { status: 404 });
   }
   const loggedIn = Boolean(request.cookies.get("vb-session")?.value);
-  if (path.startsWith("/visual-builder") && !loggedIn) {
+  if ((path.startsWith("/visual-builder") || path.startsWith("/konto")) && !loggedIn) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
   if (path === "/login" && loggedIn) {
@@ -16,4 +16,4 @@ export function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-export const config = { matcher: ["/visual-builder/:path*", "/login", "/internal/:path*", "/api/internal/:path*"] };
+export const config = { matcher: ["/visual-builder/:path*", "/konto", "/login", "/internal/:path*", "/api/internal/:path*"] };

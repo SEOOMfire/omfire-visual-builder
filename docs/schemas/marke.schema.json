@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://visual-builder.omfire.local/schemas/marke.schema.json",
+  "title": "Marke",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schriften", "palette", "sprachen", "sichereZonen", "benennung"],
+  "properties": {
+    "schriften": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headline", "body"],
+      "properties": {
+        "headline": { "$ref": "#/$defs/fontRole" },
+        "body": { "$ref": "#/$defs/fontRole" },
+        "button": { "$ref": "#/$defs/fontRole" },
+        "stoerer": { "$ref": "#/$defs/fontRole" }
+      }
+    },
+    "palette": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "hex"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "hex": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" }
+        }
+      }
+    },
+    "standardfarben": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headline": { "type": "string" },
+        "body": { "type": "string" },
+        "flaeche": { "type": "string" }
+      }
+    },
+    "buttons": { "type": "array", "items": { "$ref": "#/$defs/button" } },
+    "stoerer": { "type": "array", "items": { "$ref": "#/$defs/badge" } },
+    "logos": { "type": "array", "items": { "$ref": "#/$defs/logo" } },
+    "sprachen": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["code", "bezeichnung", "aktiv"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "type": "string", "pattern": "^[a-z]{2,3}$" },
+          "bezeichnung": { "type": "string" },
+          "aktiv": { "type": "boolean" }
+        }
+      }
+    },
+    "sichereZonen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["1080x1080", "1200x628", "1080x1920"],
+      "properties": {
+        "1080x1080": { "$ref": "#/$defs/rect" },
+        "1200x628": { "$ref": "#/$defs/rect" },
+        "1080x1920": { "$ref": "#/$defs/rect" }
+      }
+    },
+    "benennung": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ordner": { "type": "string", "description": "Überschreibt ausgabe/{kampagne}/{jjjj-mm}, mit {kampagne} und {monat}." },
+        "datei": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "fontRole": {
+      "type": "object",
+      "required": ["datei", "gewicht", "stil"],
+      "additionalProperties": false,
+      "properties": {
+        "datei": { "type": "string", "description": "Dateiname unter schriften/" },
+        "gewicht": { "type": "integer", "minimum": 100, "maximum": 900 },
+        "stil": { "type": "string", "enum": ["normal", "italic"] }
+      }
+    },
+    "rect": {
+      "type": "object",
+      "required": ["x_pct", "y_pct", "w_pct", "h_pct"],
+      "additionalProperties": false,
+      "properties": {
+        "x_pct": { "type": "number" },
+        "y_pct": { "type": "number" },
+        "w_pct": { "type": "number" },
+        "h_pct": { "type": "number" }
+      }
+    },
+    "button": {
+      "type": "object",
+      "required": ["name", "art"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "art": { "type": "string", "enum": ["text", "grafik"] },
+        "form": { "type": "string", "enum": ["tag", "arrow", "pill", "outline"] },
+        "farben": { "type": "object" },
+        "schrift": { "type": "string" },
+        "datei": { "type": "string" }
+      }
+    },
+    "badge": {
+      "type": "object",
+      "required": ["name", "form", "zeilen", "farben"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "form": { "type": "string", "enum": ["price-box", "diamond", "burst", "circle", "box"] },
+        "zeilen": { "type": "array" },
+        "farben": { "type": "object" }
+      }
+    },
+    "logo": {
+      "type": "object",
+      "required": ["datei", "variante", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "datei": { "type": "string" },
+        "variante": { "type": "string", "enum": ["square", "wide"] },
+        "name": { "type": "string" }
+      }
+    }
+  }
+}

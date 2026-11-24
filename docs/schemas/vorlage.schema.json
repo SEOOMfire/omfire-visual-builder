@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://visual-builder.omfire.local/schemas/vorlage.schema.json",
+  "title": "Vorlage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "beschreibung", "formate"],
+  "properties": {
+    "name": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "beschreibung": { "type": "string", "minLength": 8, "description": "Wofür die Vorlage gedacht ist, für Mensch und Aufruf." },
+    "formate": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "1080x1080": { "$ref": "#/$defs/layout" },
+        "1200x628": { "$ref": "#/$defs/layout" },
+        "1080x1920": { "$ref": "#/$defs/layout" }
+      }
+    }
+  },
+  "$defs": {
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["textkaesten"],
+      "properties": {
+        "textkaesten": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "object", "description": "Platzhalter für Headline und Subline, ohne festen Werbetext." }
+        },
+        "logo": { "type": "object" },
+        "button": { "type": "object" },
+        "figur": { "type": "object" },
+        "stoerer": { "type": "array" },
+        "sticker": { "type": "array" }
+      }
+    }
+  }
+}
