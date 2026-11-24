@@ -11,3 +11,4 @@
 - Die Oberfläche ist aus, solange `ENABLE_WEB_UI` beim Bauen nicht `true` ist. Der Wert wird beim Image-Bau gelesen, nicht erst zur Laufzeit.
 - Google Drive bleibt unverbunden und ist kein Fehler. Der Export dafür bleibt im Code, kommt zuletzt.
 - Das Repo bleibt öffentlich, bis der Deploy-Key in der Coolify-Oberfläche hängt.
+- Drei Pixel-9a-Wallpapers, je rund 240 MB, liegen nicht auf dem Volume. Ein einzelner Upload würde das ganze Bild im Prozess halten.

@@ -5,9 +5,9 @@ import { RenderStage } from "./stage";
 
 export const dynamic = "force-dynamic";
 
-export default async function RenderPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
+export default async function RenderPage({ searchParams }: { searchParams?: Promise<{ token?: string }> }) {
   const header = (await headers()).get("x-render-token");
-  const query = (await searchParams).token;
-  if (!renderAuthorized(header ?? query ?? null)) notFound();
+  const query = searchParams ? (await searchParams)?.token : undefined;
+  if (!renderAuthorized(header || query || null)) notFound();
   return <RenderStage />;
 }

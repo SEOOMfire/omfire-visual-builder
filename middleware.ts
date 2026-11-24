@@ -18,7 +18,8 @@ function isWebUiPath(path: string): boolean {
 export function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const host = request.nextUrl.hostname;
-  if (path.startsWith("/internal") && host !== "localhost" && host !== "127.0.0.1") {
+  const renderToken = request.nextUrl.searchParams.get("token") || request.headers.get("x-render-token");
+  if (path.startsWith("/internal") && host !== "localhost" && host !== "127.0.0.1" && !renderToken) {
     return new NextResponse(null, { status: 404 });
   }
   if (!webUiEnabled() && isWebUiPath(path)) {
