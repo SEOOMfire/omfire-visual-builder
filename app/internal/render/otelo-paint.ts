@@ -85,7 +85,7 @@ function drawDiamond(ctx: CanvasRenderingContext2D, scene: OteloScene) {
   const { box, preis, zusatz } = scene.stoerer;
   const cx = box.x + box.w / 2;
   const cy = box.y + box.h / 2;
-  const s = box.w * 0.62;
+  const s = box.w * 0.72;
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(Math.PI / 4);
@@ -99,11 +99,12 @@ function drawDiamond(ctx: CanvasRenderingContext2D, scene: OteloScene) {
   const lines = scene.stoerer.typ === "ohne_preis"
     ? ["Nur", zusatz || "im Fachhandel"].filter(Boolean)
     : ["Nur", preis || "29,99 €", zusatz || "monatlich¹"];
-  const size = box.w * (lines.length > 2 ? 0.09 : 0.12);
+  const middle = box.w * (lines.length > 2 ? 0.15 : 0.18);
   lines.forEach((line, index) => {
-    const weight = index === 1 && scene.stoerer.typ !== "ohne_preis" ? 800 : 600;
-    ctx.font = face(weight, size, "Geist");
-    ctx.fillText(line, cx, cy + (index - (lines.length - 1) / 2) * size * 1.15);
+    const price = index === 1 && scene.stoerer.typ !== "ohne_preis";
+    const size = price ? middle : middle * 0.62;
+    ctx.font = face(price ? 800 : 600, size, "Geist");
+    ctx.fillText(line, cx, cy + (index - (lines.length - 1) / 2) * middle * 1.05);
   });
 }
 
