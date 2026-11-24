@@ -1,5 +1,6 @@
 import { openRouterComplete, openRouterConfig } from "../../../platform/ai/openrouter";
 import { blockingHints } from "./creative-archive";
+import { readClientFile } from "./client-volume";
 
 const MODEL_VARIABLE = "VISUAL_BUILDER_OPENROUTER_MODEL";
 
@@ -21,15 +22,20 @@ export function fullReport(measured: readonly string[], glance: string): string 
 export async function glanceAt(jpegBase64: string, rules: string): Promise<string> {
   const config = openRouterConfig(MODEL_VARIABLE, "anthropic/claude-sonnet-5.5");
   if (!config.configured || !jpegBase64) return "";
+  const reference = await readClientFile("otelo", "files/referenz/styleguide-seite-4.jpg").catch(() => null);
+  const images: Array<{ type: "image_url"; image_url: { url: string } }> = [
+    { type: "image_url", image_url: { url: `data:image/jpeg;base64,${jpegBase64}` } },
+  ];
+  if (reference) images.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${reference.toString("base64")}` } });
   try {
     const text = await openRouterComplete({
       messages: [
-        { role: "system", content: "Du vergleichst ein Werbemotiv mit der CI. Höchstens fünf kurze deutsche Sätze. Wenn es passt, beginne mit Bestanden. Kein Modellname." },
+        { role: "system", content: "Du vergleichst ein Werbemotiv mit der CI und, falls vorhanden, mit dem zweiten Bild als Referenz. Höchstens fünf kurze deutsche Sätze. Wenn es passt, beginne mit Bestanden. Kein Modellname." },
         {
           role: "user",
           content: [
-            { type: "text", text: `Richtlinie:\n${rules.slice(0, 3500)}` },
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${jpegBase64}` } },
+            { type: "text", text: `Richtlinie:\n${rules.slice(0, 3500)}\nDas erste Bild ist der Entwurf, das zweite die Referenz.` },
+            ...images,
           ],
         },
       ],
