@@ -6,14 +6,14 @@ import { previewUrl } from "../../src/modules/visual-builder/server/public-url";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const TOOLS = [
+export const TOOLS = [
   { name: "ping_image", description: "Gibt ein kleines Testbild zurück, damit sichtbar wird, ob Bilder im Chat ankommen.", inputSchema: { type: "object", properties: {} } },
   { name: "system_status", description: "Sagt in Klartext, was bereit ist und was noch fehlt.", inputSchema: { type: "object", properties: {} } },
   { name: "list_clients", description: "Kunden, auf die diese Person Zugriff hat.", inputSchema: { type: "object", properties: {} } },
   { name: "brand_assets", description: "Logos, Buttons, Störer, Schriften, Sprachen und Vorlagen eines Kunden.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" } } } },
   { name: "search_motifs", description: "Sucht Motive nach Name, Ordner oder Ausrichtung.", inputSchema: { type: "object", required: ["kunde"], properties: { kunde: { type: "string" }, suche: { type: "string" } } } },
-  { name: "compose_creative", description: "Baut einen Entwurf aus Vorlage, Motiv und Texten. Vorlagen: tarif, young, product, product_person, kachel_person, kachel_geraet, kachel_geraet_person. Kampagne BW setzt Wellen und Headline-Pfeile, fruehling_sommer die Blätter. Liefert Kontaktbogen, Links je Format, Hinweise und eine Entwurfs-ID.", inputSchema: { type: "object", required: ["kunde", "vorlage", "motiv"], properties: { kunde: { type: "string" }, vorlage: { type: "string" }, motiv: { type: "string" }, person: { type: "string" }, headline: { type: "string" }, subline: { type: "string" }, unterzeile: { type: "string" }, button: { type: "string" }, kampagne: { type: "string" }, stoerer_typ: { type: "string" }, preis: { type: "string" }, preis_zusatz: { type: "string" }, einmalpreis: { type: "string" }, einmalpreis_zusatz: { type: "string" }, aktion_text: { type: "string" }, pflichttext: { type: "string" }, headline_variante: { type: "string" }, orange: { type: "string" }, produktname: { type: "string" }, datenmenge: { type: "string" }, datenmenge_alt: { type: "string" }, stern_text: { type: "string" }, deko: { type: "string" }, geraet_name: { type: "string" } } } },
-  { name: "adjust_creative", description: "Ändert einen Entwurf per Sprache und liefert eine neue Version. Den Satz des Nutzers unverändert in aenderung.text geben. Das Element steht vor dem Verb, jeder Teilsatz gilt für sich: „Frau spiegeln“ betrifft die Person, nicht den Störer. Größen: etwas 5 Prozent, ohne Zusatz 15 Prozent, deutlich 25 Prozent. Verschieben: etwas 3 Prozent, ohne Zusatz 6 Prozent, deutlich 12 Prozent. Spiegeln dreht das Bild horizontal. „Auf die andere Seite“ tauscht das ganze Layout. Elemente: headline, subline, stoerer (Störer/Preis/Raute), person (Frau/Model), geraet, cta (Button/Leiste), logo, pflichttext, energielabel, schraege. Standard gilt für alle Formate.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" }, aenderung: { type: "object" } } } },
+  { name: "compose_creative", description: "Baut einen Entwurf. Felder immer setzen, wenn der Nutzer sie nennt: headline, unterzeile, datenmenge, datenmenge_alt, preis, preis_zusatz, stern_text, deko, einmalpreis, einmalpreis_zusatz, geraet_name, button, kampagne. Vorlagen: tarif, young, product, product_person, kachel_person, kachel_geraet, kachel_geraet_person. deko ist bw_wellen, fruehling_blaetter oder keine. Kampagne BW setzt Wellen, fruehling_sommer die Blätter.", inputSchema: { type: "object", required: ["kunde", "vorlage", "motiv"], properties: { kunde: { type: "string", description: "Kunde, zum Beispiel otelo." }, vorlage: { type: "string", description: "tarif, young, product, product_person, kachel_person, kachel_geraet oder kachel_geraet_person." }, motiv: { type: "string", description: "Dateiname des Motivs." }, person: { type: "string", description: "Person, wenn das Gerät ein eigenes Motiv ist." }, headline: { type: "string", description: "Headline, zum Beispiel BLACK WEEK." }, subline: { type: "string", description: "Unterzeile." }, unterzeile: { type: "string", description: "Unterzeile, gleicher Inhalt wie subline." }, button: { type: "string", description: "Text der CTA-Leiste. Leer lässt die Leiste weg." }, kampagne: { type: "string", description: "BW oder fruehling_sommer." }, datenmenge: { type: "string", description: "Datenmenge im grünen Teil, zum Beispiel 150 GB." }, datenmenge_alt: { type: "string", description: "Durchgestrichener Altwert, zum Beispiel 50 GB." }, preis: { type: "string", description: "Preis, zum Beispiel 19,99 €." }, preis_zusatz: { type: "string", description: "Zusatz unter dem Preis, Standard pro Monat." }, einmalpreis: { type: "string", description: "Einmalpreis der Gerät-Kachel." }, einmalpreis_zusatz: { type: "string", description: "Zusatz zum Einmalpreis." }, stern_text: { type: "string", description: "Text im Stern, zum Beispiel YOUNG DEAL." }, deko: { type: "string", description: "bw_wellen, fruehling_blaetter oder keine." }, geraet_name: { type: "string", description: "Gerätename unten rechts." }, stoerer_typ: { type: "string" }, aktion_text: { type: "string" }, pflichttext: { type: "string" }, headline_variante: { type: "string" }, orange: { type: "string" }, produktname: { type: "string" } } } },
+  { name: "adjust_creative", description: "Ändert einen Entwurf per Sprache. Den Satz unverändert in aenderung.text geben. Wellen stärker, Wellen schwächer und Deko weg sind gültige Befehle. Nicht erkannte Teilsätze werden genannt, nie verworfen.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string", description: "Entwurfs-ID." }, aenderung: { type: "object", description: "Objekt mit text: der Satz des Nutzers." } } } },
   { name: "translate", description: "Überträgt die Texte eines Entwurfs in weitere Sprachen.", inputSchema: { type: "object", required: ["entwurf", "sprachen"], properties: { entwurf: { type: "string" }, sprachen: { type: "array", items: { type: "string" } } } } },
   { name: "check_guidelines", description: "Prüft die Texte eines Entwurfs gegen die CI-Richtlinie.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" } } } },
   { name: "save_creative", description: "Speichert die PNG-Dateien und ein ZIP auf dem Volume und liefert signierte Links. Es wird nichts nach Drive geschrieben.", inputSchema: { type: "object", required: ["entwurf"], properties: { entwurf: { type: "string" }, kampagne: { type: "string" } } } },
@@ -83,50 +83,37 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
   }
   if (name === "compose_creative") {
     const { renderTemplate } = await import("../../src/modules/visual-builder/server/otelo-render");
-    const text = (key: string) => typeof args[key] === "string" ? String(args[key]) : undefined;
-    const headline = text("headline") ?? "";
-    const subline = text("subline") ?? text("unterzeile") ?? "";
-    const button = text("button") ?? "";
-    const kampagne = text("kampagne") ?? "";
+    const { creativeInput } = await import("../../src/modules/visual-builder/server/creative-archive");
+    const fields = creativeInput(args);
     const rendered = await renderTemplate({
       name: String(args.vorlage ?? "young"),
       motiv: String(args.motiv ?? ""),
-      person: text("person"),
-      headline: text("headline"),
-      subline: text("subline"),
-      button: text("button"),
-      stoererTyp: text("stoerer_typ"),
-      preis: text("preis"),
-      preisZusatz: text("preis_zusatz"),
-      einmalpreis: text("einmalpreis"),
-      aktionText: text("aktion_text"),
-      pflichttext: text("pflichttext"),
-      headlineVariante: text("headline_variante"),
-      orange: text("orange"),
-      produktname: text("produktname"),
-      datenmenge: text("datenmenge"),
-      datenmengeAlt: text("datenmenge_alt"),
-      einmalpreisZusatz: text("einmalpreis_zusatz"),
-      sternText: text("stern_text"),
-      deko: text("deko"),
-      geraetName: text("geraet_name"),
-      kampagne: text("kampagne"),
+      ...fields,
     });
     const { defaultHeadline, defaultOrange, defaultStoerer, normalizeVorlage } = await import("../../src/modules/visual-builder/otelo-scene");
     const name = normalizeVorlage(String(args.vorlage ?? "young"));
     const draft = await storeRenderedDraft(rendered, {
       motiv: String(args.motiv ?? ""),
-      person: text("person") ?? "",
-      headline, subline, button, kampagne,
-      stoererTyp: (text("stoerer_typ") as "tarif") || defaultStoerer(name),
-      preis: text("preis") ?? "29,99 €",
-      preisZusatz: text("preis_zusatz") ?? "monatlich",
-      einmalpreis: text("einmalpreis") ?? "1 €",
-      aktionText: text("aktion_text") ?? "",
-      pflichttext: text("pflichttext") ?? "",
-      headlineVariante: text("headline_variante") === "box" ? "box" : text("headline_variante") === "direkt" ? "direkt" : defaultHeadline(name),
-      orange: text("orange") === "links" ? "links" : text("orange") === "rechts" ? "rechts" : defaultOrange(name),
-      produktname: text("produktname") ?? "",
+      person: fields.person ?? "",
+      headline: fields.headline ?? "",
+      subline: fields.subline ?? "",
+      button: fields.button ?? "",
+      kampagne: fields.kampagne ?? "",
+      stoererTyp: (fields.stoererTyp as "tarif") || defaultStoerer(name),
+      preis: fields.preis ?? "29,99 €",
+      preisZusatz: fields.preisZusatz ?? "pro Monat",
+      einmalpreis: fields.einmalpreis ?? "",
+      aktionText: fields.aktionText ?? "",
+      pflichttext: fields.pflichttext ?? "",
+      headlineVariante: fields.headlineVariante === "box" ? "box" : fields.headlineVariante === "direkt" ? "direkt" : defaultHeadline(name),
+      orange: fields.orange === "links" ? "links" : fields.orange === "rechts" ? "rechts" : defaultOrange(name),
+      produktname: fields.produktname ?? "",
+      datenmenge: fields.datenmenge,
+      datenmengeAlt: fields.datenmengeAlt,
+      einmalpreisZusatz: fields.einmalpreisZusatz,
+      sternText: fields.sternText,
+      deko: fields.deko,
+      geraetName: fields.geraetName,
     });
     const checked = await attachReview(draft, rendered.hints, rendered.jpeg);
     return { text: `${renderedText(`Entwurf ${rendered.name}. ID ${draft.id}.`, rendered)}\n${checked}`, image: rendered.jpeg, mime: "image/jpeg" };

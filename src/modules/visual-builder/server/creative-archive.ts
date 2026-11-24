@@ -63,7 +63,42 @@ function audience(name: VorlageName): string {
   return "Standard";
 }
 
-function requestFrom(draft: CreativeDraft) {
+function textOf(args: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+/** One reading of the tool arguments, shared by the first render and the saved draft. */
+export function creativeInput(args: Record<string, unknown>) {
+  const deko = textOf(args, "deko");
+  return {
+    headline: textOf(args, "headline"),
+    subline: textOf(args, "subline", "unterzeile"),
+    button: typeof args.button === "string" ? args.button.trim() : undefined,
+    person: textOf(args, "person"),
+    kampagne: textOf(args, "kampagne"),
+    stoererTyp: textOf(args, "stoerer_typ", "stoererTyp"),
+    preis: textOf(args, "preis"),
+    preisZusatz: textOf(args, "preis_zusatz", "preisZusatz"),
+    einmalpreis: textOf(args, "einmalpreis"),
+    einmalpreisZusatz: textOf(args, "einmalpreis_zusatz", "einmalpreisZusatz"),
+    aktionText: textOf(args, "aktion_text", "aktionText"),
+    pflichttext: textOf(args, "pflichttext"),
+    headlineVariante: textOf(args, "headline_variante", "headlineVariante"),
+    orange: textOf(args, "orange"),
+    produktname: textOf(args, "produktname", "geraet_name", "geraetName"),
+    datenmenge: textOf(args, "datenmenge"),
+    datenmengeAlt: textOf(args, "datenmenge_alt", "datenmengeAlt"),
+    sternText: textOf(args, "stern_text", "sternText"),
+    deko: deko === "bw_wellen" || deko === "fruehling_blaetter" || deko === "keine" ? deko : undefined,
+    geraetName: textOf(args, "geraet_name", "geraetName"),
+  };
+}
+
+export function fieldsForRender(draft: CreativeDraft) {
   return {
     name: draft.vorlage,
     motiv: draft.motiv,
@@ -139,6 +174,13 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   if (typeof change.pflichttext === "string") draft.pflichttext = change.pflichttext;
   if (typeof change.produktname === "string") draft.produktname = change.produktname;
   if (typeof change.button === "string") draft.button = change.button;
+  if (typeof change.unterzeile === "string" && change.unterzeile.trim() && typeof change.subline !== "string") draft.subline = change.unterzeile.trim();
+  if (typeof change.datenmenge === "string") draft.datenmenge = change.datenmenge;
+  if (typeof change.datenmenge_alt === "string") draft.datenmengeAlt = change.datenmenge_alt;
+  if (typeof change.stern_text === "string") draft.sternText = change.stern_text;
+  if (typeof change.einmalpreis_zusatz === "string") draft.einmalpreisZusatz = change.einmalpreis_zusatz;
+  if (typeof change.geraet_name === "string") draft.geraetName = change.geraet_name;
+  if (change.deko === "bw_wellen" || change.deko === "fruehling_blaetter" || change.deko === "keine") draft.deko = change.deko;
   const spoken = typeof change.text === "string" ? change.text : typeof change.satz === "string" ? change.satz : "";
   if (!spoken && !Array.isArray(change.befehle)) {
     const result = applyToBook(draft.layoutBook ?? newBook(draft.orange), { befehle: [] });
@@ -152,11 +194,16 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
     draft.orange = result.book.snap.orange;
     draft.summary = result.summary;
   }
-  const rendered = await renderTemplate(requestFrom(draft));
+  const rendered = await renderTemplate(fieldsForRender(draft));
   if (rendered.deviceFile) draft.motiv = rendered.deviceFile;
   else if (rendered.personFile) draft.motiv = rendered.personFile;
   if (rendered.personFile && draft.vorlage === "product_person") draft.person = rendered.personFile;
   draft.hints = rendered.hints;
+  const notes = [...new Set(rendered.hints.filter((hint) => hint.includes("Maximum vergrößert")).map((hint) => hint.replace(/^Hinweis: /, "").replace(/\.$/, "")))];
+  if (notes.length) {
+    const base = (draft.summary ?? "").replace(/\.\s*$/, "");
+    draft.summary = `${base}${base ? ", " : ""}${notes.join(", ")}.`;
+  }
   await writeDraft(draft);
   return { draft, rendered };
 }
@@ -211,7 +258,7 @@ export async function saveCreative(id: string, now = new Date()): Promise<{
   const draft = await readDraft(id);
   if (!draft) throw new Error("Diesen Entwurf kenne ich nicht. Ruf zuerst compose_creative auf.");
   if (!draft.kampagne.trim()) throw new Error("Die Kampagne fehlt. Nenne sie, dann kann ich ablegen.");
-  const rendered = await renderTemplate(requestFrom(draft));
+  const rendered = await renderTemplate(fieldsForRender(draft));
   const blocked = blockingHints(rendered.hints);
   if (blocked.length) throw new Error(`Nicht gespeichert. ${blocked.join(" ")}`);
   const { quarter, monthYear } = archivePeriod(now);

@@ -17,12 +17,14 @@
     "revoke-key": "node scripts/keys.mjs revoke"
   },
   "dependencies": {
+    "jpeg-js": "^0.4.4",
     "jszip": "^3.10.2",
     "lucide-react": "^1.34.0",
     "mammoth": "^1.13.0",
     "next": "16.4.1",
     "pdfjs-dist": "^6.5.438",
     "playwright-core": "^1.65.1",
+    "pngjs": "^7.0.0",
     "postgres": "^3.4.9",
     "react": "19.3.0",
     "react-dom": "19.3.0",

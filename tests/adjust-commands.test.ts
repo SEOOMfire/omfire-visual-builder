@@ -33,6 +33,21 @@ test("Headline kleiner nur im 1200x628 stays on that format", () => {
   assert.equal(mergedNudge(step.book.snap, "1080x1080", "headline").scale, 1);
 });
 
+test("the live sentence grows the headline, the waves and the woman", () => {
+  const step = applyToBook(newBook(), "Headline deutlich größer, Wellen stärker, Frau etwas größer");
+  assert.equal(mergedNudge(step.book.snap, "meta-1x1", "headline").scale, 1.25);
+  assert.equal(mergedNudge(step.book.snap, "meta-1x1", "deko").scale, 1.25);
+  assert.equal(mergedNudge(step.book.snap, "meta-1x1", "person").scale, 1.05);
+  assert.match(step.summary, /Wellen 25 % stärker/);
+});
+
+test("an unknown clause is named and the rest still applies", () => {
+  const step = applyToBook(newBook(), "Headline etwas größer, blabla");
+  assert.equal(step.question, undefined);
+  assert.equal(mergedNudge(step.book.snap, "meta-1x1", "headline").scale, 1.05);
+  assert.match(step.summary, /Nicht verstanden: blabla/);
+});
+
 test("rückgängig restores the previous version as a new one", () => {
   const moved = applyToBook(newBook(), "Störer etwas tiefer");
   const back = applyToBook(moved.book, "rückgängig");

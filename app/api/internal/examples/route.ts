@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   if (!renderAuthorized(request.headers.get("x-render-token"))) {
     return Response.json({ message: "Nicht gefunden." }, { status: 404 });
   }
-  const payload = await request.json().catch(() => null) as { probe?: boolean; ping?: boolean; only?: string; custom?: Record<string, unknown>; publish?: string } | null;
+  const payload = await request.json().catch(() => null) as { probe?: boolean; ping?: boolean; only?: string; custom?: Record<string, unknown>; publish?: string; glance?: boolean } | null;
   if (payload?.ping) {
     const ping = await pingImage();
     const url = ping.token ? previewUrl(ping.token) : "";
@@ -36,12 +36,16 @@ export async function POST(request: Request) {
   if (payload?.custom && typeof payload.custom.name === "string" && typeof payload.custom.motiv === "string") {
     try {
       const sheet = await renderTemplate(payload.custom as Parameters<typeof renderTemplate>[0]);
+      const glance = payload.glance
+        ? await (await import("../../../../src/modules/visual-builder/server/review")).glanceAt(sheet.jpeg, "Vergleiche den Entwurf mit dem Referenzbanner. Höchstens fünf kurze deutsche Sätze.")
+        : "";
       return Response.json({
         name: sheet.name,
         motifName: sheet.motifName,
         contactUrl: previewUrl(sheet.token),
         formats: sheet.formats.map((format) => ({ label: format.label, url: previewUrl(format.token) })),
         hints: sheet.hints.slice(0, 12),
+        glance,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Der Kontaktbogen ist fehlgeschlagen.";

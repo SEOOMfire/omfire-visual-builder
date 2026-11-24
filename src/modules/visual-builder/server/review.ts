@@ -1,6 +1,7 @@
 import { openRouterComplete, openRouterConfig } from "../../../platform/ai/openrouter";
 import { blockingHints } from "./creative-archive";
 import { readClientFile } from "./client-volume";
+import { reviewJpeg } from "./review-image";
 
 const MODEL_VARIABLE = "VISUAL_BUILDER_OPENROUTER_MODEL";
 
@@ -34,9 +35,9 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
   if (!jpegBase64) return "nicht gelaufen, weil kein Bild vorlag.";
   const reference = await readClientFile("otelo", referencePath).catch(() => null);
   const images: Array<{ type: "image_url"; image_url: { url: string } }> = [
-    { type: "image_url", image_url: { url: `data:image/jpeg;base64,${jpegBase64}` } },
+    { type: "image_url", image_url: { url: `data:image/jpeg;base64,${reviewJpeg(Buffer.from(jpegBase64, "base64")).toString("base64")}` } },
   ];
-  if (reference) images.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${reference.toString("base64")}` } });
+  if (reference && images.length < 2) images.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${reviewJpeg(reference).toString("base64")}` } });
   try {
     const text = await openRouterComplete({
       messages: [

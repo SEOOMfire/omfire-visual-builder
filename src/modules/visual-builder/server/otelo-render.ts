@@ -132,8 +132,8 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
   const energy = pick(files, "energielabel", "class_arrows_ag_a.svg") ?? pick(files, "energielabel", "_a.");
   const copy: SceneCopy = {
     headline: input.headline?.trim() || "Unlimited on demand",
-    subline: input.subline?.trim() || "100 GB monatlich\ninkl. unendlich oft 1 GB abrufen",
-    button: input.button?.trim() || "Jetzt sichern auf **otelo.de**",
+    subline: input.subline?.trim() || (name.startsWith("kachel") ? "" : "100 GB monatlich\ninkl. unendlich oft 1 GB abrufen"),
+    button: input.button !== undefined ? input.button.trim() : "Jetzt sichern auf **otelo.de**",
     stoererTyp: asStoerer(input.stoererTyp, defaultStoerer(name)),
     preis: input.preis?.trim() || "29,99 €",
     preisZusatz: input.preisZusatz?.trim() || "monatlich",

@@ -120,6 +120,10 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
   } else if (/gr[öo]ßer|groesser/i.test(clause)) {
     if (!element) return { commands, question: "Welches Element soll größer werden?" };
     commands.push({ op: "groesse", element, faktor: 1 + windowAmount(clause, /gr[öo]ßer|groesser/i, "size") / 100, formate });
+  } else if (element === "deko" && /st[äa]rker|\bmehr\b/i.test(clause)) {
+    commands.push({ op: "groesse", element, faktor: 1.25, formate });
+  } else if (element === "deko" && /schw[äa]cher|\bweniger\b/i.test(clause)) {
+    commands.push({ op: "groesse", element, faktor: 0.75, formate });
   }
   const down = /tiefer|nach unten|runter/i;
   const up = /h[öo]her|nach oben/i;
@@ -142,23 +146,24 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
   return { commands, element };
 }
 
-export function parseAdjustText(text: string): { commands: AdjustCommand[]; question?: string } {
+export function parseAdjustText(text: string): { commands: AdjustCommand[]; question?: string; unknown: string[] } {
   const raw = text.trim();
-  if (!raw) return { commands: [], question: "Welches Element soll ich ändern?" };
-  if (/^r[üu]ckg[äa]ngig\.?$/i.test(raw) || /\br[üu]ckg[äa]ngig\b/i.test(raw) && raw.split(/\s+/).length < 4) return { commands: [{ op: "rueckgaengig" }] };
+  if (!raw) return { commands: [], unknown: [], question: "Welches Element soll ich ändern?" };
+  if (/^r[üu]ckg[äa]ngig\.?$/i.test(raw) || /\br[üu]ckg[äa]ngig\b/i.test(raw) && raw.split(/\s+/).length < 4) return { commands: [{ op: "rueckgaengig" }], unknown: [] };
   const restore = raw.match(/version\s+(\d+)/i);
-  if (restore && /wiederherstell/i.test(raw)) return { commands: [{ op: "version", nummer: Number(restore[1]) }] };
+  if (restore && /wiederherstell/i.test(raw)) return { commands: [{ op: "version", nummer: Number(restore[1]) }], unknown: [] };
   const formate = formatsIn(raw);
   const commands: AdjustCommand[] = [];
+  const unknown: string[] = [];
   let carried: ElementId | undefined;
   for (const clause of splitClauses(raw)) {
     const parsed = commandsFromClause(clause, carried, formate);
-    if (parsed.question && !parsed.commands.length) return { commands: [], question: parsed.question };
+    if (!parsed.commands.length) unknown.push(clause);
     commands.push(...parsed.commands);
     if (parsed.element) carried = parsed.element;
   }
-  if (!commands.length) return { commands: [], question: "Welches Element ist gemeint? Zum Beispiel Störer, Frau, Headline oder Leiste." };
-  return { commands };
+  if (!commands.length) return { commands: [], unknown, question: "Welches Element ist gemeint? Zum Beispiel Störer, Frau, Headline oder Leiste." };
+  return { commands, unknown };
 }
 
 export function describeAdjust(commands: readonly AdjustCommand[]): string {
@@ -179,7 +184,8 @@ export function describeAdjust(commands: readonly AdjustCommand[]): string {
       add(LABEL[command.element], `${command.prozent} % ${word}`);
     } else if (command.op === "groesse") {
       const percent = Math.round(Math.abs(command.faktor - 1) * 100);
-      add(LABEL[command.element], `${percent} % ${command.faktor >= 1 ? "größer" : "kleiner"}`);
+      if (command.element === "deko") add("Wellen", `${percent} % ${command.faktor >= 1 ? "stärker" : "schwächer"}`);
+      else add(LABEL[command.element], `${percent} % ${command.faktor >= 1 ? "größer" : "kleiner"}`);
     } else if (command.op === "spiegeln") add(LABEL[command.element], "gespiegelt");
     else if (command.op === "sichtbarkeit") add(LABEL[command.element], command.sichtbar ? "eingeblendet" : "ausgeblendet");
   }
@@ -187,14 +193,14 @@ export function describeAdjust(commands: readonly AdjustCommand[]): string {
   return sentence.endsWith(".") ? sentence : `${sentence}.`;
 }
 
-export function parseAdjust(input: unknown): { commands: AdjustCommand[]; question?: string } {
+export function parseAdjust(input: unknown): { commands: AdjustCommand[]; question?: string; unknown: string[] } {
   if (typeof input === "string") return parseAdjustText(input);
-  if (!input || typeof input !== "object") return { commands: [], question: "Ich habe den Änderungswunsch nicht verstanden." };
+  if (!input || typeof input !== "object") return { commands: [], unknown: [], question: "Ich habe den Änderungswunsch nicht verstanden." };
   const record = input as Record<string, unknown>;
   if (typeof record.text === "string") return parseAdjustText(record.text);
   if (typeof record.satz === "string") return parseAdjustText(record.satz);
-  if (Array.isArray(record.befehle)) return { commands: record.befehle as AdjustCommand[] };
-  return { commands: [] };
+  if (Array.isArray(record.befehle)) return { commands: record.befehle as AdjustCommand[], unknown: [] };
+  return { commands: [], unknown: [] };
 }
 
 function slot(snap: AdjustSnap, format: string, element: ElementId): Nudge {
@@ -216,7 +222,7 @@ export function mergedNudge(snap: AdjustSnap | undefined, formatId: string, elem
 
 export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBook; summary: string; question?: string } {
   const parsed = parseAdjust(input);
-  if (parsed.question) return { book, summary: "", question: parsed.question };
+  if (parsed.question && !parsed.commands.length) return { book, summary: "", question: parsed.question };
   const history = book.history.some((entry) => entry.n === book.version)
     ? book.history
     : [...book.history, { n: book.version, summary: "", snap: clone(book.snap) }];
@@ -257,7 +263,8 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
     }
     bits.push(command);
   }
-  const summary = describeAdjust(bits);
+  const unknown = parsed.unknown.length ? ` Nicht verstanden: ${parsed.unknown.join("; ")}.` : "";
+  const summary = `${describeAdjust(bits).replace(/\.\s*$/, "")}${unknown ? `.${unknown}` : "."}`.replace("..", ".");
   return {
     book: { version: book.version + 1, snap, history },
     summary,

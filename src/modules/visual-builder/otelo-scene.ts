@@ -247,13 +247,43 @@ export function priceNeedsLegal(copy: Pick<SceneCopy, "preis" | "preisZusatz" | 
 
 type Shift = { dx?: number; dy?: number; scale?: number; flip?: boolean; hidden?: boolean };
 
-function moved(target: Box, shift: Shift | undefined, width: number, height: number): Box | undefined {
-  if (shift?.hidden) return undefined;
-  if (!shift) return target;
-  const scale = shift.scale && shift.scale > 0 ? shift.scale : 1;
-  const cx = target.x + target.w / 2 + ((shift.dx ?? 0) / 100) * width;
-  const cy = target.y + target.h / 2 + ((shift.dy ?? 0) / 100) * height;
-  return { x: cx - (target.w * scale) / 2, y: cy - (target.h * scale) / 2, w: target.w * scale, h: target.h * scale };
+export function shiftBox(
+  target: Box,
+  shift: Shift | undefined,
+  width: number,
+  height: number,
+  anchor: "top-left" | "bottom-center",
+  limits: { left: number; top: number; right: number; bottom: number },
+): { box: Box | undefined; capped: boolean } {
+  if (shift?.hidden) return { box: undefined, capped: false };
+  if (!shift) return { box: target, capped: false };
+  const wanted = shift.scale && shift.scale > 0 ? shift.scale : 1;
+  const dx = ((shift.dx ?? 0) / 100) * width;
+  const dy = ((shift.dy ?? 0) / 100) * height;
+  const place = (scale: number): Box => {
+    const w = target.w * scale;
+    const h = target.h * scale;
+    if (anchor === "bottom-center") {
+      const cx = target.x + target.w / 2 + dx;
+      const bottom = target.y + target.h + dy;
+      return { x: cx - w / 2, y: bottom - h, w, h };
+    }
+    return { x: target.x + dx, y: target.y + dy, w, h };
+  };
+  let scale = wanted;
+  let box = place(scale);
+  const availableW = Math.max(8, limits.right - Math.max(limits.left, anchor === "top-left" ? target.x + dx : limits.left));
+  const availableH = Math.max(8, limits.bottom - Math.max(limits.top, anchor === "top-left" ? target.y + dy : limits.top));
+  if (box.w > availableW || box.h > availableH || box.x < limits.left || box.y < limits.top || box.x + box.w > limits.right || box.y + box.h > limits.bottom) {
+    scale = Math.min(scale, availableW / Math.max(1, target.w), availableH / Math.max(1, target.h));
+    box = place(Math.max(0.2, scale));
+    if (anchor === "top-left") {
+      box = { ...box, x: Math.max(limits.left, box.x), y: Math.max(limits.top, box.y) };
+      if (box.x + box.w > limits.right) box = { ...box, w: limits.right - box.x };
+      if (box.y + box.h > limits.bottom) box = { ...box, h: limits.bottom - box.y };
+    }
+  }
+  return { box, capped: wanted > 1 && box.w < target.w * wanted - 1 };
 }
 
 function pointInPolygon(x: number, y: number, points: readonly Pt[]): boolean {
@@ -279,6 +309,12 @@ function keepInside(target: Box, width: number, height: number, right: number, b
   return { x, y, w: Math.max(8, w), h: Math.max(8, h) };
 }
 
+function applyShift(target: Box, shift: Shift | undefined, width: number, height: number, anchor: "top-left" | "bottom-center", limits: { left: number; top: number; right: number; bottom: number }, caps: string[], name: string): Box | undefined {
+  const placed = shiftBox(target, shift, width, height, anchor, limits);
+  if (placed.capped) caps.push(`${name} auf das Maximum vergrößert`);
+  return placed.box;
+}
+
 function buildKachel(
   format: { id: string; w: number; h: number },
   name: VorlageName,
@@ -286,41 +322,55 @@ function buildKachel(
   shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko", Shift>>,
 ): OteloScene {
   const { w, h } = format;
-  const portrait = h > w * 1.2;
+  const wide = w / h > 1.5;
+  const tall = format.id.endsWith("9x16");
+  const mid = !wide && !tall && h > w;
   const tiktok = format.id === "tiktok-9x16";
   const flip = copy.orange === "links";
-  const left = w * (tiktok ? 0.08 : 0.055);
-  const headlineH = portrait ? h * 0.055 : h * 0.096;
+  const left = w * 0.06;
+  const headW = wide ? w * 0.58 : tall ? w * (tiktok ? 0.74 : 0.8) : w * 0.86;
+  const headH = tall ? h * 0.062 : wide ? h * 0.15 : h * 0.11;
+  const headY = tall ? h * 0.134 : h * 0.055;
   const headline = {
     lines: [copy.headline.replace(/\s+/g, " ").trim().toUpperCase() || "BLACK WEEK"],
     variant: "direkt" as const,
-    box: mirrorBox(box(left, portrait ? h * 0.134 : h * 0.065, Math.min(w * (portrait ? 0.72 : 0.7), w * (tiktok ? 0.84 : 0.9) - left), headlineH), w, flip),
+    box: mirrorBox(box(left, headY, headW, headH), w, flip),
     step: 0,
   };
   const subline = {
     lines: copy.subline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 2).map((text) => ({ text: text.toUpperCase(), bold: true, color: ORANGE })),
-    box: mirrorBox(box(left, headline.box.y + headline.box.h + h * 0.018, headline.box.w, headlineH * 0.45), w, flip),
+    box: mirrorBox(box(left, headline.box.y + headline.box.h + h * 0.012, wide ? w * 0.58 : headW * 0.92, headH * 0.45), w, flip),
   };
-  const tileRaw = box(left, portrait ? h * 0.29 : h * 0.3, w * (portrait ? 0.5 : 0.45), portrait ? h * 0.32 : h * 0.4);
+  const tileRaw = wide
+    ? box(left, subline.box.y + subline.box.h + h * 0.04, w * 0.3, h * 0.46)
+    : box(left, tall ? h * 0.28 : h * 0.3, w * (tall ? 0.5 : 0.45), tall ? h * 0.28 : h * 0.4);
   const tile = mirrorBox(tileRaw, w, flip);
-  const ctaH = Math.max(portrait ? h * 0.05 : h * 0.082, h * ((format.id.startsWith("pmax") ? 0.03 : format.id.endsWith("9x16") ? 0.022 : 0.025) / 0.48));
+  const ctaH = Math.max(wide ? h * 0.14 : tall ? h * 0.05 : h * 0.082, h * ((format.id.startsWith("pmax") ? 0.03 : tall ? 0.022 : 0.025) / 0.48));
+  const ctaRaw = wide
+    ? box(tileRaw.x + tileRaw.w + w * 0.02, tileRaw.y + tileRaw.h - ctaH, w * 0.26, ctaH)
+    : box(left, tall ? h * 0.66 : h * 0.75, w * (tall ? 0.55 : 0.58), ctaH);
   const cta = {
-    box: mirrorBox(box(left, portrait ? h * 0.68 : h * 0.75, w * (portrait ? 0.55 : 0.62), ctaH), w, flip),
-    text: copy.button.trim() || "Jetzt sichern",
+    box: mirrorBox(ctaRaw, w, flip),
+    text: copy.button.trim(),
   };
-  const showLogo = !portrait;
+  const showLogo = !tall;
   const logoW = w * 0.25;
   const logo = {
-    box: showLogo ? box(w * 0.047, h * 0.94 - logoW / 5.58, logoW, logoW / 5.58) : box(0, 0, 0, 0),
+    box: showLogo ? box(w * 0.05, h * 0.94 - logoW / 5.58, logoW, logoW / 5.58) : box(0, 0, 0, 0),
     side: "left" as const,
   };
-  const personH = portrait ? h * 0.58 : h * 0.72;
-  const figure = name === "kachel_geraet" ? undefined : mirrorBox(box(w * 0.4, h * 1.03 - personH, w * (portrait ? 0.68 : 0.64), personH), w, flip);
-  const deviceH = h * (portrait ? 0.46 : 0.6);
-  const device = name === "kachel_person" ? undefined : mirrorBox(box(w * 0.52, h * 0.26, Math.min(w * 0.4, deviceH * 0.72), deviceH), w, flip);
-  const sternSize = Math.min(w, h) * (portrait ? 0.14 : 0.18);
+  const figure = name === "kachel_geraet" ? undefined : mirrorBox(wide
+    ? box(w * 0.52, h * 0.06, w * 0.5, h * 0.96)
+    : tall
+      ? box(w * 0.28, h * 0.4, w * 0.78, h * 0.62)
+      : mid
+        ? box(w * 0.34, h * 0.35, w * 0.7, h * 0.7)
+        : box(w * 0.4, h * 0.3, w * 0.64, h * 0.74), w, flip);
+  const deviceH = h * (tall ? 0.42 : wide ? 0.72 : 0.58);
+  const device = name === "kachel_person" ? undefined : mirrorBox(box(w * 0.52, h * 0.22, Math.min(w * 0.42, deviceH * 0.7), deviceH), w, flip);
+  const sternSize = tileRaw.w * 0.42;
   const stern = copy.sternText?.trim()
-    ? { box: mirrorBox(box(tileRaw.x + tileRaw.w - sternSize * 0.35, tileRaw.y - sternSize * 0.2, sternSize, sternSize), w, flip), text: copy.sternText.trim() }
+    ? { box: mirrorBox(box(tileRaw.x + tileRaw.w - sternSize * 0.55, tileRaw.y - sternSize * 0.28, sternSize, sternSize), w, flip), text: copy.sternText.trim() }
     : undefined;
   const dekoName = dekoFor(copy);
   const deko = shifts.deko?.hidden || dekoName === "keine"
@@ -332,14 +382,17 @@ function buildKachel(
   const fittedTile = fit(tile);
   cta.box = fit(cta.box);
   if (stern) stern.box = fit(stern.box);
+  const caps: string[] = [];
+  const textLimits = { left: w * 0.04, top: h * (tall ? 0.1 : 0.04), right: w * (tiktok ? 0.84 : 0.97), bottom: h * (tiktok ? 0.78 : 0.96) };
+  const figureLimits = { left: -w * 0.04, top: 0, right: w * 1.04, bottom: h * 1.04 };
   const placed = {
-    figure: figure ? moved(figure, shifts.person, w, h) : undefined,
-    product: device ? moved(device, shifts.geraet, w, h) : undefined,
-    headline: moved(headline.box, shifts.headline, w, h) ?? headline.box,
-    subline: moved(subline.box, shifts.subline, w, h) ?? subline.box,
-    cta: moved(cta.box, shifts.cta, w, h) ?? cta.box,
-    logo: moved(logo.box, shifts.logo, w, h),
-    stern: stern ? moved(stern.box, shifts.stoerer, w, h) : undefined,
+    figure: figure ? applyShift(figure, shifts.person, w, h, "bottom-center", figureLimits, caps, "Frau") : undefined,
+    product: device ? applyShift(device, shifts.geraet, w, h, "bottom-center", figureLimits, caps, "Gerät") : undefined,
+    headline: applyShift(headline.box, shifts.headline, w, h, "top-left", textLimits, caps, "Headline") ?? headline.box,
+    subline: applyShift(subline.box, shifts.subline, w, h, "top-left", textLimits, caps, "Unterzeile") ?? subline.box,
+    cta: applyShift(cta.box, shifts.cta, w, h, "top-left", textLimits, caps, "Leiste") ?? cta.box,
+    logo: applyShift(logo.box, shifts.logo, w, h, "top-left", textLimits, caps, "Logo"),
+    stern: stern ? applyShift(stern.box, shifts.stoerer, w, h, "top-left", { ...textLimits, right: w * 1.02, top: 0 }, caps, "Stern") : undefined,
   };
   const hints: string[] = [];
   const label = `${w}x${h}`;
@@ -347,21 +400,22 @@ function buildKachel(
   const safeBottom = tiktok ? 0.8 : 0.96;
   for (const [title, item] of [["Headline", placed.headline], ["Subline", placed.subline], ["Kachel", fittedTile], ["CTA", placed.cta], ["Logo", placed.logo], ["Stern", placed.stern]] as Array<[string, Box | undefined]>) {
     if (!item || item.w < 2) continue;
-    if (item.x < w * 0.04 - 1 || item.y < (portrait ? h * 0.1 : h * 0.04) - 1 || item.x + item.w > w * safeRight + 1 || item.y + item.h > h * safeBottom + 1) {
+    if (item.x < w * 0.04 - 1 || item.y < (tall ? h * 0.1 : h * 0.04) - 1 || item.x + item.w > w * safeRight + 1 || item.y + item.h > h * safeBottom + 1) {
       hints.push(`${title} liegt außerhalb der sicheren Zone im ${label}${tiktok ? " (TikTok-Schutzzone)" : ""}.`);
     }
   }
   if (placed.figure) {
     if (placed.figure.h < h * 0.5) hints.push(`Die Person ist zu klein im ${label}.`);
-    else if (placed.figure.h < h * (portrait ? 0.5 : 0.6)) hints.push(`Hinweis: Die Personenhöhe liegt unter dem Bestand im ${label}.`);
+    else if (placed.figure.h < h * (tall ? 0.5 : 0.6)) hints.push(`Hinweis: Die Personenhöhe liegt unter dem Bestand im ${label}.`);
   }
   if (placed.cta.h * 0.5 < h * (format.id.endsWith("9x16") ? 0.022 : format.id.startsWith("pmax") ? 0.03 : 0.025)) {
     hints.push(`Der CTA-Text ist zu klein im ${label}.`);
   }
   if (placed.headline.w < w * 0.7 || placed.headline.w > w * 0.96) hints.push(`Hinweis: Die Headline-Breite weicht vom Bestand ab im ${label}.`);
   if (tile.w < w * 0.35 || tile.w > w * 0.6) hints.push(`Hinweis: Die Kachel-Breite weicht vom Bestand ab im ${label}.`);
-  const minCtaH = portrait ? 0.038 : 0.07;
-  if (placed.cta.h < h * minCtaH) hints.push(`Hinweis: Die CTA-Leiste ist niedriger als im Bestand im ${label}.`);
+  const minCtaH = tall ? 0.038 : 0.07;
+  if (placed.cta.h > 2 && placed.cta.h < h * minCtaH) hints.push(`Hinweis: Die CTA-Leiste ist niedriger als im Bestand im ${label}.`);
+  for (const note of [...new Set(caps)]) hints.push(`Hinweis: ${note}.`);
   return {
     id: format.id,
     width: w,
@@ -487,18 +541,21 @@ export function buildScene(
   while (headline.box.h > h * 0.08 && corners(headline.box).some(([x, y]) => pointInPolygon(x, y, split.polygon))) {
     headline.box = { ...headline.box, y: headline.box.y + h * 0.015, h: headline.box.h - h * 0.015 };
   }
+  const caps: string[] = [];
+  const textLimits = { left: w * 0.03, top: h * 0.03, right: w * (tiktok ? 0.85 : 0.97), bottom: h * (tiktok ? 0.8 : 0.96) };
+  const figureLimits = { left: -w * 0.08, top: -h * 0.02, right: w * 1.06, bottom: h * 1.06 };
   const placed = {
-    figure: figure ? moved(figure, shifts.person, w, h) : undefined,
-    product: product ? moved(product, shifts.geraet, w, h) : undefined,
-    energy: energy ? moved(energy, shifts.energielabel, w, h) : undefined,
-    headline: moved(headline.box, shifts.headline, w, h) ?? headline.box,
-    subline: moved(subline.box, shifts.subline, w, h) ?? subline.box,
-    stoerer: moved(stoerer.box, shifts.stoerer, w, h) ?? stoerer.box,
-    cta: moved(cta.box, shifts.cta, w, h) ?? cta.box,
-    logo: moved(logo.box, shifts.logo, w, h),
+    figure: figure ? applyShift(figure, shifts.person, w, h, "bottom-center", figureLimits, caps, "Frau") : undefined,
+    product: product ? applyShift(product, shifts.geraet, w, h, "bottom-center", figureLimits, caps, "Gerät") : undefined,
+    energy: energy ? applyShift(energy, shifts.energielabel, w, h, "top-left", textLimits, caps, "Energielabel") : undefined,
+    headline: applyShift(headline.box, shifts.headline, w, h, "top-left", textLimits, caps, "Headline") ?? headline.box,
+    subline: applyShift(subline.box, shifts.subline, w, h, "top-left", textLimits, caps, "Unterzeile") ?? subline.box,
+    stoerer: applyShift(stoerer.box, shifts.stoerer, w, h, "top-left", textLimits, caps, "Störer") ?? stoerer.box,
+    cta: applyShift(cta.box, shifts.cta, w, h, "top-left", textLimits, caps, "Leiste") ?? cta.box,
+    logo: applyShift(logo.box, shifts.logo, w, h, "top-left", textLimits, caps, "Logo"),
   };
   const pflichtBox = copy.pflichttext.trim()
-    ? moved(box(logo.box.x + logo.box.w + w * 0.015, logo.box.y, Math.max(w * 0.16, columnEnd - logo.box.x - logo.box.w - w * 0.02), Math.max(8, h * 0.016)), shifts.pflichttext, w, h)
+    ? applyShift(box(logo.box.x + logo.box.w + w * 0.015, logo.box.y, Math.max(w * 0.16, columnEnd - logo.box.x - logo.box.w - w * 0.02), Math.max(8, h * 0.016)), shifts.pflichttext, w, h, "top-left", textLimits, caps, "Pflichttext")
     : undefined;
   const pflicht = pflichtBox ? { text: copy.pflichttext.trim(), box: pflichtBox } : undefined;
   const pixels = rasterOrangeRatio(split.polygon, w, h);
@@ -569,6 +626,7 @@ export function buildScene(
     }
   }
   if (priceNeedsLegal(copy)) hints.push(`Zum Preis mit Fußnote fehlt der Pflichttext im ${label}.`);
+  for (const note of [...new Set(caps)]) hints.push(`Hinweis: ${note}.`);
   return {
     id: format.id,
     width: w,
