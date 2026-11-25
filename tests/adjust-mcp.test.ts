@@ -343,7 +343,9 @@ test("two clauses become two lines and the old price can grow", () => {
   const from = elementRelation(square, "stoerer");
   const to = elementRelation(story, "stoerer");
   assert.ok(from && to);
-  assert.ok(Math.abs(from.x - to.x) < 0.08 && Math.abs(from.y - to.y) < 0.08 && Math.abs(from.w - to.w) < 0.08, `${JSON.stringify(from)} ${JSON.stringify(to)}`);
+  assert.ok(from.y < 0 && to.y < 0, `${JSON.stringify(from)} ${JSON.stringify(to)}`);
+  assert.ok(Math.abs(from.w - to.w) < 0.05, `${JSON.stringify(from)} ${JSON.stringify(to)}`);
+  assert.equal(story.hints.some((hint) => hint.includes("überdeckt") || hint.includes("außerhalb der sicheren Zone")), false, story.hints.join(" | "));
   assert.equal(story.textScale?.preisAlt, 1.15);
   const alone = applyToBook(book, "wie im Quadrat");
   assert.match(alone.question ?? alone.summary, /Welches Element/);

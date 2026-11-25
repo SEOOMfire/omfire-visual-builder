@@ -672,8 +672,12 @@ function buildKachel(
     if (!placed.stern || placed.stern.w < 2) return;
     const anchor = priceGroupBox(fittedTile, placed.pill) ?? fittedTile;
     const bounds = { left: w * 0.04, top: h * (tall ? 0.1 : 0.04), right: w * (tiktok ? 0.85 : 0.96), bottom: h * (tiktok ? 0.8 : 0.96) };
-    const texts = [placed.cta, ...(placed.logo && placed.logo.w > 2 ? [placed.logo] : []), ...tileInk(fittedTile), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.28)] : []), ...(deviceMode ? [insetBox(fittedTile, 0.3)] : [])];
-    const bad = (spot: Box) => texts.some((item) => item.w > 2 && overlaps(spot, item))
+    const texts = deviceMode
+      ? [placed.cta, ...(placed.logo && placed.logo.w > 2 ? [placed.logo] : []), insetBox(fittedTile, 0.3), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.28)] : [])]
+      : [placed.cta, ...(placed.logo && placed.logo.w > 2 ? [placed.logo] : []), ...tileInk(fittedTile)];
+    const outside = (spot: Box) => spot.x < bounds.left - 1 || spot.y < bounds.top - 1 || spot.x + spot.w > bounds.right + 1 || spot.y + spot.h > bounds.bottom + 1;
+    const bad = (spot: Box) => outside(spot)
+      || texts.some((item) => item.w > 2 && overlaps(spot, item))
       || Boolean(headBox && headBox.w > 2 && overlaps(spot, headBox))
       || Boolean(placed.product && overlapShare(spot, placed.product) > 0.05);
     if (!bad(placed.stern)) return;
@@ -718,7 +722,7 @@ function buildKachel(
     target.w = moved.w;
     target.h = moved.h;
   }
-  if (placed.stern && placed.product && overlapShare(placed.stern, placed.product) > 0.05) settleStar();
+  settleStar();
   const gap = h * 0.015;
   const floor = h * (tiktok ? 0.78 : 0.955);
   if (fittedTile.w > 2 && placed.cta.w > 2 && fittedTile.y + fittedTile.h + gap > placed.cta.y && overlaps(fittedTile, { ...placed.cta, y: placed.cta.y - gap, h: placed.cta.h + gap })) {
@@ -792,7 +796,7 @@ function buildKachel(
   if (placed.stern && placed.logo && placed.logo.w > 2 && overlaps(placed.stern, placed.logo)) hints.push(`Der Stern überdeckt das Logo im ${label}.`);
   if (fittedTile.w > 2 && placed.cta.w > 2 && overlaps(fittedTile, placed.cta)) hints.push(`Die Kachel überlappt die CTA im ${label}.`);
   if (placed.stern && placed.stern.w > 2) {
-    const covered = [placed.cta, ...tileInk(fittedTile), ...(deviceMode ? [insetBox(fittedTile, 0.3)] : []), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.28)] : [])].filter((item) => item.w > 2 && overlaps(placed.stern!, item));
+    const covered = [placed.cta, ...(deviceMode ? [insetBox(fittedTile, 0.3)] : tileInk(fittedTile)), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.28)] : [])].filter((item) => item.w > 2 && overlaps(placed.stern!, item));
     if (covered.length) hints.push(`Der Stern überdeckt Text im ${label}.`);
   }
   if (deviceMode && placed.product) {
