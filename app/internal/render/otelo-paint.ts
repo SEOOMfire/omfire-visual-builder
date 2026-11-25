@@ -46,14 +46,20 @@ function drawCover(ctx: CanvasRenderingContext2D, image: HTMLImageElement | null
   ctx.restore();
 }
 
-function drawTiltedProduct(ctx: CanvasRenderingContext2D, image: HTMLImageElement, box: { x: number; y: number; w: number; h: number }, radians: number) {
+function drawTiltedProduct(ctx: CanvasRenderingContext2D, image: HTMLImageElement, box: { x: number; y: number; w: number; h: number }, radians: number, canvasW: number, clampRight: boolean) {
   const aspect = image.width / Math.max(1, image.height);
   const height = box.h;
   const width = height * aspect;
+  let centerX = box.x + box.w * 0.5;
+  const centerY = box.y + box.h * 0.5;
+  if (clampRight) {
+    const limit = canvasW + width * 0.15;
+    if (centerX + width * 0.5 > limit) centerX = limit - width * 0.5;
+  }
   ctx.save();
-  ctx.translate(box.x + box.w * 0.55, box.y + box.h * 0.48);
+  ctx.translate(centerX, centerY);
   ctx.rotate(radians);
-  ctx.drawImage(image, -width * 0.42, -height * 0.5, width, height);
+  ctx.drawImage(image, -width / 2, -height / 2, width, height);
   ctx.restore();
 }
 
@@ -320,9 +326,10 @@ function drawWaves(ctx: CanvasRenderingContext2D, width: number, height: number,
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.lineWidth = stroke;
-  const gradient = ctx.createLinearGradient(width * 0.45, height * 0.15, width, height);
-  gradient.addColorStop(0, `rgba(92,28,4,${0.9 * alpha})`);
-  gradient.addColorStop(0.45, `rgba(186,52,8,${alpha})`);
+  const gradient = ctx.createLinearGradient(width * 0.2, height * 0.02, width * 0.96, height);
+  gradient.addColorStop(0, "rgba(0,0,0,0)");
+  gradient.addColorStop(0.32, "rgba(28,8,0,0.18)");
+  gradient.addColorStop(0.68, `rgba(250,90,20,${0.82 * alpha})`);
   gradient.addColorStop(1, `rgba(250,90,20,${alpha})`);
   ctx.strokeStyle = gradient;
   for (const path of wavePaths(width, height)) {
@@ -335,13 +342,13 @@ function drawWaves(ctx: CanvasRenderingContext2D, width: number, height: number,
 
 function drawArrows(ctx: CanvasRenderingContext2D, x: number, y: number, fontSize: number, count = 3) {
   const colors = ["#D7EB00", "#818D00", "#414700"];
-  const height = fontSize * 0.72;
-  const top = y + fontSize * 0.14;
+  const height = fontSize;
+  const top = y;
   const notch = height * (21.606 / 73.924);
   const mid = height * (36.962 / 73.924);
   const tip = height * (58.568 / 73.924);
   const step = height * (41.08 / 73.924);
-  let cursor = x + fontSize * 0.08;
+  let cursor = x + fontSize * 0.06;
   for (let index = 0; index < count; index += 1) {
     ctx.fillStyle = colors[index] ?? "#414700";
     ctx.beginPath();
@@ -565,7 +572,7 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
       ctx.fill();
     }
     const productImage = scene.productKey ? images[scene.productKey] : null;
-    if (productImage && scene.product && scene.productTilt) drawTiltedProduct(ctx, productImage, scene.product, scene.productTilt);
+    if (productImage && scene.product && scene.productTilt) drawTiltedProduct(ctx, productImage, scene.product, scene.productTilt, scene.width, scene.height > scene.width * 1.4);
     else drawImageBox(ctx, productImage, scene.product, "center");
     const figureImage = scene.figureKey ? images[scene.figureKey] : null;
     if (figureImage && scene.figure && scene.figureSource) drawCutout(ctx, figureImage, scene.figure, scene.figureSource, Boolean(scene.figureFlip));
@@ -579,15 +586,15 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
     ctx.fillText(headText, scene.headline.box.x, scene.headline.box.y);
     if (scene.headlinePfeile) {
       const headInTheLine = scene.headBox && scene.headBox.y < scene.headline.box.y + headSize;
-      const edge = scene.id === "tiktok-9x16" ? scene.width * 0.84 : scene.width + headSize;
+      const edge = scene.width + headSize;
       const maxX = headInTheLine && scene.headBox ? Math.min(scene.headBox.x - scene.width * 0.02, edge) : edge;
       const span = arrowSpan(scene.headline.box.x + ctx.measureText(headText).width, headSize, maxX);
       if (span.count > 0) drawArrows(ctx, scene.headline.box.x + ctx.measureText(headText).width, scene.headline.box.y, headSize, span.count);
     }
     ctx.fillStyle = scene.subline.lines[0]?.color || ORANGE;
     const subText = scene.subline.lines[0]?.text ?? "";
-    const subFit = sizeForWidth(ctx, subText, 900, "Titillium Web", scene.subline.box.w);
-    ctx.font = face(900, Math.min(headSize * 0.45, subFit, scene.subline.box.h * 0.9), "Titillium Web");
+    const subSize = Math.min(headSize * 0.45, scene.subline.box.h);
+    ctx.font = face(900, subSize, "Titillium Web");
     ctx.fillText(subText, scene.subline.box.x, scene.subline.box.y);
     if (scene.pill) {
       drawDeviceOffer(ctx, scene);

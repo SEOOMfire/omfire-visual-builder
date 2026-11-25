@@ -207,14 +207,22 @@ function fieldKey(label: string): keyof FieldPatch | undefined {
 
 function commandsFromClause(clause: string, inherited: ElementId | undefined, formate?: string[]): { commands: AdjustCommand[]; element?: ElementId; question?: string } {
   const commands: AdjustCommand[] = [];
-  const labeled = clause.match(/^([a-zäöü]+)\s*:\s*(.+)$/i);
+  const labeled = clause.match(/^([a-zäöü0-9-]+)\s*:\s*(.+)$/i);
   if (labeled) {
     const key = fieldKey(labeled[1] ?? "");
     const element = elementIn(labeled[1] ?? "") ?? inherited;
     if (key) {
-      commands.push({ op: "text", element: element ?? "headline", text: (labeled[2] ?? "").trim(), formate });
+      commands.push({ op: "text", element: element ?? "headline", text: (labeled[2] ?? "").trim().replace(/^[„"]|[”"]$/g, ""), formate });
       return { commands, element };
     }
+  }
+  const quoted = clause.match(/[„"]([^„"”]+)[”"]/);
+  const auf = clause.match(/(?:ändern|aendern|setzen)\s+auf\s+(.+)$/i);
+  const replacement = (quoted?.[1] ?? auf?.[1] ?? "").trim().replace(/^[„"]|[”"]$/g, "");
+  const named = elementIn(clause) ?? inherited;
+  if (replacement && named && /ändern|aendern|setzen|text/i.test(clause)) {
+    commands.push({ op: "text", element: named, text: replacement, formate });
+    return { commands, element: named };
   }
   if (/wie im quadrat/i.test(clause)) {
     commands.push({ op: "wie_format", quelle: "1x1" });
@@ -365,14 +373,29 @@ export function describeAdjust(commands: readonly AdjustCommand[]): string {
   return sentence.endsWith(".") ? sentence : `${sentence}.`;
 }
 
+/** The sentence Langdock sends, whether it arrives as anweisung or aenderung.text. */
+export function adjustRequest(args: Record<string, unknown> | string | undefined): string {
+  if (typeof args === "string") return args.trim();
+  if (!args) return "";
+  const pick = (value: unknown) => typeof value === "string" ? value.trim() : "";
+  const direct = pick(args.anweisung) || pick(args.text) || pick(args.satz) || pick(args.instruktion);
+  if (direct) return direct;
+  if (typeof args.aenderung === "string") return args.aenderung.trim();
+  if (args.aenderung && typeof args.aenderung === "object") {
+    const nested = args.aenderung as Record<string, unknown>;
+    return pick(nested.anweisung) || pick(nested.text) || pick(nested.satz);
+  }
+  return "";
+}
+
 export function parseAdjust(input: unknown): { commands: AdjustCommand[]; question?: string; unknown: string[] } {
   if (typeof input === "string") return parseAdjustText(input);
   if (!input || typeof input !== "object") return { commands: [], unknown: [], question: "Ich habe den Änderungswunsch nicht verstanden." };
   const record = input as Record<string, unknown>;
-  if (typeof record.text === "string") return parseAdjustText(record.text);
-  if (typeof record.satz === "string") return parseAdjustText(record.satz);
+  const spoken = adjustRequest(record);
+  if (spoken) return parseAdjustText(spoken);
   if (Array.isArray(record.befehle)) return { commands: record.befehle as AdjustCommand[], unknown: [] };
-  return { commands: [], unknown: [] };
+  return { commands: [], unknown: [], question: "Welches Element soll ich ändern?" };
 }
 
 function slot(snap: AdjustSnap, format: string, element: ElementId): Nudge {
@@ -394,7 +417,7 @@ export function mergedNudge(snap: AdjustSnap | undefined, formatId: string, elem
 
 export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBook; summary: string; question?: string; compare?: { links: number; rechts: number } } {
   const parsed = parseAdjust(input);
-  if (parsed.question && !parsed.commands.length) return { book, summary: "", question: parsed.question };
+  if (parsed.question && !parsed.commands.length) return { book, summary: `nicht verstanden: ${parsed.question}`, question: parsed.question };
   const history = book.history.some((entry) => entry.n === book.version)
     ? book.history
     : [...book.history, { n: book.version, summary: "", snap: clone(book.snap) }];
@@ -494,9 +517,17 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
     }
     bits.push(command);
   }
-  const unknown = parsed.unknown.length ? ` Nicht verstanden: ${parsed.unknown.join("; ")}.` : "";
-  const question = parsed.question ? ` ${parsed.question}` : "";
-  const summary = `${describeAdjust(bits).replace(/\.\s*$/, "")}${unknown ? `.${unknown}` : "."}${question}`.replace("..", ".");
+  const same = JSON.stringify(snap) === JSON.stringify(book.snap);
+  const done = bits.map((command) => `umgesetzt: ${describeAdjust([command]).replace(/\.\s*$/, "")}`);
+  const missed = parsed.unknown.map((clause) => `nicht verstanden: ${clause}${parsed.question ? ` (Rückfrage: ${parsed.question})` : ""}`);
+  if (same) {
+    const summary = done.length
+      ? `${done.join(" ")} Die Anweisung ändert keine Eigenschaft.`
+      : missed.join(" ") || (parsed.question ? `nicht verstanden: ${parsed.question}` : "nicht verstanden: Die Anweisung ändert keine Eigenschaft.");
+    return { book, summary, question: parsed.commands.length ? undefined : parsed.question };
+  }
+  const summary = [...done, ...missed].join(" ");
+  history.push({ n: book.version + 1, summary, snap: clone(snap) });
   return {
     book: { version: book.version + 1, snap, history },
     summary,

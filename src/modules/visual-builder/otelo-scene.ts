@@ -254,27 +254,33 @@ function overlaps(left: Box, right: Box): boolean {
   return left.x < right.x + right.w && right.x < left.x + left.w && left.y < right.y + right.h && right.y < left.y + left.h;
 }
 
-export const WAVE_STROKE = 0.022;
+export const WAVE_STROKE = 0.028;
 
-/** One parallel sine bundle for person and device. Lines stay in the right column and keep a full stroke at the canvas edge. */
+/**
+ * Parallel sine curves measured on Meta_Q4_1126_BW_Young_Classic_Woman_1x1.
+ * The bundle climbs about 42 degrees off vertical, from the lower left toward
+ * the upper right, and each line bows along that path. The paint fades the
+ * strokes from black at the upper left to orange at the lower right.
+ */
 export function wavePaths(width: number, height: number): Array<Array<{ x: number; y: number }>> {
   const count = 12;
-  const spacing = (width * 0.3) / (count - 1);
-  const amplitude = spacing * 0.48;
-  const leftmost = width * 0.69;
-  const rise = height * 0.74;
-  const run = width * 0.08;
+  const spacing = width * 0.032;
+  const amplitude = spacing * 0.7;
+  const angle = (42 * Math.PI) / 180;
+  const dx = Math.sin(angle);
+  const dy = -Math.cos(angle);
+  const nx = Math.cos(angle);
+  const ny = Math.sin(angle);
+  const length = Math.hypot(width, height) * 1.2;
   return Array.from({ length: count }, (_, index) => {
-    const x0 = leftmost + index * spacing;
-    const y0 = height * 1.03;
-    const length = Math.hypot(run, rise) || 1;
-    const nx = rise / length;
-    const ny = run / length;
+    const x0 = width * 0.52 + index * spacing;
+    const y0 = height * 1.02;
     const points: Array<{ x: number; y: number }> = [];
-    for (let step = 0; step <= 72; step += 1) {
-      const u = step / 72;
-      const wave = Math.sin(u * Math.PI * 2 * 3.6) * amplitude;
-      points.push({ x: x0 + run * u + nx * wave, y: y0 - rise * u + ny * wave });
+    for (let step = 0; step <= 80; step += 1) {
+      const u = step / 80;
+      const along = u * length;
+      const wave = Math.sin(u * Math.PI * 2 * 3.5) * amplitude;
+      points.push({ x: x0 + dx * along + nx * wave, y: y0 + dy * along + ny * wave });
     }
     return points;
   });
@@ -312,10 +318,10 @@ export function wavePaintShare(width: number, height: number): number {
 }
 
 export function arrowSpan(start: number, fontSize: number, maxX: number): { end: number; count: number } {
-  const height = fontSize * 0.72;
+  const height = fontSize;
   const tip = height * (58.568 / 73.924);
   const step = height * (41.08 / 73.924);
-  let cursor = start + fontSize * 0.08;
+  let cursor = start + fontSize * 0.06;
   let count = 0;
   let end = start;
   for (let index = 0; index < 3 && cursor + tip <= maxX; index += 1) {
@@ -439,23 +445,21 @@ function applyShift(target: Box, shift: Shift | undefined, width: number, height
   return placed.box;
 }
 
-function energyFrame(width: number, height: number, tall: boolean, deviceH: number): Box {
+function energyFrame(width: number, height: number, tall: boolean, product: Box): Box {
   const nameH = height * 0.03;
   const badgeH = nameH * 1.5;
   const badgeW = badgeH * (91.15 / 50.12);
-  const y = tall ? Math.max(height * 0.2 + deviceH + height * 0.012, height * 0.725) : height * 0.955 - badgeH;
-  return { x: width - badgeW - width * 0.02, y, w: badgeW, h: badgeH };
+  if (!tall) return { x: width - badgeW - width * 0.02, y: height * 0.955 - badgeH, w: badgeW, h: badgeH };
+  const y = Math.min(product.y + product.h - badgeH * 0.15, height - badgeH - height * 0.012);
+  const x = Math.min(width - badgeW - width * 0.02, Math.max(width * 0.62, product.x + product.w - badgeW - width * 0.02));
+  return { x, y, w: badgeW, h: badgeH };
 }
 
-function energyBox(width: number, height: number, tall: boolean, deviceH: number): Box {
-  return energyFrame(width, height, tall, deviceH);
-}
-
-function deviceNameBox(width: number, height: number, tall: boolean, deviceH: number): Box {
-  const badge = energyFrame(width, height, tall, deviceH);
+function deviceNameBox(width: number, height: number, tall: boolean, product: Box): Box {
+  const badge = energyFrame(width, height, tall, product);
   const nameH = height * 0.03;
   const right = badge.x - width * 0.012;
-  const left = tall ? width * 0.04 : width * 0.36;
+  const left = tall ? Math.max(width * 0.28, right - width * 0.42) : width * 0.36;
   return { x: left, y: badge.y + (badge.h - nameH) / 2, w: Math.max(8, right - left), h: nameH };
 }
 
@@ -485,29 +489,37 @@ function buildKachel(
   };
   const subline = {
     lines: copy.subline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 2).map((text) => ({ text: /[a-zäöü]/.test(text) ? text : text.toUpperCase(), bold: true, color: copy.sublineColor || ORANGE })),
-    box: mirrorBox(box(left, headline.box.y + headline.box.h + (wide ? headH * 0.14 : h * 0.012), wide ? w * 0.55 : w * 0.9, headH * 0.45), w, flip),
+    box: mirrorBox(box(left, headline.box.y + headline.box.h + (wide ? headH * 0.16 : h * 0.012), wide ? w * 0.55 : w * 0.9, headH * 0.62), w, flip),
   };
   const tileRaw = deviceMode
-    ? box(left, subline.box.y + subline.box.h + h * 0.04, wide ? w * 0.2 : w * 0.26, wide ? h * 0.36 : tall ? h * 0.16 : h * 0.22)
+    ? box(left, tall ? h * 0.38 : subline.box.y + subline.box.h + h * 0.04, wide ? w * 0.2 : tall ? w * 0.36 : w * 0.26, wide ? h * 0.36 : tall ? h * 0.15 : h * 0.22)
     : wide
       ? box(left, subline.box.y + subline.box.h + h * 0.035, w * 0.22, h * 0.42)
       : box(left, tall ? h * 0.28 : h * 0.3, w * (tall ? 0.5 : 0.45), tall ? h * 0.28 : h * 0.4);
   const pillRaw = deviceMode
-    ? box(tileRaw.x + tileRaw.w - tileRaw.w * 0.16, tileRaw.y + tileRaw.h * 0.2, Math.max(tileRaw.h * 1.7, w * 0.24), tileRaw.h * 0.58)
+    ? box(tileRaw.x + tileRaw.w - tileRaw.w * 0.16, tileRaw.y + tileRaw.h * 0.2, Math.min(tall ? w * 0.32 : w, Math.max(tileRaw.h * 1.7, w * 0.24)), tileRaw.h * 0.58)
     : undefined;
   const tile = mirrorBox(tileRaw, w, flip);
-  const ctaH = Math.max(wide ? h * 0.14 : tall ? h * 0.05 : h * 0.082, h * ((format.id.startsWith("pmax") ? 0.03 : tall ? 0.022 : 0.025) / 0.48));
-  const ctaRaw = (!deviceMode && wide)
+  const logoW = w * 0.25;
+  const logoTop = h * 0.94 - logoW / 5.58;
+  let ctaH = Math.max(wide ? h * 0.14 : tall ? h * 0.05 : h * 0.082, h * ((format.id.startsWith("pmax") ? 0.03 : tall ? 0.022 : 0.025) / 0.48));
+  let ctaRaw = (!deviceMode && wide)
     ? box(tileRaw.x + tileRaw.w + w * 0.02, tileRaw.y + tileRaw.h - ctaH, w * 0.26, ctaH)
     : box(left, tall ? h * 0.66 : h * 0.74, w * (tall ? 0.55 : wide ? 0.46 : 0.58), ctaH);
+  if (deviceMode && wide) {
+    ctaH = Math.min(ctaH, Math.max(h * 0.09, logoTop - (tileRaw.y + tileRaw.h) - h * 0.04));
+    ctaRaw = box(left, logoTop - ctaH - h * 0.016, w * 0.42, ctaH);
+  } else if (deviceMode && tall) {
+    ctaH = h * 0.055;
+    ctaRaw = box(left, h * 0.62, w * 0.36, ctaH);
+  }
   const cta = {
     box: mirrorBox(ctaRaw, w, flip),
     text: copy.button.trim() || (deviceMode ? "Jetzt sichern" : ""),
   };
   const showLogo = !tall;
-  const logoW = w * 0.25;
   const logo = {
-    box: showLogo ? box(w * 0.05, h * 0.94 - logoW / 5.58, logoW, logoW / 5.58) : box(0, 0, 0, 0),
+    box: showLogo ? box(w * 0.05, logoTop, logoW, logoW / 5.58) : box(0, 0, 0, 0),
     side: "left" as const,
   };
   let figure = name === "kachel_geraet" ? undefined : mirrorBox(wide
@@ -517,9 +529,9 @@ function buildKachel(
       : mid
         ? box(w * 0.34, h * 0.35, w * 0.7, h * 0.7)
         : box(w * 0.4, h * 0.3, w * 0.64, h * 0.74), w, flip);
-  const deviceH = h * (deviceMode ? (tall ? 0.45 : 0.6) : tall ? 0.42 : wide ? 0.72 : 0.58);
+  const deviceH = h * (deviceMode ? (tall ? 0.46 : 0.6) : tall ? 0.42 : wide ? 0.72 : 0.58);
   const device = name === "kachel_person" ? undefined : mirrorBox(deviceMode
-    ? box(w * 0.46, h * 0.2, w * 0.62, deviceH)
+    ? tall ? box(w * 0.4, h * 0.52, w * 0.7, deviceH) : box(w * 0.46, h * 0.18, w * 0.62, deviceH)
     : box(w * 0.52, h * 0.22, Math.min(w * 0.42, deviceH * 0.7), deviceH), w, flip);
   const sternRadius = tileRaw.w * (wide ? 0.22 : 0.2125);
   const deviceStarLines = [copy.datenmenge?.trim(), copy.datenmengeAlt?.trim() ? `statt ${copy.datenmengeAlt.trim()}` : ""].filter(Boolean).slice(0, 2);
@@ -642,6 +654,7 @@ function buildKachel(
   }
   if (deviceMode && placed.product && placed.product.h < h * (tall ? 0.42 : 0.55)) hints.push(`Das Gerät ist zu klein im ${label}.`);
   if (placed.stern && placed.logo && placed.logo.w > 2 && overlaps(placed.stern, placed.logo)) hints.push(`Der Stern überdeckt das Logo im ${label}.`);
+  if (placed.logo && placed.logo.w > 2 && placed.cta.w > 2 && overlaps(placed.cta, placed.logo)) hints.push(`Das Logo überlappt die CTA im ${label}.`);
   if (!deviceMode && placed.stern && placed.stern.w > 2) {
     const cx = placed.stern.x + placed.stern.w / 2;
     const cy = placed.stern.y + placed.stern.h / 2;
@@ -678,7 +691,7 @@ function buildKachel(
     headBox,
     product: placed.product,
     productTilt: deviceMode ? -0.1 : undefined,
-    energy: deviceMode ? energyBox(w, h, tall, deviceH) : undefined,
+    energy: deviceMode ? energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4)) : undefined,
     headline: { ...headline, box: placed.headline },
     subline: { ...subline, box: placed.subline },
     stoerer: { typ: "stern", box: placed.stern ?? box(0, 0, 0, 0), preis: copy.preis, zusatz: copy.preisZusatz, einmal: copy.einmalpreis, aktion: copy.sternText ?? "" },
@@ -695,7 +708,7 @@ function buildKachel(
     deko,
     headlinePfeile: dekoName === "bw_wellen" && !shifts.pfeile?.hidden,
     sternColor: copy.sternColor,
-    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: deviceNameBox(w, h, tall, deviceH) } : undefined,
+    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4)) } : undefined,
     cta: { ...cta, box: placed.cta },
     logo: placed.logo && placed.logo.w > 2 ? { ...logo, box: placed.logo } : { ...logo, box: { x: 0, y: 0, w: 0, h: 0 } },
     hints,

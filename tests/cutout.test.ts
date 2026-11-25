@@ -105,6 +105,18 @@ test("a device tile keeps the price, the pill and the phone apart", () => {
     assert.ok(scene.cta.box.h > 2 && scene.cta.text.length > 0, format.id);
     assert.equal(scene.hints.some((hint) => /CTA fehlt|überlappt|Gerät ist zu klein|Stern überdeckt das Logo/.test(hint)), false, `${format.id} ${scene.hints.join(" | ")}`);
     assert.ok(scene.product && scene.product.h >= format.h * (format.id.endsWith("9x16") ? 0.42 : 0.55), format.id);
+    if (scene.logo.box.w > 2) {
+      const logo = scene.logo.box;
+      const cta = scene.cta.box;
+      const hits = logo.x < cta.x + cta.w && cta.x < logo.x + logo.w && logo.y < cta.y + cta.h && cta.y < logo.y + logo.h;
+      assert.equal(hits, false, `${format.id} Logo überlappt CTA`);
+    }
+    if (format.id.endsWith("9x16") && scene.product) {
+      const crop = Math.max(0, scene.product.x + scene.product.w - format.w) / scene.product.w;
+      assert.ok(crop <= 0.15, `${format.id} crop ${crop.toFixed(2)}`);
+      const mid = scene.product.y + scene.product.h / 2;
+      assert.ok(mid > format.h * 0.7 && mid < format.h * 0.85, `${format.id} mid ${mid / format.h}`);
+    }
   }
 });
 

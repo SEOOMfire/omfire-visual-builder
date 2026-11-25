@@ -18,7 +18,9 @@ test("Frau spiegeln und auf die andere Seite flips her and swaps the side", () =
 
 test("the live sentence grows the badge, flips the woman and swaps the layout", () => {
   const step = applyToBook(newBook("rechts"), "Störer deutlich größer und etwas tiefer, Frau spiegeln und auf die andere Seite");
-  assert.equal(step.summary, "Störer 25 % größer und 3 % tiefer, Frau gespiegelt, Layout getauscht.");
+  assert.match(step.summary, /umgesetzt: Störer 25 % größer/);
+  assert.match(step.summary, /umgesetzt: Frau gespiegelt/);
+  assert.match(step.summary, /umgesetzt: Layout getauscht/);
   assert.equal(step.book.snap.orange, "links");
   const badge = mergedNudge(step.book.snap, "meta-9x16", "stoerer");
   assert.equal(badge.scale, 1.25);
@@ -45,7 +47,7 @@ test("an unknown clause is named and the rest still applies", () => {
   const step = applyToBook(newBook(), "Headline etwas größer, blabla");
   assert.equal(step.question, undefined);
   assert.equal(mergedNudge(step.book.snap, "meta-1x1", "headline").scale, 1.05);
-  assert.match(step.summary, /Nicht verstanden: blabla/);
+  assert.match(step.summary, /nicht verstanden: blabla/);
 });
 
 test("the spoken sentences set text, color, scope, deco and versions", () => {

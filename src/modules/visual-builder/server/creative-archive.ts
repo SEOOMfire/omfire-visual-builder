@@ -168,6 +168,8 @@ export async function readDraft(id: string): Promise<CreativeDraft | null> {
 export async function adjustCreative(id: string, change: Record<string, unknown>): Promise<{ draft: CreativeDraft; rendered: RenderedCreative }> {
   const draft = await readDraft(id);
   if (!draft) throw new Error("Diesen Entwurf kenne ich nicht. Ruf zuerst compose_creative auf.");
+  const fingerprint = () => JSON.stringify([draft.headline, draft.subline, draft.button, draft.motiv, draft.vorlage, draft.orange, draft.sternText, draft.datenmenge, draft.datenmengeAlt, draft.deko, draft.preis, draft.energielabel, draft.geraetName]);
+  const beforeFields = fingerprint();
   if (typeof change.headline === "string") draft.headline = change.headline;
   if (typeof change.subline === "string") draft.subline = change.subline;
   if (typeof change.motiv === "string") draft.motiv = change.motiv;
@@ -193,15 +195,17 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   if (typeof change.energielabel === "string") draft.energielabel = change.energielabel;
   if (typeof change.geraet_name === "string") draft.geraetName = change.geraet_name;
   if (change.deko === "bw_wellen" || change.deko === "fruehling_blaetter" || change.deko === "keine") draft.deko = change.deko;
-  const spoken = typeof change.text === "string" ? change.text : typeof change.satz === "string" ? change.satz : "";
-  if (!spoken && !Array.isArray(change.befehle)) {
-    const result = applyToBook(draft.layoutBook ?? newBook(draft.orange), { befehle: [] });
-    draft.layoutBook = result.book;
-    draft.summary = "Felder des Entwurfs geändert.";
-  }
-  if (spoken || Array.isArray(change.befehle)) {
+  const spoken = [change.text, change.anweisung, change.satz].find((value) => typeof value === "string" && value.trim()) as string | undefined ?? "";
+  const versionBefore = draft.layoutBook?.version ?? 1;
+  if (spoken || (Array.isArray(change.befehle) && change.befehle.length > 0)) {
     const result = applyToBook(draft.layoutBook ?? newBook(draft.orange), spoken || { befehle: change.befehle });
-    if (result.question) throw new Error(result.question);
+    if (result.question && result.book.version === versionBefore) {
+      draft.summary = result.summary || `nicht verstanden: ${result.question}`;
+      const rendered = await renderTemplate(fieldsForRender(draft));
+      draft.hints = rendered.hints;
+      await writeDraft(draft);
+      return { draft, rendered };
+    }
     if (result.compare) {
       const left = result.book.history.find((entry) => entry.n === result.compare?.links);
       const right = result.book.history.find((entry) => entry.n === result.compare?.rechts);
@@ -233,6 +237,21 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
     if (patch.energielabel) draft.energielabel = patch.energielabel;
     if (patch.headlineVariante) draft.headlineVariante = patch.headlineVariante;
     draft.summary = result.summary;
+    if (result.book.version === versionBefore) {
+      const rendered = await renderTemplate(fieldsForRender(draft));
+      draft.hints = rendered.hints;
+      await writeDraft(draft);
+      return { draft, rendered };
+    }
+  } else if (fingerprint() === beforeFields) {
+    draft.summary = "nicht verstanden: Welches Element soll ich ändern?";
+    const rendered = await renderTemplate(fieldsForRender(draft));
+    draft.hints = rendered.hints;
+    await writeDraft(draft);
+    return { draft, rendered };
+  } else {
+    draft.summary = "umgesetzt: Felder geschrieben.";
+    if (draft.layoutBook) draft.layoutBook = { ...draft.layoutBook, version: draft.layoutBook.version + 1 };
   }
   const rendered = await renderTemplate(fieldsForRender(draft));
   if (rendered.deviceFile) draft.motiv = rendered.deviceFile;
