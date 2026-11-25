@@ -4,6 +4,7 @@ import { PNG } from "pngjs";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
 import { arrowSpan, buildScene, wavePaintShare, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
 import { headInside, measureCutout, placeCutout, type Cutout } from "../src/modules/visual-builder/server/cutout";
+import { glanceContradictsMeasure } from "../src/modules/visual-builder/server/review";
 
 function portraitWithFace(): Buffer {
   const png = new PNG({ width: 80, height: 140 });
@@ -73,15 +74,9 @@ test("transparent margins are ignored and the head stays in the frame", () => {
     assert.equal(scene.hints.some((hint) => hint.includes("Stern überdeckt")), false, scene.hints.join(" | "));
     assert.equal(scene.hints.some((hint) => hint.includes("Wellen überlagern")), false, scene.hints.join(" | "));
     if (scene.stern && scene.kachel) {
-      const centerX = scene.stern.box.x + scene.stern.box.w / 2;
-      const centerY = scene.stern.box.y + scene.stern.box.h / 2;
-      const tile = scene.kachel.box;
-      const inside = centerX > tile.x && centerX < tile.x + tile.w && centerY > tile.y && centerY < tile.y + tile.h;
-      assert.equal(inside, false, format.id);
-      if (!wide && !tall) {
-        assert.ok(centerY < tile.y + tile.h * 0.25, `${format.id} Stern sitzt nicht oben`);
-        assert.ok(centerX > tile.x + tile.w || centerX < tile.x, `${format.id} Mittelpunkt liegt in der Kachel`);
-      }
+      const hitsLine = (box: { x: number; y: number; w: number; h: number }) => scene.stern!.box.x < box.x + box.w && box.x < scene.stern!.box.x + scene.stern!.box.w && scene.stern!.box.y < box.y + box.h && box.y < scene.stern!.box.y + scene.stern!.box.h;
+      assert.equal(hitsLine(scene.headline.box), false, `${format.id} Headline`);
+      assert.equal(hitsLine(scene.subline.box), false, `${format.id} Unterzeile`);
     }
     if (wide) {
       assert.ok(Math.abs(scene.headline.box.w / format.w - 0.55) < 0.02, format.id);
@@ -162,6 +157,25 @@ test("a short motif fails the 9x16 length rule", () => {
   assert.ok(story);
   const scene = buildScene(story, "kachel_person", copy(), {}, cutout);
   assert.ok(scene.hints.some((hint) => hint.includes("nicht bestanden: Motiv für 9x16 zu kurz")), scene.hints.join(" | "));
+});
+
+test("Cobra and A57 keep the star off every text box", () => {
+  const hits = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => a.w > 2 && b.w > 2 && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const cobra = { ...copy(), sternText: "NUR BIS SONNTAG" };
+  const a57 = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57" };
+  for (const [name, fields] of [["kachel_person", cobra], ["kachel_geraet", a57]] as const) {
+    for (const format of OTELO_FORMATS) {
+      const scene = buildScene(format, name, fields);
+      assert.ok(scene.stern && scene.stern.box.w > 2, format.id);
+      const boxes = [scene.headline.box, scene.subline.box, scene.cta.box];
+      const covered = boxes.some((box) => hits(scene.stern!.box, box));
+      const failed = scene.hints.some((hint) => hint.startsWith("nicht bestanden") && hint.includes("Stern"));
+      assert.equal(covered, failed, `${name} ${format.id} ${scene.hints.join(" | ")}`);
+      assert.equal(covered, false, `${name} ${format.id} Stern auf Text`);
+      assert.equal(glanceContradictsMeasure(scene.hints, "Der Text überlappt die Unterzeile."), covered === false);
+      assert.equal(glanceContradictsMeasure(scene.hints, "Aufbau und Größen passen."), false);
+    }
+  }
 });
 
 test("placing a cutout keeps the hairline in the measured band", () => {

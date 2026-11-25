@@ -13,6 +13,13 @@ function imageLine(glance: string): string {
   return `Bildprüfung: ${note}`;
 }
 
+/** The image check must not be the only one that sees covered type. */
+export function glanceContradictsMeasure(measured: readonly string[], glance: string): boolean {
+  const imageOverlap = /verdeckt|überlappt|überdeckt/i.test(glance) && /text|headline|unterzeile|schrift|buchstabe|kachel|pille|cta/i.test(glance);
+  if (!imageOverlap) return false;
+  return !measured.some((hint) => /nicht bestanden/i.test(hint) && /stern/i.test(hint) && /überdeckt|überlappt|verdeckt/i.test(hint));
+}
+
 export function pruefungText(measured: readonly string[], glance: string): string {
   const blocking = blockingHints(measured);
   const image = imageLine(glance);

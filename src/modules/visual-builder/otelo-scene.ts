@@ -257,11 +257,11 @@ function insetBox(rect: Box, pad = 0.2): Box {
   return { x: rect.x + rect.w * pad, y: rect.y + rect.h * pad, w: rect.w * (1 - pad * 2), h: rect.h * (1 - pad * 2) };
 }
 
-/** Top-right first, then top-left. The center stays outside the anchor, never on an edge middle. */
-function cornerStar(anchor: Box, size: number, which: "tr" | "tl"): Box {
-  const cx = which === "tr" ? anchor.x + anchor.w + size * 0.12 : anchor.x - size * 0.12;
-  const cy = anchor.y - size * 0.42;
-  return { x: cx - size / 2, y: cy - size / 2, w: size, h: size };
+/** A corner seat whose top never rises into the text above the anchor. */
+function cornerStar(anchor: Box, size: number, which: "tr" | "tl", ceiling: number): Box {
+  const x = which === "tr" ? anchor.x + anchor.w - size * 0.28 : anchor.x - size * 0.72;
+  const y = Math.max(ceiling, anchor.y - size * 0.18);
+  return { x, y, w: size, h: size };
 }
 
 function overlapShare(left: Box, right: Box): number {
@@ -590,7 +590,7 @@ function buildKachel(
     ? { x: Math.min(tileRaw.x, pillRaw.x), y: Math.min(tileRaw.y, pillRaw.y), w: Math.max(tileRaw.x + tileRaw.w, pillRaw.x + pillRaw.w) - Math.min(tileRaw.x, pillRaw.x), h: Math.max(tileRaw.y + tileRaw.h, pillRaw.y + pillRaw.h) - Math.min(tileRaw.y, pillRaw.y) }
     : tileRaw;
   const stern = deviceMode
-    ? (deviceStar ? { box: mirrorBox(cornerStar(groupRaw, starSize, "tr"), w, flip), text: deviceStar } : undefined)
+    ? (deviceStar ? { box: mirrorBox(cornerStar(groupRaw, starSize, "tr", 0), w, flip), text: deviceStar } : undefined)
     : copy.sternText?.trim()
       ? { box: mirrorBox(starBox(tileRaw, sternRadius, [headline.box, subline.box]), w, flip), text: copy.sternText.trim() }
       : undefined;
@@ -670,42 +670,86 @@ function buildKachel(
   }
   const settleStar = () => {
     if (!placed.stern || placed.stern.w < 2) return;
-    const anchor = priceGroupBox(fittedTile, placed.pill) ?? fittedTile;
-    const bounds = { left: w * 0.04, top: h * (tall ? 0.1 : 0.04), right: w * (tiktok ? 0.85 : 0.96), bottom: h * (tiktok ? 0.8 : 0.96) };
+    const anchor = deviceMode ? (priceGroupBox(fittedTile, placed.pill) ?? fittedTile) : fittedTile;
+    const ceiling = Math.max(placed.headline.y + placed.headline.h, placed.subline.y + placed.subline.h);
+    const bounds = { left: w * 0.04, top: Math.max(h * (tall ? 0.1 : 0.04), ceiling), right: w * (tiktok ? 0.85 : 0.96), bottom: h * (tiktok ? 0.8 : 0.96) };
     const offerInk = [
       { x: fittedTile.x + fittedTile.w * 0.14, y: fittedTile.y + fittedTile.h * 0.08, w: fittedTile.w * 0.72, h: fittedTile.h * 0.14 },
       { x: fittedTile.x + fittedTile.w * 0.2, y: fittedTile.y + fittedTile.h * 0.32, w: fittedTile.w * 0.6, h: fittedTile.h * 0.22 },
       { x: fittedTile.x + fittedTile.w * 0.18, y: fittedTile.y + fittedTile.h * 0.76, w: fittedTile.w * 0.64, h: fittedTile.h * 0.14 },
     ];
-    const texts = deviceMode
-      ? [placed.cta, ...(placed.logo && placed.logo.w > 2 ? [placed.logo] : []), ...offerInk, ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.28)] : [])]
-      : [placed.cta, ...(placed.logo && placed.logo.w > 2 ? [placed.logo] : []), ...tileInk(fittedTile)];
-    const outside = (spot: Box) => spot.x < bounds.left - 1 || spot.y < bounds.top - 1 || spot.x + spot.w > bounds.right + 1 || spot.y + spot.h > bounds.bottom + 1;
-    const bad = (spot: Box) => outside(spot)
-      || texts.some((item) => item.w > 2 && overlaps(spot, item))
-      || Boolean(headBox && headBox.w > 2 && overlaps(spot, headBox))
-      || Boolean(placed.product && overlapShare(spot, placed.product) > 0.05);
-    if (!bad(placed.stern)) return;
-    const floor = Math.max(anchor.w * 0.18, placed.stern.w * 0.45);
+    const texts = [
+      placed.headline,
+      placed.subline,
+      placed.cta,
+      ...(placed.logo && placed.logo.w > 2 ? [placed.logo] : []),
+      ...(deviceMode ? offerInk : tileInk(fittedTile)),
+      ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.22)] : []),
+    ];
+    const offCanvas = (spot: Box) => spot.y < ceiling - 1
+      || spot.x < bounds.left - 1
+      || spot.y < h * (tall ? 0.1 : 0.04) - 1
+      || spot.x + spot.w > bounds.right + 1
+      || spot.y + spot.h > bounds.bottom + 1;
+    const hitsCopy = (spot: Box) => texts.some((item) => item.w > 2 && item.h > 2 && overlaps(spot, item))
+      || Boolean(headBox && headBox.w > 2 && overlaps(spot, headBox));
+    const deviceShare = (spot: Box) => placed.product ? overlapShare(spot, placed.product) : 0;
+    const start = placed.stern.w;
+    const minSize = start * 0.8;
+    let closest: { spot: Box; share: number } | undefined;
+    const slide = (size: number, which: "tr" | "tl"): Box | undefined => {
+      const xs: number[] = [];
+      if (which === "tr") {
+        for (let x = anchor.x + anchor.w - size * 0.22; x >= anchor.x - size * 0.15; x -= Math.max(8, size * 0.1)) xs.push(x);
+      } else {
+        for (let x = anchor.x - size * 0.78; x <= anchor.x + anchor.w - size * 0.7; x += Math.max(8, size * 0.1)) xs.push(x);
+      }
+      const y0 = Math.max(ceiling, anchor.y - size * 0.18);
+      const yMax = Math.min(bounds.bottom - size, anchor.y + anchor.h - size * 0.15);
+      for (const x of xs) {
+        for (let y = y0; y <= yMax + 0.5; y += Math.max(6, size * 0.07)) {
+          const spot = {
+            x: Math.max(bounds.left, Math.min(x, bounds.right - size)),
+            y: Math.max(ceiling, y),
+            w: size,
+            h: size,
+          };
+          if (offCanvas(spot) || hitsCopy(spot)) continue;
+          const share = deviceShare(spot);
+          if (share <= 0.05) return spot;
+          if (!closest || share < closest.share) closest = { spot, share };
+        }
+      }
+      return undefined;
+    };
     for (const which of ["tr", "tl"] as const) {
-      let size = placed.stern.w;
-      while (size >= floor) {
-        const spot = cornerStar(anchor, size, which);
-        spot.x = Math.max(bounds.left, Math.min(spot.x, bounds.right - spot.w));
-        spot.y = Math.max(bounds.top, Math.min(spot.y, bounds.bottom - spot.h));
-        const cx = spot.x + spot.w / 2;
-        const cy = spot.y + spot.h / 2;
-        const centerOutside = cx > anchor.x + anchor.w || cx < anchor.x || cy < anchor.y || cy > anchor.y + anchor.h;
-        const nearTop = cy < anchor.y + anchor.h * 0.25;
-        if (centerOutside && nearTop && !bad(spot)) {
-          placed.stern.x = spot.x;
-          placed.stern.y = spot.y;
-          placed.stern.w = spot.w;
-          placed.stern.h = spot.h;
+      let size = start;
+      const found = slide(size, which);
+      if (found) {
+        placed.stern.x = found.x;
+        placed.stern.y = found.y;
+        placed.stern.w = found.w;
+        placed.stern.h = found.h;
+        return;
+      }
+      while (size > minSize + 0.5) {
+        size = Math.max(minSize, size * 0.95);
+        const smaller = slide(size, which);
+        if (smaller) {
+          placed.stern.x = smaller.x;
+          placed.stern.y = smaller.y;
+          placed.stern.w = smaller.w;
+          placed.stern.h = smaller.h;
           return;
         }
-        size *= 0.9;
+        if (size <= minSize + 0.01) break;
       }
+    }
+    if (closest) {
+      placed.stern.x = closest.spot.x;
+      placed.stern.y = closest.spot.y;
+      placed.stern.w = closest.spot.w;
+      placed.stern.h = closest.spot.h;
     }
   };
   settleStar();
@@ -802,12 +846,20 @@ function buildKachel(
   if (fittedTile.w > 2 && placed.cta.w > 2 && overlaps(fittedTile, placed.cta)) hints.push(`Die Kachel überlappt die CTA im ${label}.`);
   if (placed.stern && placed.stern.w > 2) {
     const offerInk = [
-      { x: fittedTile.x + fittedTile.w * 0.14, y: fittedTile.y + fittedTile.h * 0.08, w: fittedTile.w * 0.72, h: fittedTile.h * 0.14 },
-      { x: fittedTile.x + fittedTile.w * 0.2, y: fittedTile.y + fittedTile.h * 0.32, w: fittedTile.w * 0.6, h: fittedTile.h * 0.22 },
-      { x: fittedTile.x + fittedTile.w * 0.18, y: fittedTile.y + fittedTile.h * 0.76, w: fittedTile.w * 0.64, h: fittedTile.h * 0.14 },
+      ["Einmalpreis", { x: fittedTile.x + fittedTile.w * 0.14, y: fittedTile.y + fittedTile.h * 0.08, w: fittedTile.w * 0.72, h: fittedTile.h * 0.14 }],
+      ["Einmalpreis", { x: fittedTile.x + fittedTile.w * 0.2, y: fittedTile.y + fittedTile.h * 0.32, w: fittedTile.w * 0.6, h: fittedTile.h * 0.22 }],
+      ["statt-Preis", { x: fittedTile.x + fittedTile.w * 0.18, y: fittedTile.y + fittedTile.h * 0.76, w: fittedTile.w * 0.64, h: fittedTile.h * 0.14 }],
+    ] as Array<[string, Box]>;
+    const ink = tileInk(fittedTile);
+    const covered: Array<[string, Box]> = [
+      ["Headline", placed.headline],
+      ["Unterzeile", placed.subline],
+      ["CTA", placed.cta],
+      ...(deviceMode ? offerInk : [["Datenmenge", ink[0] ?? box(0, 0, 0, 0)], ["Altwert", ink[1] ?? box(0, 0, 0, 0)], ["Preis", ink[2] ?? box(0, 0, 0, 0)]] as Array<[string, Box]>),
+      ...(placed.pill && placed.pill.w > 2 ? [["Pillentext", insetBox(placed.pill, 0.22)] as [string, Box]] : []),
     ];
-    const covered = [placed.cta, ...(deviceMode ? offerInk : tileInk(fittedTile)), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.28)] : [])].filter((item) => item.w > 2 && overlaps(placed.stern!, item));
-    if (covered.length) hints.push(`Der Stern überdeckt Text im ${label}.`);
+    const hit = covered.filter((item) => item[1].w > 2 && item[1].h > 2 && overlaps(placed.stern!, item[1]));
+    if (hit.length) hints.push(`nicht bestanden: Der Stern überdeckt ${[...new Set(hit.map((item) => item[0]))].join(" und ")} im ${label}.`);
   }
   if (deviceMode && placed.product) {
     for (const [nameOf, text] of [["Unterzeile", placed.subline], ["Headline", placed.headline]] as Array<[string, Box]>) {
@@ -822,14 +874,6 @@ function buildKachel(
   if (deviceMode && placed.pill && placed.stern) {
     const text = insetBox(placed.pill, 0.28);
     if (overlaps(placed.stern, text)) hints.push(`Der Stern überdeckt den Pillentext im ${label}.`);
-  }
-  if (!deviceMode && placed.stern && placed.stern.w > 2) {
-    const cx = placed.stern.x + placed.stern.w / 2;
-    const cy = placed.stern.y + placed.stern.h / 2;
-    const radius = placed.stern.w * 0.48;
-    const outside = cx > fittedTile.x + fittedTile.w || cy < fittedTile.y || cx < fittedTile.x || cy > fittedTile.y + fittedTile.h;
-    const texts = [...tileInk(fittedTile), placed.cta];
-    if (!outside || texts.some((rect) => circleHits(cx, cy, radius * 0.82, rect))) hints.push(`Der Stern überdeckt Text im ${label}.`);
   }
   if (deko?.name === "bw_wellen") {
     const pad = w * 0.012;
