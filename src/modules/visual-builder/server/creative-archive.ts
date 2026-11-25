@@ -5,7 +5,7 @@ import JSZip from "jszip";
 import { OTELO_FORMATS } from "../otelo-formats";
 import { clientRoot } from "./client-volume";
 import { namePart, nextVersion, oteloFileName, oteloFolder, type OteloName } from "./naming";
-import { applyToBook, newBook, type AdjustBook } from "./adjust-commands";
+import { applyToBook, newBook, seedBook, type AdjustBook, type FieldPatch } from "./adjust-commands";
 import { normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
 import { renderTemplate, type RenderedCreative } from "./otelo-render";
 import { signPreview } from "./previews";
@@ -45,7 +45,7 @@ export type CreativeDraft = {
   summary?: string;
 };
 
-const BLOCKING = /überlappt|unteren Rand|Orange-Anteil|Schräge|CTA-Leiste|CTA-Text|CTA fehlt|Fußnote|Ersatzschrift|mehr als|auf Orange|zu klein|zu weit|sicheren Zone|Kopf ist nicht|zu kurz|Stern überdeckt|Wellen überlagern|nicht vollständig in der/;
+const BLOCKING = /überlappt|unteren Rand|Orange-Anteil|Schräge|CTA-Leiste|CTA-Text|CTA fehlt|Fußnote|Ersatzschrift|mehr als|auf Orange|zu klein|zu weit|sicheren Zone|Kopf ist nicht|zu kurz|Stern überdeckt|Pillentext|Wellen überlagern|nicht vollständig in der|außerhalb der Ränder/;
 
 export function blockingHints(hints: readonly string[]): string[] {
   return hints.filter((hint) => !hint.startsWith("Hinweis:") && BLOCKING.test(hint));
@@ -165,6 +165,26 @@ export async function readDraft(id: string): Promise<CreativeDraft | null> {
   }
 }
 
+function applySnapFields(draft: CreativeDraft, fields: FieldPatch) {
+  if (fields.headline !== undefined) draft.headline = fields.headline;
+  if (fields.subline !== undefined) draft.subline = fields.subline;
+  if (fields.button !== undefined) draft.button = fields.button;
+  if (fields.sternText !== undefined) draft.sternText = fields.sternText;
+  if (fields.datenmenge !== undefined) draft.datenmenge = fields.datenmenge;
+  if (fields.datenmengeAlt !== undefined) draft.datenmengeAlt = fields.datenmengeAlt;
+  if (fields.preis !== undefined) draft.preis = fields.preis;
+  if (fields.preisZusatz !== undefined) draft.preisZusatz = fields.preisZusatz;
+  if (fields.einmalpreis !== undefined) draft.einmalpreis = fields.einmalpreis;
+  if (fields.einmalpreisZusatz !== undefined) draft.einmalpreisZusatz = fields.einmalpreisZusatz;
+  if (fields.geraetName !== undefined) draft.geraetName = fields.geraetName;
+  if (fields.pflichttext !== undefined) draft.pflichttext = fields.pflichttext;
+  if (fields.deko !== undefined) draft.deko = fields.deko;
+  if (fields.vorlage !== undefined) draft.vorlage = normalizeVorlage(fields.vorlage);
+  if (fields.motiv !== undefined) draft.motiv = fields.motiv;
+  if (fields.energielabel !== undefined) draft.energielabel = fields.energielabel;
+  if (fields.headlineVariante !== undefined) draft.headlineVariante = fields.headlineVariante;
+}
+
 export async function adjustCreative(id: string, change: Record<string, unknown>): Promise<{ draft: CreativeDraft; rendered: RenderedCreative }> {
   const draft = await readDraft(id);
   if (!draft) throw new Error("Diesen Entwurf kenne ich nicht. Ruf zuerst compose_creative auf.");
@@ -218,24 +238,7 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
     }
     draft.layoutBook = result.book;
     draft.orange = result.book.snap.orange;
-    const patch = result.book.snap.fields ?? {};
-    if (patch.headline) draft.headline = patch.headline;
-    if (patch.subline) draft.subline = patch.subline;
-    if (patch.button) draft.button = patch.button;
-    if (patch.sternText) draft.sternText = patch.sternText;
-    if (patch.datenmenge) draft.datenmenge = patch.datenmenge;
-    if (patch.datenmengeAlt !== undefined) draft.datenmengeAlt = patch.datenmengeAlt;
-    if (patch.preis) draft.preis = patch.preis;
-    if (patch.preisZusatz) draft.preisZusatz = patch.preisZusatz;
-    if (patch.einmalpreis) draft.einmalpreis = patch.einmalpreis;
-    if (patch.einmalpreisZusatz) draft.einmalpreisZusatz = patch.einmalpreisZusatz;
-    if (patch.geraetName) draft.geraetName = patch.geraetName;
-    if (patch.pflichttext) draft.pflichttext = patch.pflichttext;
-    if (patch.deko) draft.deko = patch.deko;
-    if (patch.vorlage) draft.vorlage = normalizeVorlage(patch.vorlage);
-    if (patch.motiv) draft.motiv = patch.motiv;
-    if (patch.energielabel) draft.energielabel = patch.energielabel;
-    if (patch.headlineVariante) draft.headlineVariante = patch.headlineVariante;
+    applySnapFields(draft, result.book.snap.fields ?? {});
     draft.summary = result.summary;
     if (result.book.version === versionBefore) {
       const rendered = await renderTemplate(fieldsForRender(draft));
@@ -295,7 +298,25 @@ export async function storeRenderedDraft(rendered: RenderedCreative, fields: Omi
     sternText: fields.sternText,
     deko: fields.deko,
     geraetName: fields.geraetName,
-    layoutBook: newBook(fields.orange),
+    layoutBook: seedBook(fields.orange, {
+      headline: fields.headline,
+      subline: fields.subline,
+      button: fields.button,
+      sternText: fields.sternText ?? "",
+      datenmenge: fields.datenmenge ?? "",
+      datenmengeAlt: fields.datenmengeAlt ?? "",
+      preis: fields.preis,
+      preisZusatz: fields.preisZusatz,
+      einmalpreis: fields.einmalpreis,
+      einmalpreisZusatz: fields.einmalpreisZusatz,
+      geraetName: fields.geraetName ?? "",
+      pflichttext: fields.pflichttext,
+      deko: fields.deko === "bw_wellen" || fields.deko === "fruehling_blaetter" || fields.deko === "keine" ? fields.deko : undefined,
+      vorlage: rendered.name,
+      motiv: rendered.deviceFile || rendered.personFile || fields.motiv,
+      energielabel: fields.energielabel ?? "",
+      headlineVariante: fields.headlineVariante,
+    }),
   };
   await writeDraft(draft);
   return draft;

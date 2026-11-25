@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { PNG } from "pngjs";
-import { adjustRequest, applyToBook, mergedNudge, newBook, type AdjustBook } from "../src/modules/visual-builder/server/adjust-commands";
+import { adjustRequest, applyToBook, mergedNudge, newBook, seedBook, type AdjustBook } from "../src/modules/visual-builder/server/adjust-commands";
+import { withoutInstructed } from "../src/modules/visual-builder/server/review";
+import { fitHeadlineForChevrons } from "../src/modules/visual-builder/otelo-scene";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
 import { buildScene, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
 
@@ -166,6 +168,48 @@ test("the twelve spoken sentences change the rendered pixels when a property cha
   }
   assert.equal(book.snap.fields.button, "Jetzt wechseln");
   assert.equal(mergedNudge(book.snap, "meta-1x1", "stoerer").hidden, false);
+});
+
+test("zurück zu Version 2 restores every field and matches the pixels", () => {
+  const start = seedBook("rechts", { deko: "bw_wellen", datenmengeAlt: "50 GB", button: "Jetzt sichern", sternText: "YOUNG DEAL" });
+  const version2 = applyToBook(start, "Headline kleiner nur im 9x16");
+  const changed = applyToBook(version2.book, "Altwert weg, nimm Blätter statt Wellen");
+  assert.equal(changed.book.snap.fields.deko, "fruehling_blaetter");
+  assert.equal(changed.book.snap.fields.datenmengeAlt, "");
+  const restored = applyToBook(changed.book, "zurück zu Version 2");
+  assert.equal(restored.book.snap.fields.deko, "bw_wellen");
+  assert.equal(restored.book.snap.fields.datenmengeAlt, "50 GB");
+  assert.equal(pixelDiff(raster(version2.book), raster(restored.book)), 0);
+});
+
+test("spacing stays in the answer and a format limit stays in its clause", () => {
+  const air = applyToBook(newBook(), "nimm Blätter statt Wellen und mehr Luft zwischen Headline und Kachel");
+  assert.match(air.summary, /umgesetzt: Deko Blätter/);
+  assert.match(air.summary, /umgesetzt: mehr Luft zwischen Headline und Kachel/);
+  assert.equal(mergedNudge(air.book.snap, "meta-1x1", "kachel").dy, 6);
+  const scoped = applyToBook(newBook(), "Headline kleiner nur im 9x16, Kachel etwas höher und Frau deutlich größer");
+  assert.equal(mergedNudge(scoped.book.snap, "9x16", "headline").scale, 0.85);
+  assert.equal(mergedNudge(scoped.book.snap, "meta-1x1", "headline").scale, 1);
+  assert.equal(mergedNudge(scoped.book.snap, "meta-1x1", "kachel").dy, -3);
+  assert.equal(mergedNudge(scoped.book.snap, "9x16", "kachel").dy, -3);
+  assert.equal(mergedNudge(scoped.book.snap, "meta-1x1", "person").scale, 1.25);
+  assert.match(scoped.summary, /alle Formate/);
+});
+
+test("the image check drops changes the user asked for", () => {
+  const glance = "Die Subline ist Lime statt Orange. Der Störer fehlt. Der Altwert fehlt. Die Farbe Rot auf der Leiste ist unzulässig.";
+  const kept = withoutInstructed(glance, "Unterzeile ist auf Wunsch Lime. Störer ist auf Wunsch ausgeblendet. Altwert ist auf Wunsch entfernt.");
+  assert.match(kept, /Rot/);
+  assert.doesNotMatch(kept, /Lime statt Orange/);
+  assert.doesNotMatch(kept, /Störer fehlt/);
+  assert.doesNotMatch(kept, /Altwert fehlt/);
+});
+
+test("a wide headline shrinks until two chevrons fit", () => {
+  const fitted = fitHeadlineForChevrons(900, 140, 1080);
+  const secondEnd = fitted.textWidth + fitted.fontSize * 0.06 + fitted.fontSize * (41.08 / 73.924) + fitted.fontSize * (58.568 / 73.924);
+  assert.ok(secondEnd <= 1080);
+  assert.ok(fitted.fontSize < 140);
 });
 
 test("the live Cobra sentence changes CTA, star and subline pixels", () => {

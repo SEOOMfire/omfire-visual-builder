@@ -1,4 +1,4 @@
-import { BLACK, LIME, ORANGE, WAVE_STROKE, WHITE, arrowSpan, wavePaths, type OteloScene } from "../../../src/modules/visual-builder/otelo-scene";
+import { BLACK, LIME, ORANGE, WAVE_STROKE, WHITE, arrowSpan, fitHeadlineForChevrons, wavePaths, type OteloScene } from "../../../src/modules/visual-builder/otelo-scene";
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   const radius = Math.max(0, Math.min(r, w / 2, h / 2));
@@ -46,15 +46,24 @@ function drawCover(ctx: CanvasRenderingContext2D, image: HTMLImageElement | null
   ctx.restore();
 }
 
-function drawTiltedProduct(ctx: CanvasRenderingContext2D, image: HTMLImageElement, box: { x: number; y: number; w: number; h: number }, radians: number, canvasW: number, clampRight: boolean) {
+function drawTiltedProduct(ctx: CanvasRenderingContext2D, image: HTMLImageElement, box: { x: number; y: number; w: number; h: number }, radians: number, canvasW: number, clampRight: boolean, avoid?: { x: number; y: number; w: number; h: number }) {
   const aspect = image.width / Math.max(1, image.height);
-  const height = box.h;
-  const width = height * aspect;
+  let height = box.h;
+  let width = height * aspect;
   let centerX = box.x + box.w * 0.5;
-  const centerY = box.y + box.h * 0.5;
-  if (clampRight) {
-    const limit = canvasW + width * 0.15;
-    if (centerX + width * 0.5 > limit) centerX = limit - width * 0.5;
+  let centerY = box.y + box.h * 0.5;
+  for (let step = 0; step < 8; step += 1) {
+    if (clampRight) {
+      const limit = canvasW + width * 0.15;
+      if (centerX + width * 0.5 > limit) centerX = limit - width * 0.5;
+    }
+    if (!avoid || avoid.w < 2) break;
+    const top = centerY - height * 0.5;
+    const hits = centerX - width * 0.5 < avoid.x + avoid.w && centerX + width * 0.5 > avoid.x && top < avoid.y + avoid.h && centerY + height * 0.5 > avoid.y;
+    if (!hits) break;
+    height *= 0.9;
+    width = height * aspect;
+    centerY = box.y + box.h - height * 0.5;
   }
   ctx.save();
   ctx.translate(centerX, centerY);
@@ -543,6 +552,38 @@ function drawKachel(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Re
   }
 }
 
+function drawKachelSubline(ctx: CanvasRenderingContext2D, scene: OteloScene, headSize: number, headlineEnd: number): string {
+  const text = scene.subline.lines[0]?.text ?? "";
+  if (!text) return "";
+  const right = scene.id === "tiktok-9x16" ? scene.width * 0.84 : scene.width * 0.96;
+  const maxW = Math.max(8, Math.min(headlineEnd - scene.subline.box.x, scene.subline.box.w, right - scene.subline.box.x));
+  const minSize = Math.max(11, scene.height * 0.018);
+  let size = Math.min(headSize * 0.45, scene.subline.box.h);
+  const widthOf = (sample: string, sampleSize: number) => {
+    ctx.font = face(900, sampleSize, "Titillium Web");
+    return ctx.measureText(sample).width;
+  };
+  while (size > minSize && widthOf(text, size) > maxW) size *= 0.94;
+  ctx.fillStyle = scene.subline.lines[0]?.color || ORANGE;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  if (widthOf(text, size) <= maxW + 1) {
+    ctx.fillText(text, scene.subline.box.x, scene.subline.box.y);
+    return "";
+  }
+  const words = text.split(/\s+/);
+  const splitAt = Math.max(1, Math.ceil(words.length / 2));
+  const lineA = words.slice(0, splitAt).join(" ");
+  const lineB = words.slice(splitAt).join(" ") || lineA;
+  size = Math.min(size, scene.subline.box.h / 2.2);
+  while (size > minSize && (widthOf(lineA, size) > maxW || widthOf(lineB, size) > maxW)) size *= 0.94;
+  ctx.font = face(900, size, "Titillium Web");
+  ctx.fillText(lineA, scene.subline.box.x, scene.subline.box.y);
+  ctx.fillText(lineB, scene.subline.box.x, scene.subline.box.y + size * 1.08);
+  const overflow = widthOf(lineA, size) > maxW + 1 || widthOf(lineB, size) > maxW + 1;
+  return overflow ? `Die Unterzeile liegt außerhalb der Ränder im ${scene.width}x${scene.height}.` : "";
+}
+
 export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Record<string, HTMLImageElement | null>): string[] {
   const hints: string[] = [];
   const geist = document.fonts.check('700 32px "Geist"');
@@ -572,7 +613,7 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
       ctx.fill();
     }
     const productImage = scene.productKey ? images[scene.productKey] : null;
-    if (productImage && scene.product && scene.productTilt) drawTiltedProduct(ctx, productImage, scene.product, scene.productTilt, scene.width, scene.height > scene.width * 1.4);
+    if (productImage && scene.product && scene.productTilt) drawTiltedProduct(ctx, productImage, scene.product, scene.productTilt, scene.width, scene.height > scene.width * 1.4, scene.cta.box);
     else drawImageBox(ctx, productImage, scene.product, "center");
     const figureImage = scene.figureKey ? images[scene.figureKey] : null;
     if (figureImage && scene.figure && scene.figureSource) drawCutout(ctx, figureImage, scene.figure, scene.figureSource, Boolean(scene.figureFlip));
@@ -581,21 +622,22 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     const headText = scene.headline.lines[0] ?? "";
-    const headSize = sizeForWidth(ctx, headText, 900, "Titillium Web", scene.headline.box.w);
+    let headSize = sizeForWidth(ctx, headText, 900, "Titillium Web", scene.headline.box.w);
+    ctx.font = face(900, headSize, "Titillium Web");
+    const fitted = fitHeadlineForChevrons(ctx.measureText(headText).width, headSize, scene.width);
+    headSize = fitted.fontSize;
     ctx.font = face(900, headSize, "Titillium Web");
     ctx.fillText(headText, scene.headline.box.x, scene.headline.box.y);
+    const headlineEnd = scene.headline.box.x + ctx.measureText(headText).width;
     if (scene.headlinePfeile) {
       const headInTheLine = scene.headBox && scene.headBox.y < scene.headline.box.y + headSize;
       const edge = scene.width + headSize;
       const maxX = headInTheLine && scene.headBox ? Math.min(scene.headBox.x - scene.width * 0.02, edge) : edge;
-      const span = arrowSpan(scene.headline.box.x + ctx.measureText(headText).width, headSize, maxX);
-      if (span.count > 0) drawArrows(ctx, scene.headline.box.x + ctx.measureText(headText).width, scene.headline.box.y, headSize, span.count);
+      const span = arrowSpan(headlineEnd, headSize, maxX);
+      if (span.count > 0) drawArrows(ctx, headlineEnd, scene.headline.box.y, headSize, span.count);
     }
-    ctx.fillStyle = scene.subline.lines[0]?.color || ORANGE;
-    const subText = scene.subline.lines[0]?.text ?? "";
-    const subSize = Math.min(headSize * 0.45, scene.subline.box.h);
-    ctx.font = face(900, subSize, "Titillium Web");
-    ctx.fillText(subText, scene.subline.box.x, scene.subline.box.y);
+    const subOverflow = drawKachelSubline(ctx, scene, headSize, headlineEnd);
+    if (subOverflow) hints.push(subOverflow);
     if (scene.pill) {
       drawDeviceOffer(ctx, scene);
       if (scene.deviceLabel?.text) {

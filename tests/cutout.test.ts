@@ -112,16 +112,26 @@ test("a device tile keeps the price, the pill and the phone apart", () => {
       assert.equal(hits, false, `${format.id} Logo überlappt CTA`);
     }
     if (format.id.endsWith("9x16") && scene.product) {
-      const crop = Math.max(0, scene.product.x + scene.product.w - format.w) / scene.product.w;
-      assert.ok(crop <= 0.15, `${format.id} crop ${crop.toFixed(2)}`);
-      const mid = scene.product.y + scene.product.h / 2;
-      assert.ok(mid > format.h * 0.7 && mid < format.h * 0.85, `${format.id} mid ${mid / format.h}`);
+      const person = buildScene(format, "kachel_person", copy());
+      assert.ok(Math.abs(scene.cta.box.h - person.cta.box.h) < 2, format.id);
+      assert.ok(Math.abs(scene.cta.box.w - person.cta.box.w) < 2, format.id);
+      const product = scene.product;
+      const cta = scene.cta.box;
+      const hits = product.x < cta.x + cta.w && cta.x < product.x + product.w && product.y < cta.y + cta.h && cta.y < product.y + product.h;
+      assert.equal(hits, false, `${format.id} Gerät überlappt CTA`);
+      assert.equal(scene.hints.some((hint) => hint.includes("Pillentext")), false, scene.hints.join(" | "));
     }
   }
 });
 
+test("chevrons stay when the deco is leaves", () => {
+  const scene = buildScene(OTELO_FORMATS[3], "kachel_person", { ...copy(), deko: "fruehling_blaetter" });
+  assert.equal(scene.headlinePfeile, true);
+});
+
 test("the wave bundle covers at least 12 percent of the square", () => {
   assert.ok(wavePaintShare(1080, 1080) >= 0.12);
+  assert.ok(wavePaintShare(1080, 1920) >= 0.06, "waves stay visible on 9x16");
 });
 
 test("arrows stop before the head", () => {

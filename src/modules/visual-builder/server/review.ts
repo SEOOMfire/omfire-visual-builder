@@ -28,8 +28,25 @@ export function fullReport(measured: readonly string[], glance: string): string 
   return lines.join("\n");
 }
 
+/** Drops review sentences that only repeat a change the user asked for. */
+export function withoutInstructed(glance: string, instructed: string): string {
+  const notes = instructed.trim();
+  if (!notes) return glance;
+  const drop: RegExp[] = [];
+  if (/unterzeile/i.test(notes) && /lime/i.test(notes)) drop.push(/unterzeile|subline/i);
+  if (/störer/i.test(notes) && /ausgeblendet/i.test(notes)) drop.push(/st[öo]rer|stern/i);
+  if (/altwert/i.test(notes)) drop.push(/altwert/i);
+  if (/blätter/i.test(notes)) drop.push(/bl[äa]tter|welle/i);
+  const kept = glance.split(/(?<=\.)\s+/).filter((sentence) => {
+    if (!drop.some((pattern) => pattern.test(sentence))) return true;
+    return !/fehlt|statt|abweich|orange|nicht (?:da|sichtbar)|entfernt/i.test(sentence);
+  });
+  const text = kept.join(" ").trim();
+  return text || "keine Anmerkungen";
+}
+
 /** A look at one format. Never a reason to block saving. */
-export async function glanceAt(jpegBase64: string, rules: string, referencePath = "files/referenz/styleguide-seite-4.jpg", measured = "", formatLabel = ""): Promise<string> {
+export async function glanceAt(jpegBase64: string, rules: string, referencePath = "files/referenz/styleguide-seite-4.jpg", measured = "", formatLabel = "", instructed = ""): Promise<string> {
   const config = openRouterConfig(MODEL_VARIABLE, "anthropic/claude-sonnet-5.5");
   if (!config.configured) return "nicht gelaufen, weil die Prüfung nicht erreichbar ist.";
   if (!jpegBase64) return "nicht gelaufen, weil kein Bild vorlag.";
@@ -44,7 +61,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
         {
           role: "user",
           content: [
-            { type: "text", text: `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nIm 9x16 ist kein Logo vorgesehen.\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"}.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens zwei Sätze zu diesem einen Format.` },
+            { type: "text", text: `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nIm 9x16 ist kein Logo vorgesehen.\nAngewiesene Änderungen sind kein Fehler. Melde sie nicht. Melde nur CI-Verstöße, zum Beispiel eine Farbe außerhalb von Lime, Orange, Schwarz und Weiß.\nAngewiesen: ${instructed || "keine"}\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"}.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens zwei Sätze zu diesem einen Format.` },
             ...images,
           ],
         },
@@ -65,7 +82,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
       if (!/keine Antwort|abgelehnt/.test(message)) throw error;
       text = await ask(undefined);
     }
-    return text.split(/(?<=\.)\s+/).slice(0, 2).join(" ");
+    return withoutInstructed(text.split(/(?<=\.)\s+/).slice(0, 2).join(" "), instructed);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unbekannter Fehler";
     return `nicht gelaufen, weil ${message.replace(/\s+/g, " ").slice(0, 180)}`;
@@ -77,10 +94,11 @@ export async function glanceFormats(
   rules: string,
   referencePath: string,
   measured = "",
+  instructed = "",
 ): Promise<string> {
   const picked = formats.filter((format) => format.jpeg);
   const notes = await Promise.all(picked.map(async (format) => {
-    const note = await glanceAt(format.jpeg, rules, referencePath, measured, format.label);
+    const note = await glanceAt(format.jpeg, rules, referencePath, measured, format.label, instructed);
     return `${format.label}: ${note}`;
   }));
   return notes.join("\n");

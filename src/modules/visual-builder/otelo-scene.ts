@@ -254,32 +254,33 @@ function overlaps(left: Box, right: Box): boolean {
   return left.x < right.x + right.w && right.x < left.x + left.w && left.y < right.y + right.h && right.y < left.y + left.h;
 }
 
-export const WAVE_STROKE = 0.028;
+export const WAVE_STROKE = 0.024;
 
 /**
- * Parallel sine curves measured on Meta_Q4_1126_BW_Young_Classic_Woman_1x1.
- * The bundle climbs about 42 degrees off vertical, from the lower left toward
- * the upper right, and each line bows along that path. The paint fades the
- * strokes from black at the upper left to orange at the lower right.
+ * Parallel sine curves. The rise follows the format height and the run the
+ * width, so a tall 9x16 keeps the bundle on the canvas behind the figure
+ * instead of shooting off the right edge. The paint fades the strokes from
+ * black at the upper left to orange at the lower right.
  */
 export function wavePaths(width: number, height: number): Array<Array<{ x: number; y: number }>> {
-  const count = 12;
-  const spacing = width * 0.032;
-  const amplitude = spacing * 0.7;
-  const angle = (42 * Math.PI) / 180;
-  const dx = Math.sin(angle);
-  const dy = -Math.cos(angle);
-  const nx = Math.cos(angle);
-  const ny = Math.sin(angle);
-  const length = Math.hypot(width, height) * 1.2;
+  const count = 11;
+  const spacing = width * 0.036;
+  const amplitude = width * 0.016;
+  const rise = height * 0.78;
+  const run = width * 0.46;
+  const length = Math.hypot(run, rise) || 1;
+  const dx = run / length;
+  const dy = -rise / length;
+  const nx = rise / length;
+  const ny = run / length;
   return Array.from({ length: count }, (_, index) => {
-    const x0 = width * 0.52 + index * spacing;
+    const x0 = width * 0.58 + index * spacing * 0.85;
     const y0 = height * 1.02;
     const points: Array<{ x: number; y: number }> = [];
-    for (let step = 0; step <= 80; step += 1) {
-      const u = step / 80;
+    for (let step = 0; step <= 72; step += 1) {
+      const u = step / 72;
       const along = u * length;
-      const wave = Math.sin(u * Math.PI * 2 * 3.5) * amplitude;
+      const wave = Math.sin(u * Math.PI * 2 * 3.4) * amplitude;
       points.push({ x: x0 + dx * along + nx * wave, y: y0 + dy * along + ny * wave });
     }
     return points;
@@ -315,6 +316,18 @@ export function wavePaintShare(width: number, height: number): number {
     }
   }
   return total ? hit / total : 0;
+}
+
+/** Shrinks the headline until two chevrons fit on the canvas. The third may run off the edge. */
+export function fitHeadlineForChevrons(textWidth: number, fontSize: number, canvasRight: number): { textWidth: number; fontSize: number } {
+  const secondEnd = (width: number, size: number) => width + size * 0.06 + size * (41.08 / 73.924) + size * (58.568 / 73.924);
+  let width = textWidth;
+  let size = fontSize;
+  while (size > 10 && secondEnd(width, size) > canvasRight) {
+    size *= 0.97;
+    width *= 0.97;
+  }
+  return { textWidth: width, fontSize: size };
 }
 
 export function arrowSpan(start: number, fontSize: number, maxX: number): { end: number; count: number } {
@@ -489,10 +502,10 @@ function buildKachel(
   };
   const subline = {
     lines: copy.subline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 2).map((text) => ({ text: /[a-zäöü]/.test(text) ? text : text.toUpperCase(), bold: true, color: copy.sublineColor || ORANGE })),
-    box: mirrorBox(box(left, headline.box.y + headline.box.h + (wide ? headH * 0.16 : h * 0.012), wide ? w * 0.55 : w * 0.9, headH * 0.62), w, flip),
+    box: mirrorBox(box(left, headline.box.y + headline.box.h + (wide ? headH * 0.16 : h * 0.012), headline.box.w, headH * 0.62), w, flip),
   };
   const tileRaw = deviceMode
-    ? box(left, tall ? h * 0.38 : subline.box.y + subline.box.h + h * 0.04, wide ? w * 0.2 : tall ? w * 0.36 : w * 0.26, wide ? h * 0.36 : tall ? h * 0.15 : h * 0.22)
+    ? box(left, tall ? h * 0.26 : subline.box.y + subline.box.h + h * 0.04, wide ? w * 0.2 : tall ? w * 0.42 : w * 0.26, wide ? h * 0.36 : tall ? h * 0.12 : h * 0.22)
     : wide
       ? box(left, subline.box.y + subline.box.h + h * 0.035, w * 0.22, h * 0.42)
       : box(left, tall ? h * 0.28 : h * 0.3, w * (tall ? 0.5 : 0.45), tall ? h * 0.28 : h * 0.4);
@@ -510,8 +523,8 @@ function buildKachel(
     ctaH = Math.min(ctaH, Math.max(h * 0.09, logoTop - (tileRaw.y + tileRaw.h) - h * 0.04));
     ctaRaw = box(left, logoTop - ctaH - h * 0.016, w * 0.42, ctaH);
   } else if (deviceMode && tall) {
-    ctaH = h * 0.055;
-    ctaRaw = box(left, h * 0.62, w * 0.36, ctaH);
+    ctaH = Math.max(h * 0.05, h * (0.022 / 0.48));
+    ctaRaw = box(left, h * 0.5 - ctaH - h * 0.012, w * 0.55, ctaH);
   }
   const cta = {
     box: mirrorBox(ctaRaw, w, flip),
@@ -531,14 +544,14 @@ function buildKachel(
         : box(w * 0.4, h * 0.3, w * 0.64, h * 0.74), w, flip);
   const deviceH = h * (deviceMode ? (tall ? 0.46 : 0.6) : tall ? 0.42 : wide ? 0.72 : 0.58);
   const device = name === "kachel_person" ? undefined : mirrorBox(deviceMode
-    ? tall ? box(w * 0.4, h * 0.52, w * 0.7, deviceH) : box(w * 0.46, h * 0.18, w * 0.62, deviceH)
+    ? tall ? box(w * 0.16, h * 0.52, w * 0.98, deviceH) : box(w * 0.46, h * 0.18, w * 0.62, deviceH)
     : box(w * 0.52, h * 0.22, Math.min(w * 0.42, deviceH * 0.7), deviceH), w, flip);
   const sternRadius = tileRaw.w * (wide ? 0.22 : 0.2125);
   const deviceStarLines = [copy.datenmenge?.trim(), copy.datenmengeAlt?.trim() ? `statt ${copy.datenmengeAlt.trim()}` : ""].filter(Boolean).slice(0, 2);
   const deviceStar = deviceStarLines.join("\n") || copy.sternText?.trim() || "";
   const starSize = Math.min(w * 0.24, h * 0.22);
   const stern = deviceMode
-    ? (deviceStar ? { box: mirrorBox(box(tileRaw.x + tileRaw.w - starSize * 0.35, tileRaw.y + tileRaw.h - starSize * 0.42, starSize, starSize), w, flip), text: deviceStar } : undefined)
+    ? (deviceStar ? { box: mirrorBox(box((pillRaw ?? tileRaw).x - starSize * 0.84, (pillRaw ?? tileRaw).y + (pillRaw ?? tileRaw).h - starSize * 0.32, starSize, starSize), w, flip), text: deviceStar } : undefined)
     : copy.sternText?.trim()
       ? { box: mirrorBox(starBox(tileRaw, sternRadius, [headline.box, subline.box]), w, flip), text: copy.sternText.trim() }
       : undefined;
@@ -655,6 +668,11 @@ function buildKachel(
   if (deviceMode && placed.product && placed.product.h < h * (tall ? 0.42 : 0.55)) hints.push(`Das Gerät ist zu klein im ${label}.`);
   if (placed.stern && placed.logo && placed.logo.w > 2 && overlaps(placed.stern, placed.logo)) hints.push(`Der Stern überdeckt das Logo im ${label}.`);
   if (placed.logo && placed.logo.w > 2 && placed.cta.w > 2 && overlaps(placed.cta, placed.logo)) hints.push(`Das Logo überlappt die CTA im ${label}.`);
+  if (tall && deviceMode && placed.product && placed.cta.w > 2 && overlaps(placed.product, placed.cta)) hints.push(`Das Gerät überlappt die CTA im ${label}.`);
+  if (deviceMode && placed.pill && placed.stern) {
+    const text = { x: placed.pill.x + placed.pill.w * 0.16, y: placed.pill.y + placed.pill.h * 0.16, w: placed.pill.w * 0.68, h: placed.pill.h * 0.68 };
+    if (overlaps(placed.stern, text)) hints.push(`Der Stern überdeckt den Pillentext im ${label}.`);
+  }
   if (!deviceMode && placed.stern && placed.stern.w > 2) {
     const cx = placed.stern.x + placed.stern.w / 2;
     const cy = placed.stern.y + placed.stern.h / 2;
@@ -706,7 +724,7 @@ function buildKachel(
     preisAlt: copy.preisAlt?.trim() || "",
     stern: placed.stern && stern ? { box: placed.stern, text: stern.text } : undefined,
     deko,
-    headlinePfeile: dekoName === "bw_wellen" && !shifts.pfeile?.hidden,
+    headlinePfeile: !shifts.pfeile?.hidden,
     sternColor: copy.sternColor,
     deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4)) } : undefined,
     cta: { ...cta, box: placed.cta },

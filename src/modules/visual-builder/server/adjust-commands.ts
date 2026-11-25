@@ -39,6 +39,7 @@ export type AdjustBook = { version: number; snap: AdjustSnap; history: VersionEn
 
 export type AdjustCommand =
   | { op: "verschieben"; element: ElementId; richtung: "oben" | "unten" | "links" | "rechts"; prozent: number; formate?: string[] }
+  | { op: "abstand"; von: ElementId; nach: ElementId; mehr: boolean; formate?: string[] }
   | { op: "groesse"; element: ElementId; faktor: number; formate?: string[] }
   | { op: "spiegeln"; element: ElementId; formate?: string[] }
   | { op: "seite_tauschen"; formate?: string[] }
@@ -165,11 +166,8 @@ function windowAmount(text: string, verb: RegExp, kind: "move" | "size"): number
 function splitClauses(text: string): string[] {
   const out: string[] = [];
   for (const chunk of text.split(/\s*,\s*/)) {
-    if (/zwischen/i.test(chunk)) {
-      if (chunk.trim()) out.push(chunk.trim());
-      continue;
-    }
-    const bits = chunk.split(/\s+und\s+/i);
+    const held = chunk.replace(/zwischen\s+.+?\s+und\s+[^\s,]+/gi, (match) => match.replace(/\s+und\s+/i, " \u0000und\u0000 "));
+    const bits = held.split(/\s+und\s+/i).map((bit) => bit.replace(/\u0000und\u0000/g, "und").replace(/\s+/g, " ").trim());
     let current = bits[0] ?? "";
     for (const bit of bits.slice(1)) {
       const next = elementIn(bit);
@@ -247,16 +245,17 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
     return { commands, element: "person" };
   }
   const energy = clause.match(/energielabel\s+([a-g])\b/i);
-  if (energy) {
+  if (energy && !/luft/i.test(clause)) {
     commands.push({ op: "feld", key: "energielabel", value: (energy[1] ?? "A").toUpperCase() });
     return { commands, element: "energielabel" };
   }
-  const air = clause.match(/mehr luft zwischen\s+.+?\s+und\s+(.+)/i);
-  if (air) {
-    const target = elementIn(air[1] ?? "");
-    if (!target) return { commands, question: "Zwischen welchen Elementen soll mehr Luft sein? Zum Beispiel Headline und Kachel." };
-    commands.push({ op: "verschieben", element: target, richtung: "unten", prozent: 6, formate });
-    return { commands, element: target };
+  const air = clause.match(/(mehr|weniger)\s+luft\s+zwischen\s+(.+?)\s+und\s+(.+)/i);
+  if (air || /luft/i.test(clause)) {
+    const from = elementIn(air?.[2] ?? "");
+    const to = elementIn(air?.[3] ?? "");
+    if (!air || !from || !to) return { commands, question: "Vorschlag: mehr Luft zwischen Headline und Kachel." };
+    commands.push({ op: "abstand", von: from, nach: to, mehr: /^mehr/i.test(air[1] ?? ""), formate });
+    return { commands, element: to };
   }
   const element = elementIn(clause) ?? inherited;
   const again = clause.match(/wieder rein(?:\s+mit\s+(.+))?/i);
@@ -323,13 +322,12 @@ export function parseAdjustText(text: string): { commands: AdjustCommand[]; ques
   if (compare) return { commands: [{ op: "vergleichen", links: Number(compare[1]), rechts: Number(compare[2]) }], unknown: [] };
   const restore = raw.match(/version\s+(\d+)/i);
   if (restore && /wiederherstell/i.test(raw)) return { commands: [{ op: "version", nummer: Number(restore[1]) }], unknown: [] };
-  const formate = formatsIn(raw);
   const commands: AdjustCommand[] = [];
   const unknown: string[] = [];
   const questions: string[] = [];
   let carried: ElementId | undefined;
   for (const clause of splitClauses(raw)) {
-    const parsed = commandsFromClause(clause, carried, formate);
+    const parsed = commandsFromClause(clause, carried, formatsIn(clause));
     if (parsed.question) questions.push(parsed.question);
     if (!parsed.commands.length && !parsed.question) unknown.push(clause);
     commands.push(...parsed.commands);
@@ -352,6 +350,7 @@ export function describeAdjust(commands: readonly AdjustCommand[]): string {
   for (const command of commands) {
     if (command.op === "seite_tauschen") add("", "Layout getauscht");
     else if (command.op === "rueckgaengig" || command.op === "version") add("", `Version ${"nummer" in command ? command.nummer : ""} wiederhergestellt`.replace("  ", " "));
+    else if (command.op === "abstand") add("", `${command.mehr ? "mehr" : "weniger"} Luft zwischen ${LABEL[command.von]} und ${LABEL[command.nach]}`);
     else if (command.op === "verschieben") {
       const word = command.richtung === "unten" ? "tiefer" : command.richtung === "oben" ? "höher" : command.richtung === "links" ? "nach links" : "nach rechts";
       add(LABEL[command.element], `${command.prozent} % ${word}`);
@@ -459,6 +458,11 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
       bits.push(command);
       continue;
     }
+    if (command.op === "abstand") {
+      for (const format of formatsOf(command)) slot(snap, format, command.nach).dy += command.mehr ? 6 : -6;
+      bits.push(command);
+      continue;
+    }
     if (command.op === "deko_setzen") {
       snap.fields.deko = command.name;
       bits.push(command);
@@ -518,15 +522,23 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
     bits.push(command);
   }
   const same = JSON.stringify(snap) === JSON.stringify(book.snap);
-  const done = bits.map((command) => `umgesetzt: ${describeAdjust([command]).replace(/\.\s*$/, "")}`);
-  const missed = parsed.unknown.map((clause) => `nicht verstanden: ${clause}${parsed.question ? ` (Rückfrage: ${parsed.question})` : ""}`);
+  const done = bits.map((command) => {
+    const base = describeAdjust([command]).replace(/\.\s*$/, "");
+    const scope = "formate" in command && command.formate?.length ? ` (nur ${command.formate.join(", ")})` : "";
+    return `umgesetzt: ${base}${scope}`;
+  });
+  const missed = parsed.unknown.map((clause) => `nicht verstanden: ${clause}${parsed.question ? ` (Vorschlag: ${parsed.question})` : ""}`);
   if (same) {
     const summary = done.length
       ? `${done.join(" ")} Die Anweisung ändert keine Eigenschaft.`
       : missed.join(" ") || (parsed.question ? `nicht verstanden: ${parsed.question}` : "nicht verstanden: Die Anweisung ändert keine Eigenschaft.");
     return { book, summary, question: parsed.commands.length ? undefined : parsed.question };
   }
-  const summary = [...done, ...missed].join(" ");
+  const namesOf = (command: AdjustCommand) => "element" in command ? LABEL[command.element] : command.op === "abstand" ? LABEL[command.nach] : "";
+  const scoped = bits.some((command) => "formate" in command && command.formate?.length);
+  const open = bits.filter((command) => ("element" in command || command.op === "abstand") && !("formate" in command && command.formate?.length));
+  const scopeNote = scoped && open.length ? ` ${[...new Set(open.map(namesOf).filter(Boolean))].join("/")}: alle Formate – sag „nur 9x16“, wenn anders gemeint.` : "";
+  const summary = `${[...done, ...missed].join(" ")}${scopeNote}`;
   history.push({ n: book.version + 1, summary, snap: clone(snap) });
   return {
     book: { version: book.version + 1, snap, history },
@@ -539,4 +551,12 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
 export function newBook(orange: OrangeSide = "rechts"): AdjustBook {
   const snap = emptySnap(orange);
   return { version: 1, snap, history: [{ n: 1, summary: "Neu angelegt.", snap: clone(snap) }] };
+}
+
+/** Version 1 keeps every field, so a later restore can put the whole state back. */
+export function seedBook(orange: OrangeSide, fields: FieldPatch): AdjustBook {
+  const book = newBook(orange);
+  book.snap.fields = { ...fields };
+  book.history = [{ n: 1, summary: "Neu angelegt.", snap: clone(book.snap) }];
+  return book;
 }

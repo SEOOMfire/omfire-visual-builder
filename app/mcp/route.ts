@@ -45,7 +45,21 @@ function renderedText(intro: string, rendered: { motifName: string; token: strin
   });
 }
 
-async function attachReview(draft: { vorlage?: string; glance?: string; hints: string[] }, measured: string[], formats: Array<{ label: string; pngBase64: string }>, measureText = ""): Promise<string> {
+function instructedText(draft: { layoutBook?: { snap: { fields?: { sublineColor?: string; datenmengeAlt?: string; deko?: string; button?: string }; nudges?: Record<string, Partial<Record<string, { hidden?: boolean }>>> } } }): string {
+  const fields = draft.layoutBook?.snap.fields ?? {};
+  const hidden = (element: string) => Object.values(draft.layoutBook?.snap.nudges ?? {}).some((bucket) => bucket?.[element]?.hidden);
+  const notes = [
+    fields.sublineColor?.toLowerCase() === "#d7eb00" ? "Unterzeile ist auf Wunsch Lime." : "",
+    hidden("stoerer") ? "Störer ist auf Wunsch ausgeblendet." : "",
+    fields.datenmengeAlt === "" ? "Altwert ist auf Wunsch entfernt." : "",
+    fields.deko === "fruehling_blaetter" ? "Deko ist auf Wunsch Blätter." : "",
+    fields.button ? `CTA ist auf Wunsch „${fields.button}“.` : "",
+    hidden("pfeile") ? "Pfeile sind auf Wunsch ausgeblendet." : "",
+  ].filter(Boolean);
+  return notes.join(" ");
+}
+
+async function attachReview(draft: { vorlage?: string; glance?: string; hints: string[]; layoutBook?: { snap: { fields?: { sublineColor?: string; datenmengeAlt?: string; deko?: string; button?: string }; nudges?: Record<string, Partial<Record<string, { hidden?: boolean }>>> } } }, measured: string[], formats: Array<{ label: string; pngBase64: string }>, measureText = ""): Promise<string> {
   const { readClientText } = await import("../../src/modules/visual-builder/server/client-volume");
   const { glanceFormats, pruefungText } = await import("../../src/modules/visual-builder/server/review");
   const rules = await readClientText("otelo", "ci-richtlinie.md").catch(() => "");
@@ -54,7 +68,7 @@ async function attachReview(draft: { vorlage?: string; glance?: string; hints: s
     : draft.vorlage?.startsWith("kachel")
       ? "files/referenz/banner/Meta_Q4_1126_BW_Young_Classic_Woman_1x1.png"
       : "files/referenz/styleguide-seite-4.jpg";
-  draft.glance = await glanceFormats(formats.map((format) => ({ label: format.label, jpeg: format.pngBase64 })), rules ?? "", reference, measureText);
+  draft.glance = await glanceFormats(formats.map((format) => ({ label: format.label, jpeg: format.pngBase64 })), rules ?? "", reference, measureText, instructedText(draft));
   draft.hints = measured;
   await writeDraft(draft as Parameters<typeof writeDraft>[0]);
   return pruefungText(measured, draft.glance);
