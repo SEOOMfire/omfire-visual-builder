@@ -5,10 +5,12 @@ import JSZip from "jszip";
 import { OTELO_FORMATS } from "../otelo-formats";
 import { clientRoot } from "./client-volume";
 import { namePart, nextVersion, oteloFileName, oteloFolder, type OteloName } from "./naming";
-import { applyToBook, newBook, seedBook, type AdjustBook, type FieldPatch } from "./adjust-commands";
+import { PNG } from "pngjs";
+import { encode as encodeJpeg } from "jpeg-js";
+import { applyToBook, newBook, seedBook, type AdjustBook, type AdjustSnap, type FieldPatch } from "./adjust-commands";
 import { normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
 import { renderTemplate, type RenderedCreative } from "./otelo-render";
-import { signPreview } from "./previews";
+import { signPreview, storePreview } from "./previews";
 import { previewUrl } from "./public-url";
 
 export type { VorlageName };
@@ -165,6 +167,70 @@ export async function readDraft(id: string): Promise<CreativeDraft | null> {
   }
 }
 
+const FIELD_DIFF: Array<[keyof FieldPatch, string]> = [
+  ["deko", "Deko"],
+  ["datenmengeAlt", "Altwert"],
+  ["datenmenge", "Datenmenge"],
+  ["button", "CTA"],
+  ["sternText", "Stern"],
+  ["headline", "Headline"],
+  ["subline", "Unterzeile"],
+  ["sublineColor", "Unterzeilenfarbe"],
+  ["geraetName", "Gerätename"],
+  ["einmalpreis", "Einmalpreis"],
+  ["preisAlt", "statt-Preis"],
+  ["vorlage", "Vorlage"],
+  ["motiv", "Motiv"],
+];
+
+export function versionDifference(left: AdjustSnap, right: AdjustSnap): string {
+  const parts: string[] = [];
+  for (const [key, label] of FIELD_DIFF) {
+    const before = left.fields?.[key] ?? "";
+    const after = right.fields?.[key] ?? "";
+    if (before !== after) parts.push(`${label} „${before || "leer"}“ statt „${after || "leer"}“`);
+  }
+  if (left.orange !== right.orange) parts.push("die Seite");
+  if (JSON.stringify(left.nudges) !== JSON.stringify(right.nudges)) parts.push("Größen oder Lagen");
+  return parts.length ? `Unterschied: ${parts.join(", ")}.` : "Die Versionen sind gleich.";
+}
+
+function paintComparison(pairs: Array<{ left: Buffer; right: Buffer }>): Buffer {
+  const rowH = 280;
+  const gap = 12;
+  const rows = pairs.map((pair) => {
+    const left = PNG.sync.read(pair.left);
+    const right = PNG.sync.read(pair.right);
+    const lw = Math.round(rowH * left.width / left.height);
+    const rw = Math.round(rowH * right.width / right.height);
+    return { left, right, lw, rw };
+  });
+  const width = Math.max(...rows.map((row) => row.lw + gap + row.rw), 32);
+  const height = rows.length * rowH + Math.max(0, rows.length - 1) * gap;
+  const sheet = new PNG({ width, height });
+  sheet.data.fill(0);
+  const blit = (src: PNG, dx: number, dy: number, dw: number, dh: number) => {
+    for (let y = 0; y < dh; y += 1) {
+      const sy = Math.min(src.height - 1, Math.floor(y * src.height / dh));
+      for (let x = 0; x < dw; x += 1) {
+        const sx = Math.min(src.width - 1, Math.floor(x * src.width / dw));
+        const to = ((dy + y) * width + dx + x) * 4;
+        const from = (sy * src.width + sx) * 4;
+        sheet.data[to] = src.data[from] ?? 0;
+        sheet.data[to + 1] = src.data[from + 1] ?? 0;
+        sheet.data[to + 2] = src.data[from + 2] ?? 0;
+        sheet.data[to + 3] = 255;
+      }
+    }
+  };
+  rows.forEach((row, index) => {
+    const y = index * (rowH + gap);
+    blit(row.left, 0, y, row.lw, rowH);
+    blit(row.right, row.lw + gap, y, row.rw, rowH);
+  });
+  return Buffer.from(encodeJpeg({ data: sheet.data, width, height }, 80).data);
+}
+
 function applySnapFields(draft: CreativeDraft, fields: FieldPatch) {
   if (fields.headline !== undefined) draft.headline = fields.headline;
   if (fields.subline !== undefined) draft.subline = fields.subline;
@@ -176,6 +242,7 @@ function applySnapFields(draft: CreativeDraft, fields: FieldPatch) {
   if (fields.preisZusatz !== undefined) draft.preisZusatz = fields.preisZusatz;
   if (fields.einmalpreis !== undefined) draft.einmalpreis = fields.einmalpreis;
   if (fields.einmalpreisZusatz !== undefined) draft.einmalpreisZusatz = fields.einmalpreisZusatz;
+  if (fields.preisAlt !== undefined) draft.preisAlt = fields.preisAlt;
   if (fields.geraetName !== undefined) draft.geraetName = fields.geraetName;
   if (fields.pflichttext !== undefined) draft.pflichttext = fields.pflichttext;
   if (fields.deko !== undefined) draft.deko = fields.deko;
@@ -232,9 +299,15 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
       if (!left || !right) throw new Error(`Version ${result.compare.links} oder ${result.compare.rechts} kenne ich nicht.`);
       const renderSnap = (snap: typeof left.snap) => renderTemplate(fieldsForRender({ ...draft, layoutBook: { ...result.book, snap } }));
       const [first, second] = await Promise.all([renderSnap(left.snap), renderSnap(right.snap)]);
-      draft.summary = `Version ${left.n}: ${previewUrl(first.token)}\nVersion ${right.n}: ${previewUrl(second.token)}`;
+      const paired = first.formats.map((format, index) => ({
+        left: Buffer.from(format.pngBase64, "base64"),
+        right: Buffer.from(second.formats[index]?.pngBase64 ?? format.pngBase64, "base64"),
+      }));
+      const sheet = paintComparison(paired);
+      const token = await storePreview(`${randomUUID()}-vergleich.jpg`, sheet);
+      draft.summary = `Links Version ${left.n}, rechts Version ${right.n}. ${versionDifference(left.snap, right.snap)}`;
       await writeDraft(draft);
-      return { draft, rendered: second };
+      return { draft, rendered: { ...second, token, jpeg: sheet.toString("base64") } };
     }
     draft.layoutBook = result.book;
     draft.orange = result.book.snap.orange;
@@ -261,6 +334,7 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   else if (rendered.personFile) draft.motiv = rendered.personFile;
   if (rendered.personFile && draft.vorlage === "product_person") draft.person = rendered.personFile;
   draft.hints = rendered.hints;
+  if (rendered.motifNote) draft.summary = `${draft.summary ?? ""} ${rendered.motifNote}`.trim();
   const notes = [...new Set(rendered.hints.filter((hint) => hint.includes("Maximum vergrößert")).map((hint) => hint.replace(/^Hinweis: /, "").replace(/\.$/, "")))];
   if (notes.length) {
     const base = (draft.summary ?? "").replace(/\.\s*$/, "");

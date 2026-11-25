@@ -74,6 +74,7 @@ export type RenderedCreative = {
   formats: RenderedFormat[];
   hints: string[];
   measureText: string;
+  motifNote?: string;
 };
 
 export type RenderRequest = {
@@ -153,9 +154,12 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
   if (!logo) throw new Error("Die Wortmarke fehlt auf dem Volume.");
   const wantsProduct = name === "product" || name === "product_person" || name === "kachel_geraet" || name === "kachel_geraet_person";
   const wantsPerson = name === "tarif" || name === "young" || name === "product_person" || name === "kachel_person" || name === "kachel_geraet_person" || (name === "product" && Boolean(input.person?.trim()));
-  const device = wantsProduct ? resolveMotif(products(files), input.motiv, "produkt") : null;
+  const devicePick = wantsProduct ? resolveMotif(products(files), input.motiv, "produkt") : null;
+  const device = devicePick?.file ?? null;
   const personQuery = name === "product_person" || name === "kachel_geraet_person" ? (input.person?.trim() || "") : input.motiv;
-  const person = wantsPerson && personQuery ? resolveMotif(files.filter((file) => file.role === "figur"), personQuery, "figur") : null;
+  const personPick = wantsPerson && personQuery ? resolveMotif(files.filter((file) => file.role === "figur"), personQuery, "figur") : null;
+  const person = personPick?.file ?? null;
+  const motifNote = [devicePick?.note, personPick?.note].filter(Boolean).join(" ");
   if (name === "product_person" && !person) throw new Error("Für product_person fehlt die Person. Nenne sie im Feld person.");
   const energyLetter = input.energielabel?.trim();
   const energy = (energyLetter ? files.find((file) => file.role === "energielabel" && new RegExp(`[_-]${energyLetter}[._]`, "i").test(file.name)) : undefined)
@@ -276,8 +280,9 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     token,
     jpeg: output.contactSheetBase64,
     formats,
-    hints,
+    hints: motifNote ? [`Rückfrage: ${motifNote}`, ...hints] : hints,
     measureText,
+    motifNote,
   };
 }
 

@@ -138,7 +138,8 @@ async function callTool(name: ToolName, args: Record<string, unknown>): Promise<
       geraetName: fields.geraetName,
     });
     const checked = await attachReview(draft, rendered.hints, rendered.formats, rendered.measureText);
-    return { text: `${renderedText(`Entwurf ${rendered.name}. ID ${draft.id}.`, rendered)}\n${checked}`, image: rendered.jpeg, mime: "image/jpeg" };
+    const ask = rendered.motifNote ? `${rendered.motifNote}\n` : "";
+    return { text: `${ask}${renderedText(`Entwurf ${rendered.name}. ID ${draft.id}.`, rendered)}\n${checked}`, image: rendered.jpeg, mime: "image/jpeg" };
   }
   if (name === "adjust_creative") {
     const { adjustRequest } = await import("../../src/modules/visual-builder/server/adjust-commands");

@@ -15,6 +15,7 @@ export type FieldPatch = {
   preisZusatz?: string;
   einmalpreis?: string;
   einmalpreisZusatz?: string;
+  preisAlt?: string;
   geraetName?: string;
   pflichttext?: string;
   deko?: "bw_wellen" | "fruehling_blaetter" | "keine";
@@ -237,6 +238,26 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
   if (/ger[äa]t\s+statt\s+person/i.test(clause)) {
     const motiv = clause.split(":").slice(1).join(":").split(/,|energielabel/i)[0]?.trim();
     commands.push({ op: "vorlage_setzen", vorlage: "kachel_geraet", motiv: motiv || undefined });
+    return { commands, element: "geraet" };
+  }
+  const deviceName = clause.match(/^(?:ger[äa]tename|modell)\s+(.+)$/i) ?? (/^name\s+\S*\d/i.test(clause) ? clause.match(/^name\s+(.+)$/i) : null);
+  if (deviceName?.[1]) {
+    commands.push({ op: "feld", key: "geraetName", value: deviceName[1].trim() });
+    return { commands, element: "geraet" };
+  }
+  const onceExtra = clause.match(/^(?:einmalpreis[- ]zusatz|zuzahlung zusatz)\s+(.+)$/i);
+  if (onceExtra?.[1]) {
+    commands.push({ op: "feld", key: "einmalpreisZusatz", value: onceExtra[1].trim() });
+    return { commands, element: "geraet" };
+  }
+  const once = clause.match(/^(?:einmalig|einmalpreis|zuzahlung)\s+(.+)$/i);
+  if (once?.[1]) {
+    commands.push({ op: "feld", key: "einmalpreis", value: once[1].trim() });
+    return { commands, element: "geraet" };
+  }
+  const oldPrice = clause.match(/^statt\s+(.+)$/i);
+  if (oldPrice?.[1]) {
+    commands.push({ op: "feld", key: "preisAlt", value: oldPrice[1].trim() });
     return { commands, element: "geraet" };
   }
   if (/person\s+statt\s+ger[äa]t/i.test(clause)) {
@@ -470,7 +491,14 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
     }
     if (command.op === "vorlage_setzen") {
       snap.fields.vorlage = command.vorlage;
-      if (command.motiv) snap.fields.motiv = command.motiv;
+      if (command.motiv) {
+        snap.fields.motiv = command.motiv;
+        if (!snap.fields.geraetName && command.vorlage === "kachel_geraet") snap.fields.geraetName = command.motiv;
+      }
+      const drop = command.vorlage === "kachel_geraet" ? ["person", "kachel"] : command.vorlage === "kachel_person" ? ["geraet", "kachel"] : [];
+      for (const bucket of Object.values(snap.nudges)) {
+        for (const key of drop) delete bucket[key as ElementId];
+      }
       bits.push(command);
       continue;
     }

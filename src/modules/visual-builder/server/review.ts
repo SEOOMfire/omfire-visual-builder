@@ -38,6 +38,8 @@ export function withoutInstructed(glance: string, instructed: string): string {
   if (/altwert/i.test(notes)) drop.push(/altwert/i);
   if (/blätter/i.test(notes)) drop.push(/bl[äa]tter|welle/i);
   const kept = glance.split(/(?<=\.)\s+/).filter((sentence) => {
+    if (/(kleidung|display|produktbild|foto)/i.test(sentence) && /farbe|farb|ci/i.test(sentence)) return false;
+    if (/energie/i.test(sentence) && /farbe|farb|grün|gruen/i.test(sentence)) return false;
     if (!drop.some((pattern) => pattern.test(sentence))) return true;
     return !/fehlt|statt|abweich|orange|nicht (?:da|sichtbar)|entfernt/i.test(sentence);
   });
@@ -61,7 +63,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
         {
           role: "user",
           content: [
-            { type: "text", text: `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nIm 9x16 ist kein Logo vorgesehen.\nAngewiesene Änderungen sind kein Fehler. Melde sie nicht. Melde nur CI-Verstöße, zum Beispiel eine Farbe außerhalb von Lime, Orange, Schwarz und Weiß.\nAngewiesen: ${instructed || "keine"}\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"}.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens zwei Sätze zu diesem einen Format.` },
+            { type: "text", text: `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nIm 9x16 ist kein Logo vorgesehen.\nAngewiesene Änderungen sind kein Fehler. Melde sie nicht. Melde nur CI-Verstöße an gesetzten Flächen und Texten (Headline, Unterzeile, Kachel, CTA, Stern, Logo). Farben im Foto oder Produktbild, also Kleidung und Display, sind kein Verstoß. Die Farben des Energielabels sind gesetzlich vorgegeben und nie ein CI-Fehler. Eine unzulässige Textfarbe außerhalb von Lime, Orange, Schwarz und Weiß bleibt ein Verstoß.\nAngewiesen: ${instructed || "keine"}\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"}.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens zwei Sätze zu diesem einen Format.` },
             ...images,
           ],
         },

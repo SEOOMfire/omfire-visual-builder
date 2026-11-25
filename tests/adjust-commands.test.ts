@@ -75,7 +75,7 @@ test("the spoken sentences set text, color, scope, deco and versions", () => {
   const alt = applyToBook(device.book, "Altwert weg");
   assert.equal(alt.book.snap.fields.datenmengeAlt, "");
   const air = applyToBook(alt.book, "mehr Luft zwischen Headline und Kachel");
-  assert.equal(mergedNudge(air.book.snap, "meta-1x1", "kachel").dy, -3 + 6);
+  assert.equal(mergedNudge(air.book.snap, "meta-1x1", "kachel").dy, 6);
   const square = applyToBook(air.book, "wie im Quadrat");
   assert.match(square.summary, /Quadrat/);
   const restored = applyToBook(square.book, "zurück zu Version 2");

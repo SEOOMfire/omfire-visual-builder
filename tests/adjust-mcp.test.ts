@@ -4,9 +4,8 @@ import test from "node:test";
 import { PNG } from "pngjs";
 import { adjustRequest, applyToBook, mergedNudge, newBook, seedBook, type AdjustBook } from "../src/modules/visual-builder/server/adjust-commands";
 import { withoutInstructed } from "../src/modules/visual-builder/server/review";
-import { fitHeadlineForChevrons } from "../src/modules/visual-builder/otelo-scene";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
-import { buildScene, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { buildScene, fitHeadlineForChevrons, starLines, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
 
 const route = readFileSync(new URL("../app/mcp/route.ts", import.meta.url), "utf8");
 
@@ -210,6 +209,59 @@ test("a wide headline shrinks until two chevrons fit", () => {
   const secondEnd = fitted.textWidth + fitted.fontSize * 0.06 + fitted.fontSize * (41.08 / 73.924) + fitted.fontSize * (58.568 / 73.924);
   assert.ok(secondEnd <= 1080);
   assert.ok(fitted.fontSize < 140);
+});
+
+test("more air keeps the tile off the CTA", () => {
+  let book = newBook();
+  for (let step = 0; step < 3; step += 1) book = applyToBook(book, "mehr Luft zwischen Headline und Kachel").book;
+  for (const format of OTELO_FORMATS) {
+    const scene = sceneFor(book, format);
+    const tile = scene.kachel?.box;
+    if (!tile || tile.w < 2 || scene.cta.box.w < 2) continue;
+    const hits = tile.x < scene.cta.box.x + scene.cta.box.w && scene.cta.box.x < tile.x + tile.w && tile.y < scene.cta.box.y + scene.cta.box.h && scene.cta.box.y < tile.y + tile.h;
+    assert.equal(hits, false, format.id);
+    assert.equal(scene.hints.some((hint) => hint.includes("Kachel überlappt die CTA")), false, format.id);
+  }
+});
+
+test("Gerät statt Person drops the person layout and keeps the texts", () => {
+  let book = seedBook("rechts", { headline: "BLACK WEEK", subline: "3-FACH DATEN.", button: "Jetzt sichern", deko: "bw_wellen", datenmenge: "50 GB", einmalpreis: "1 €", preis: "19,99 €", preisZusatz: "pro Monat" });
+  book = applyToBook(book, "mehr Luft zwischen Headline und Kachel").book;
+  book = applyToBook(book, "Frau deutlich größer").book;
+  const switched = applyToBook(book, "Gerät statt Person: Galaxy A56").book;
+  assert.equal(switched.snap.fields.vorlage, "kachel_geraet");
+  assert.equal(switched.snap.fields.motiv, "Galaxy A56");
+  assert.equal(switched.snap.fields.geraetName, "Galaxy A56");
+  assert.equal(switched.snap.fields.button, "Jetzt sichern");
+  assert.equal(switched.snap.fields.deko, "bw_wellen");
+  assert.equal(mergedNudge(switched.snap, "meta-1x1", "kachel").dy, 0);
+  assert.equal(mergedNudge(switched.snap, "meta-1x1", "person").scale, 1);
+  const format = OTELO_FORMATS[3];
+  const copy = base();
+  copy.subline = "3-FACH DATEN.";
+  copy.datenmenge = "50 GB";
+  copy.datenmengeAlt = "";
+  copy.einmalpreis = "1 €";
+  copy.geraetName = "Galaxy A56";
+  const direct = buildScene(format, "kachel_geraet", copy);
+  const via = buildScene(format, "kachel_geraet", copy, shiftsFor(switched, format));
+  const round = (box: { x: number; y: number; w: number; h: number } | undefined) => box && [box.x, box.y, box.w, box.h].map((value) => Math.round(value));
+  assert.deepEqual(round(via.product), round(direct.product));
+  assert.deepEqual(round(via.cta.box), round(direct.cta.box));
+  assert.equal(via.deviceLabel?.text, direct.deviceLabel?.text);
+});
+
+test("device fields can be spoken without a colon", () => {
+  const step = applyToBook(newBook(), "Gerätename Galaxy A56 5G, einmalig 1 €, statt 229 €");
+  assert.equal(step.book.snap.fields.geraetName, "Galaxy A56 5G");
+  assert.equal(step.book.snap.fields.einmalpreis, "1 €");
+  assert.equal(step.book.snap.fields.preisAlt, "229 €");
+  assert.match(step.summary, /umgesetzt:/);
+});
+
+test("a long star stays on two lines", () => {
+  assert.deepEqual(starLines("NUR BIS SONNTAG"), ["NUR BIS", "SONNTAG"]);
+  assert.equal(starLines("YOUNG DEAL").length, 2);
 });
 
 test("the live Cobra sentence changes CTA, star and subline pixels", () => {

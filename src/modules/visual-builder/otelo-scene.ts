@@ -330,6 +330,16 @@ export function fitHeadlineForChevrons(textWidth: number, fontSize: number, canv
   return { textWidth: width, fontSize: size };
 }
 
+/** At most two lines. Three words become “NUR BIS” / “SONNTAG”. */
+export function starLines(text: string): string[] {
+  const explicit = text.split(/\n/).map((line) => line.trim()).filter(Boolean);
+  if (explicit.length >= 2) return explicit.slice(0, 2);
+  const words = (explicit[0] ?? "").split(/\s+/).filter(Boolean);
+  if (words.length <= 2) return words;
+  const mid = Math.ceil(words.length / 2);
+  return [words.slice(0, mid).join(" "), words.slice(mid).join(" ")];
+}
+
 export function arrowSpan(start: number, fontSize: number, maxX: number): { end: number; count: number } {
   const height = fontSize;
   const tip = height * (58.568 / 73.924);
@@ -549,7 +559,8 @@ function buildKachel(
   const sternRadius = tileRaw.w * (wide ? 0.22 : 0.2125);
   const deviceStarLines = [copy.datenmenge?.trim(), copy.datenmengeAlt?.trim() ? `statt ${copy.datenmengeAlt.trim()}` : ""].filter(Boolean).slice(0, 2);
   const deviceStar = deviceStarLines.join("\n") || copy.sternText?.trim() || "";
-  const starSize = Math.min(w * 0.24, h * 0.22);
+  const starWords = (deviceStar || copy.sternText || "").trim().split(/\s+/).filter(Boolean).length;
+  const starSize = Math.min(w * 0.24, h * 0.22) * (starWords >= 3 ? 1.15 : 1);
   const stern = deviceMode
     ? (deviceStar ? { box: mirrorBox(box((pillRaw ?? tileRaw).x - starSize * 0.84, (pillRaw ?? tileRaw).y + (pillRaw ?? tileRaw).h - starSize * 0.32, starSize, starSize), w, flip), text: deviceStar } : undefined)
     : copy.sternText?.trim()
@@ -606,7 +617,24 @@ function buildKachel(
     logo: applyShift(logo.box, shifts.logo, w, h, "top-left", textLimits, caps, "Logo"),
     stern: stern ? applyShift(stern.box, shifts.stoerer, w, h, "top-left", { ...textLimits, right: w * 1.02, top: 0 }, caps, "Stern") : undefined,
   };
+  if (fittedPill) {
+    fittedPill.x += fittedTile.x - tile.x;
+    fittedPill.y += fittedTile.y - tile.y;
+  }
   if (placed.stern) placed.stern.y += fittedTile.y - tile.y;
+  const gap = h * 0.015;
+  const floor = h * (tiktok ? 0.78 : 0.955);
+  if (fittedTile.w > 2 && placed.cta.w > 2 && fittedTile.y + fittedTile.h + gap > placed.cta.y && overlaps(fittedTile, { ...placed.cta, y: placed.cta.y - gap, h: placed.cta.h + gap })) {
+    const needed = fittedTile.y + fittedTile.h + gap - placed.cta.y;
+    const logoH = placed.logo && placed.logo.w > 2 ? placed.logo.h : 0;
+    const nextLogo = placed.logo && placed.logo.w > 2 ? Math.max(placed.logo.y, placed.cta.y + needed + placed.cta.h + gap) : 0;
+    if (placed.cta.y + needed + placed.cta.h <= floor && nextLogo + logoH <= floor + 1) {
+      placed.cta.y += needed;
+      if (placed.logo && placed.logo.w > 2 && placed.logo.y < placed.cta.y + placed.cta.h + gap) placed.logo.y = placed.cta.y + placed.cta.h + gap;
+    } else {
+      fittedTile.h = Math.max(h * 0.08, placed.cta.y - gap - fittedTile.y);
+    }
+  }
   const hints: string[] = [];
   const label = `${w}x${h}`;
   const safeRight = tiktok ? 0.85 : 0.96;
@@ -661,12 +689,16 @@ function buildKachel(
   if (placed.stern && fittedTile.w > 2 && placed.stern.w * 0.96 < fittedTile.w * 0.2) {
     hints.push(`Der Stern ist zu klein im ${label}.`);
   }
+  if (placed.stern && starLines(stern?.text ?? "").length >= 2 && placed.stern.h * 0.2 < h * 0.02) {
+    hints.push(`Der Stern-Text ist zu klein im ${label}.`);
+  }
   if (!cta.text.trim() || placed.cta.h < 2 || placed.cta.w < 2) hints.push(`Der CTA fehlt im ${label}.`);
   if (placed.cta.h * 0.5 < h * (format.id.endsWith("9x16") ? 0.022 : format.id.startsWith("pmax") ? 0.03 : 0.025)) {
     hints.push(`Der CTA-Text ist zu klein im ${label}.`);
   }
   if (deviceMode && placed.product && placed.product.h < h * (tall ? 0.42 : 0.55)) hints.push(`Das Gerät ist zu klein im ${label}.`);
   if (placed.stern && placed.logo && placed.logo.w > 2 && overlaps(placed.stern, placed.logo)) hints.push(`Der Stern überdeckt das Logo im ${label}.`);
+  if (fittedTile.w > 2 && placed.cta.w > 2 && overlaps(fittedTile, placed.cta)) hints.push(`Die Kachel überlappt die CTA im ${label}.`);
   if (placed.logo && placed.logo.w > 2 && placed.cta.w > 2 && overlaps(placed.cta, placed.logo)) hints.push(`Das Logo überlappt die CTA im ${label}.`);
   if (tall && deviceMode && placed.product && placed.cta.w > 2 && overlaps(placed.product, placed.cta)) hints.push(`Das Gerät überlappt die CTA im ${label}.`);
   if (deviceMode && placed.pill && placed.stern) {

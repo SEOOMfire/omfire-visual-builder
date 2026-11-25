@@ -19,14 +19,26 @@ export function motifQueryMatches(name: string, query: string): boolean {
   return needles.length > 0 && needles.every((token) => hay.includes(token));
 }
 
-/** The file whose name matches the requested motif. Never substitutes a different person. */
-export function resolveMotif(files: readonly MotifFile[], query: string, role: string): MotifFile {
+export type MotifPick = { file: MotifFile; note?: string };
+
+function angleLabel(name: string): string {
+  const angle = name.match(/(?:^|[^0-9])(45|90|180)(?:[^0-9]|$)/);
+  const model = name.match(/A\d{2}|S\d{2}|Pixel\s*\d+|iPhone[^_\s]*/i);
+  const view = angle ? `${angle[1]}°` : "";
+  return [model?.[0], view].filter(Boolean).join(" ") || name.replace(/\.[a-z0-9]+$/i, "");
+}
+
+/** The file whose name matches the requested motif. Several hits prefer the 45° view and ask. */
+export function resolveMotif(files: readonly MotifFile[], query: string, role: string): MotifPick {
   const needle = query.trim().toLowerCase().replace(/\.[a-z0-9]+$/i, "");
   if (!needle) throw new Error("Das Motiv fehlt. Nenne den Dateinamen.");
   const pool = files.filter((file) => file.role === role);
   const exact = pool.filter((file) => stem(file.name) === needle || file.name.toLowerCase() === query.trim().toLowerCase());
   const matches = exact.length ? exact : pool.filter((file) => stem(file.name).includes(needle) || motifQueryMatches(file.name, needle));
-  if (matches.length === 1) return matches[0];
+  if (matches.length === 1 && matches[0]) return { file: matches[0] };
   if (!matches.length) throw new Error(`Kein Motiv „${query.trim()}“ in den Dateien für ${role}.`);
-  throw new Error(`Mehrere Dateien passen zu „${query.trim()}“: ${matches.slice(0, 5).map((file) => file.name).join(", ")}. Nenne den Dateinamen.`);
+  const chosen = matches.find((file) => /(?:^|[^0-9])45(?:[^0-9]|$)/.test(file.name)) ?? matches[0];
+  if (!chosen) throw new Error(`Kein Motiv „${query.trim()}“ in den Dateien für ${role}.`);
+  const labels = [...new Set(matches.slice(0, 4).map((file) => angleLabel(file.name)))];
+  return { file: chosen, note: `Meinst du ${labels.join(" oder ")}? Ich nehme 45°, wenn du nichts sagst.` };
 }

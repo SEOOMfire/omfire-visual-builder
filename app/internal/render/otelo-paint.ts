@@ -1,4 +1,4 @@
-import { BLACK, LIME, ORANGE, WAVE_STROKE, WHITE, arrowSpan, fitHeadlineForChevrons, wavePaths, type OteloScene } from "../../../src/modules/visual-builder/otelo-scene";
+import { BLACK, LIME, ORANGE, WAVE_STROKE, WHITE, arrowSpan, fitHeadlineForChevrons, starLines, wavePaths, type OteloScene } from "../../../src/modules/visual-builder/otelo-scene";
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   const radius = Math.max(0, Math.min(r, w / 2, h / 2));
@@ -468,12 +468,12 @@ function drawDeviceOffer(ctx: CanvasRenderingContext2D, scene: OteloScene) {
     drawBurst(ctx, scene.stern.box.x + scene.stern.box.w / 2, scene.stern.box.y + scene.stern.box.h / 2, scene.stern.box.w * 0.48, burst);
     ctx.fillStyle = burst.toLowerCase() === "#d7eb00" ? BLACK : WHITE;
     ctx.textAlign = "center";
-    const lines = scene.stern.text.split(/\n/).filter(Boolean).slice(0, 2);
-    const lineSize = lines.length === 1 ? scene.stern.box.h * 0.42 : scene.stern.box.h * 0.24;
+    const lines = starLines(scene.stern.text);
+    const lineSize = lines.length === 1 ? scene.stern.box.h * 0.42 : scene.stern.box.h * 0.28;
     lines.forEach((line, index) => {
       const fitted = Math.min(lineSize, sizeForWidth(ctx, line, 800, "Titillium Web", scene.stern!.box.w * 0.72));
       ctx.font = face(800, fitted, "Titillium Web");
-      ctx.fillText(line, scene.stern!.box.x + scene.stern!.box.w / 2, scene.stern!.box.y + scene.stern!.box.h * (lines.length === 1 ? 0.5 : 0.4 + index * 0.22));
+      ctx.fillText(line, scene.stern!.box.x + scene.stern!.box.w / 2, scene.stern!.box.y + scene.stern!.box.h * (lines.length === 1 ? 0.5 : 0.38 + index * 0.26));
     });
   }
 }
@@ -539,9 +539,12 @@ function drawKachel(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Re
     drawBurst(ctx, scene.stern.box.x + scene.stern.box.w / 2, scene.stern.box.y + scene.stern.box.h / 2, scene.stern.box.w * 0.48, burst);
     ctx.fillStyle = burst.toLowerCase() === "#d7eb00" ? BLACK : WHITE;
     ctx.textAlign = "center";
-    ctx.font = face(800, scene.stern.box.w * 0.12, "Titillium Web");
-    scene.stern.text.split(/\n| /).slice(0, 3).forEach((line, index, all) => {
-      ctx.fillText(line, scene.stern!.box.x + scene.stern!.box.w / 2, scene.stern!.box.y + scene.stern!.box.h * (0.42 + (index - (all.length - 1) / 2) * 0.16));
+    const lines = starLines(scene.stern.text);
+    const lineSize = lines.length === 1 ? scene.stern.box.h * 0.34 : scene.stern.box.h * 0.22;
+    lines.forEach((line, index) => {
+      const fitted = Math.min(lineSize, sizeForWidth(ctx, line, 800, "Titillium Web", scene.stern!.box.w * 0.7));
+      ctx.font = face(800, fitted, "Titillium Web");
+      ctx.fillText(line, scene.stern!.box.x + scene.stern!.box.w / 2, scene.stern!.box.y + scene.stern!.box.h * (lines.length === 1 ? 0.52 : 0.4 + index * 0.24));
     });
   }
   if (scene.deviceLabel?.text && images) {
@@ -613,7 +616,8 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
       ctx.fill();
     }
     const productImage = scene.productKey ? images[scene.productKey] : null;
-    if (productImage && scene.product && scene.productTilt) drawTiltedProduct(ctx, productImage, scene.product, scene.productTilt, scene.width, scene.height > scene.width * 1.4, scene.cta.box);
+    const tallFormat = scene.height > scene.width * 1.4;
+    if (productImage && scene.product && scene.productTilt) drawTiltedProduct(ctx, productImage, scene.product, scene.productTilt, scene.width, tallFormat, tallFormat ? scene.cta.box : undefined);
     else drawImageBox(ctx, productImage, scene.product, "center");
     const figureImage = scene.figureKey ? images[scene.figureKey] : null;
     if (figureImage && scene.figure && scene.figureSource) drawCutout(ctx, figureImage, scene.figure, scene.figureSource, Boolean(scene.figureFlip));

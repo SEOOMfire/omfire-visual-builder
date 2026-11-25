@@ -11,8 +11,8 @@ const files: MotifFile[] = [
 
 test("the requested motif file is used, not another person whose name contains the template", () => {
   const found = resolveMotif(files, "Froehlicher_Typ_mit_Hoodie", "figur");
-  assert.equal(found.name, "Froehlicher_Typ_mit_Hoodie_shutterstock_2461273183_rgb_03.png");
-  assert.notEqual(found.name, "young_hemd.png");
+  assert.equal(found.file.name, "Froehlicher_Typ_mit_Hoodie_shutterstock_2461273183_rgb_03.png");
+  assert.notEqual(found.file.name, "young_hemd.png");
 });
 
 test("A57 matches Galaxy A57 and Samsung A57", () => {
@@ -20,10 +20,17 @@ test("A57 matches Galaxy A57 and Samsung A57", () => {
   assert.equal(motifQueryMatches(device.name, "A57"), true);
   assert.equal(motifQueryMatches(device.name, "Galaxy A57"), true);
   assert.equal(motifQueryMatches(device.name, "Samsung A57"), true);
-  assert.equal(resolveMotif([device, { role: "produkt", name: "Galaxy_A56.png", path: "a56.png" }], "Samsung A57", "produkt").name, device.name);
+  assert.equal(resolveMotif([device, { role: "produkt", name: "Galaxy_A56.png", path: "a56.png" }], "Samsung A57", "produkt").file.name, device.name);
 });
 
-test("an ambiguous motif is a question, not a guess", () => {
-  assert.throws(() => resolveMotif(files, "Frau", "figur"), /Mehrere Dateien/);
+test("an ambiguous motif prefers 45 degrees and asks", () => {
+  const devices = [
+    { role: "produkt", name: "Galaxy_A56_180.png", path: "a56-180.png" },
+    { role: "produkt", name: "Galaxy_A56_45.png", path: "a56-45.png" },
+  ];
+  const pick = resolveMotif(devices, "A56", "produkt");
+  assert.equal(pick.file.name, "Galaxy_A56_45.png");
+  assert.match(pick.note ?? "", /45°/);
+  assert.match(pick.note ?? "", /180°/);
   assert.throws(() => resolveMotif(files, "gibt-es-nicht", "figur"), /Kein Motiv/);
 });
