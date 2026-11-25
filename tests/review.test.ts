@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockingHints } from "../src/modules/visual-builder/server/creative-archive";
-import { completeSentences, failedGlanceFormats, glanceContradictsMeasure, pruefungText } from "../src/modules/visual-builder/server/review";
+import { completeSentences, failedGlanceFormats, glanceBrief, glanceContradictsMeasure, glanceLine, pruefungText, withoutInstructed } from "../src/modules/visual-builder/server/review";
 
 test("the reply always names the image check", () => {
   assert.match(pruefungText([], ""), /Bildprüfung: nicht gelaufen/);
@@ -18,4 +18,17 @@ test("the reply always names the image check", () => {
   assert.deepEqual(failedGlanceFormats(glance), ["1200x628", "1080x1080"]);
   assert.equal(completeSentences("Headline Lime bzw. die Unterzeile bleibt orange. Zweiter Satz."), "Headline Lime bzw. die Unterzeile bleibt orange. Zweiter Satz.");
   assert.equal(completeSentences("Erster Satz. Zweiter Satz. Dritter Satz."), "Erster Satz. Zweiter Satz.");
+});
+
+test("every glance line has a verdict and the typeface is not judged", () => {
+  assert.equal(glanceLine("Bestanden."), "Bestanden.");
+  assert.equal(glanceLine("Auffällig ist nur der Abstand zur Welle."), "Bestanden. Auffällig ist nur der Abstand zur Welle.");
+  assert.match(glanceLine("Der Stern ist zu klein."), /^Nicht bestanden:/);
+  assert.match(glanceLine("nicht bestanden: der Stern ist klein."), /^Nicht bestanden: der Stern ist klein/);
+  const brief = glanceBrief("Deko ist auf Wunsch keine.");
+  assert.match(brief, /Schriftart und Schriftschnitt nicht bewerten/);
+  assert.doesNotMatch(brief, /Titillium|Geist/);
+  const stripped = withoutInstructed("Die Unterzeile steht in Titillium Web Black statt Titillium. Der Aufbau passt.", "Deko ist auf Wunsch keine.");
+  assert.doesNotMatch(stripped, /Titillium|Geist/);
+  assert.match(stripped, /Aufbau/);
 });

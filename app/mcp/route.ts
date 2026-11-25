@@ -69,11 +69,7 @@ async function attachReview(draft: { vorlage?: string; glance?: string; hints: s
     : draft.vorlage?.startsWith("kachel")
       ? "files/referenz/banner/Meta_Q4_1126_BW_Young_Classic_Woman_1x1.png"
       : "files/referenz/styleguide-seite-4.jpg";
-  const kachel = Boolean(draft.vorlage?.startsWith("kachel"));
-  const fontRule = kachel
-    ? "Unterzeile ist Titillium Web. Geist gilt nur für tarif, young, product und product_person."
-    : "Unterzeile ist Geist.";
-  draft.glance = await glanceFormats(formats.map((format) => ({ label: format.label, jpeg: format.pngBase64 })), rules ?? "", reference, measureText, `${instructedText(draft)} ${fontRule}`.trim(), fontRule);
+  draft.glance = await glanceFormats(formats.map((format) => ({ label: format.label, jpeg: format.pngBase64 })), rules ?? "", reference, measureText, instructedText(draft).trim());
   draft.hints = measured;
   await writeDraft(draft as Parameters<typeof writeDraft>[0]);
   return pruefungText(measured, draft.glance);

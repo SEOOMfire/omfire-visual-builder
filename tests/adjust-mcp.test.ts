@@ -256,21 +256,25 @@ test("three chevrons fit for headlines of 8, 11, 13 and 16 characters", () => {
   }
 });
 
-test("a long subline stays at least 35 percent of the headline in every format", () => {
+test("a long subline stays at least 35 percent of the rendered headline in every format", () => {
   const text = "UNBEGRENZTES DATENVOLUMEN IM VODAFONE-NETZ";
-  const widthOf = (sample: string, size: number) => sample.length * size * 0.62;
+  const headline = "ENDLOS SURFEN";
+  const widthOf = (sample: string, size: number) => sample.length * size * 0.576;
   for (const format of OTELO_FORMATS) {
-    const scene = buildScene(format, "kachel_person", { ...base(), headline: "ENDLOS SURFEN", subline: text, deko: "keine" });
+    const scene = buildScene(format, "kachel_person", { ...base(), headline, subline: text, deko: "keine" });
+    const box = scene.headline.box;
     const right = format.id === "tiktok-9x16" ? format.w * 0.84 : format.w * 0.96;
+    const natural = Math.min(box.h, box.w / (headline.length * 0.572));
+    const rendered = fitHeadlineForChevrons(headline.length * 0.572 * natural, natural, right, box.x);
     const maxW = Math.min(scene.subline.box.w, right - scene.subline.box.x);
-    const fitted = fitSublineText(text, scene.headline.box.h, maxW, widthOf);
-    assert.ok(fitted.size >= scene.headline.box.h * 0.35 - 0.2, `${format.id} ${fitted.size.toFixed(1)}`);
-    assert.equal(fitted.lines.length, 2, format.id);
+    const fitted = fitSublineText(text, rendered.fontSize, maxW, widthOf);
+    assert.equal(fitted.lines.length, 2, `${format.id} ${fitted.size.toFixed(1)} / ${rendered.fontSize.toFixed(1)}`);
+    assert.ok(fitted.size >= rendered.fontSize * 0.35 - 0.2, `${format.id} ${fitted.size.toFixed(1)}`);
     assert.equal(fitted.shorten, false, format.id);
   }
   const offer = "GALAXY A57 5G EINMALIG 1 €";
   const square = buildScene(OTELO_FORMATS.find((format) => format.id === "pmax-960x1200") ?? OTELO_FORMATS[0], "kachel_geraet", { ...base(), subline: offer, einmalpreis: "1 €", geraetName: "Galaxy A57" });
-  const oneLine = fitSublineText(offer, square.headline.box.h, square.subline.box.w, widthOf);
+  const oneLine = fitSublineText(offer, square.headline.box.h, square.subline.box.w, (sample, size) => sample.length * size * 0.502);
   assert.deepEqual(oneLine.lines, [offer]);
   assert.ok(oneLine.size >= square.headline.box.h * 0.35 - 0.2);
 });

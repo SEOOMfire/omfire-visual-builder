@@ -1,4 +1,4 @@
-import { BLACK, LIME, ORANGE, WAVE_STROKE, WHITE, arrowSpan, fitHeadlineForChevrons, fitSublineText, starLines, wavePaths, type OteloScene } from "../../../src/modules/visual-builder/otelo-scene";
+import { BLACK, LIME, ORANGE, WAVE_STROKE, WHITE, arrowSpan, fitHeadlineForChevrons, fitSublineText, starDisplayLines, wavePaths, type OteloScene } from "../../../src/modules/visual-builder/otelo-scene";
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   const radius = Math.max(0, Math.min(r, w / 2, h / 2));
@@ -502,7 +502,7 @@ function drawDeviceOffer(ctx: CanvasRenderingContext2D, scene: OteloScene) {
     drawBurst(ctx, scene.stern.box.x + scene.stern.box.w / 2, scene.stern.box.y + scene.stern.box.h / 2, scene.stern.box.w * 0.48, burst);
     ctx.fillStyle = burst.toLowerCase() === "#d7eb00" ? BLACK : WHITE;
     ctx.textAlign = "center";
-    const lines = starLines(scene.stern.text);
+    const lines = starDisplayLines(scene.stern.text);
     const lineSize = lines.length === 1 ? scene.stern.box.h * 0.42 : scene.stern.box.h * 0.28;
     lines.forEach((line, index) => {
       const fitted = Math.min(lineSize, sizeForWidth(ctx, line, 800, "Titillium Web", scene.stern!.box.w * 0.72));
@@ -573,7 +573,7 @@ function drawKachel(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Re
     drawBurst(ctx, scene.stern.box.x + scene.stern.box.w / 2, scene.stern.box.y + scene.stern.box.h / 2, scene.stern.box.w * 0.48, burst);
     ctx.fillStyle = burst.toLowerCase() === "#d7eb00" ? BLACK : WHITE;
     ctx.textAlign = "center";
-    const lines = starLines(scene.stern.text);
+    const lines = starDisplayLines(scene.stern.text);
     const lineSize = lines.length === 1 ? scene.stern.box.h * 0.34 : scene.stern.box.h * 0.22;
     lines.forEach((line, index) => {
       const fitted = Math.min(lineSize, sizeForWidth(ctx, line, 800, "Titillium Web", scene.stern!.box.w * 0.7));
@@ -583,7 +583,7 @@ function drawKachel(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Re
   }
   if (scene.deviceLabel?.text && images) {
     ctx.fillStyle = WHITE;
-    ctx.font = face(700, scene.deviceLabel.box.h * 0.7 * (scene.textScale?.geraetName ?? 1), "Geist");
+    ctx.font = face(700, scene.deviceLabel.box.h * (scene.textScale?.geraetName ?? 1), "Geist");
     ctx.textAlign = "left";
     ctx.fillText(scene.deviceLabel.text, scene.deviceLabel.box.x, scene.deviceLabel.box.y);
   }
@@ -664,21 +664,15 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
       drawDeviceOffer(ctx, scene);
       if (scene.deviceLabel?.text) {
         const label = scene.deviceLabel;
-        const target = scene.height * 0.03 * (scene.textScale?.geraetName ?? 1);
+        const target = label.box.h * (scene.textScale?.geraetName ?? 1);
         ctx.fillStyle = WHITE;
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
         ctx.font = face(700, target, "Geist");
-        const words = label.text.split(/\s+/).filter(Boolean);
-        const splitAt = Math.max(1, Math.ceil(words.length / 2));
-        const wrapped = [words.slice(0, splitAt).join(" "), words.slice(splitAt).join(" ")].filter(Boolean);
-        const rows = words.length > 1 && ctx.measureText(label.text).width > label.box.w ? wrapped : [label.text];
-        const widest = Math.max(...rows.map((row) => ctx.measureText(row).width));
-        const size = widest > label.box.w && widest > 0 ? Math.max(scene.height * 0.024, target * (label.box.w / widest)) : target;
+        const measured = ctx.measureText(label.text).width;
+        const size = measured > label.box.w && measured > 0 ? target * (label.box.w / measured) : target;
         ctx.font = face(700, size, "Geist");
-        rows.forEach((row, index) => {
-          ctx.fillText(row, label.box.x, label.box.y + label.box.h / 2 + (index - (rows.length - 1) / 2) * size * 1.05);
-        });
+        ctx.fillText(label.text, label.box.x, label.box.y + label.box.h / 2);
       }
       drawImageBox(ctx, scene.energyKey ? images[scene.energyKey] : null, scene.energy, "center");
     } else drawKachel(ctx, scene, images);

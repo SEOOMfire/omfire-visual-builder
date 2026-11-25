@@ -521,8 +521,11 @@ export function splitBalanced(text: string, widthOf: (line: string) => number): 
 }
 
 /**
- * The subline stays at least 35 percent of the headline height.
- * Below that it wraps onto two balanced lines. `shorten` means even those two lines do not fit.
+ * One line only when the text still fits at 42 percent of the rendered headline
+ * size, so the painted cap height stays above the 35 percent floor. A line that
+ * only just fits at 35 percent wraps instead. Wrapped lines never drop below 35 percent.
+ * `headlineSize` is the font size after the headline has been fitted, not the box height.
+ * `shorten` means even two lines do not fit.
  */
 export function fitSublineText(
   text: string,
@@ -531,12 +534,13 @@ export function fitSublineText(
   widthOf: (sample: string, size: number) => number,
 ): { lines: string[]; size: number; shorten: boolean } {
   const minSize = Math.max(1, headlineSize * 0.35);
-  const preferred = Math.max(minSize, headlineSize * 0.5);
+  const oneLineSize = Math.max(minSize, headlineSize * 0.42);
+  const preferred = Math.max(oneLineSize, headlineSize * 0.5);
   const fits = (sample: string, size: number) => widthOf(sample, size) <= maxWidth + 1;
-  if (fits(text, minSize)) {
+  if (fits(text, oneLineSize)) {
     let size = preferred;
-    while (size > minSize + 0.2 && !fits(text, size)) size *= 0.96;
-    return { lines: [text], size: Math.max(minSize, size), shorten: false };
+    while (size > oneLineSize + 0.2 && !fits(text, size)) size *= 0.96;
+    return { lines: [text], size: Math.max(oneLineSize, size), shorten: false };
   }
   let size = preferred;
   const pair = (sampleSize: number) => {
@@ -560,6 +564,26 @@ export function starLines(text: string): string[] {
   if (words.length <= 2) return words;
   const mid = Math.ceil(words.length / 2);
   return [words.slice(0, mid).join(" "), words.slice(mid).join(" ")];
+}
+
+/** “50 GB” stays one line so the painted size can meet the minimum. “YOUNG DEAL” stays two. */
+export function starDisplayLines(text: string): string[] {
+  const lines = starLines(text);
+  if (lines.length === 2 && `${lines[0] ?? ""}${lines[1] ?? ""}`.replace(/\s/g, "").length <= 6) return [`${lines[0]} ${lines[1]}`.trim()];
+  return lines;
+}
+
+/** Painted burst diameter. The spike radius is 0.48 of the layout box. */
+export function renderedStarDiameter(boxWidth: number): number {
+  return boxWidth * 0.96;
+}
+
+/** Painted star text, using the same factors as the device burst. */
+export function renderedStarTextSize(boxWidth: number, text: string): number {
+  const lines = starDisplayLines(text);
+  const longest = Math.max(1, ...lines.map((line) => line.length));
+  const lineSize = boxWidth * (lines.length >= 2 ? 0.28 : 0.42);
+  return Math.min(lineSize, (boxWidth * 0.72) / (longest * 0.52));
 }
 
 export function arrowSpan(start: number, fontSize: number, maxX: number, scale = 1): { end: number; count: number } {
@@ -683,25 +707,53 @@ function applyShift(target: Box, shift: Shift | undefined, width: number, height
   return placed.box;
 }
 
-function energyFrame(width: number, height: number, tall: boolean, product: Box, visible?: Box): Box {
-  const nameH = height * 0.03;
+const NAME_EM = 0.55;
+
+function captionNameHeight(width: number, height: number, tall: boolean): number {
+  if (tall) return height * 0.03;
+  if (width / height > 1.5) return Math.max(height * 0.05, width * 0.03);
+  return height * 0.03;
+}
+
+function captionPair(width: number, height: number, tall: boolean, name: string): { name: Box; badge: Box } {
+  const nameH = captionNameHeight(width, height, tall);
+  const nameW = Math.max(width * 0.12, Math.max(1, name.length) * nameH * NAME_EM);
   const badgeH = Math.max(nameH * 1.5, height * 0.03);
   const badgeW = badgeH * (91.15 / 50.12);
-  if (tall && visible && visible.x > width * 0.24) {
-    return { x: visible.x - badgeW - width * 0.015, y: height - badgeH - height * 0.018, w: badgeW, h: badgeH };
+  const gap = width * (tall ? 0.016 : 0.012);
+  if (!tall) {
+    const badge = { x: width - badgeW - width * 0.02, y: height * 0.955 - badgeH, w: badgeW, h: badgeH };
+    return { badge, name: { x: badge.x - gap - nameW, y: badge.y + (badge.h - nameH) / 2, w: nameW, h: nameH } };
   }
+  const left = width * 0.055;
+  const badge = { x: left + nameW + gap, y: height - badgeH - height * 0.018, w: badgeW, h: badgeH };
+  return { badge, name: { x: left, y: badge.y + (badge.h - nameH) / 2, w: nameW, h: nameH } };
+}
+
+function energyFrame(width: number, height: number, tall: boolean, product: Box, visible?: Box, name = ""): Box {
+  if (tall && name.trim() && visible) return captionPair(width, height, true, name.trim()).badge;
+  const nameH = captionNameHeight(width, height, tall);
+  const badgeH = Math.max(nameH * 1.5, height * 0.03);
+  const badgeW = badgeH * (91.15 / 50.12);
   if (!tall) return { x: width - badgeW - width * 0.02, y: height * 0.955 - badgeH, w: badgeW, h: badgeH };
   const y = Math.min(product.y + product.h - badgeH * 0.15, height - badgeH - height * 0.012);
   const x = Math.min(width - badgeW - width * 0.02, Math.max(width * 0.62, product.x + product.w - badgeW - width * 0.02));
   return { x, y, w: badgeW, h: badgeH };
 }
 
-function deviceNameBox(width: number, height: number, tall: boolean, product: Box, visible?: Box): Box {
-  const badge = energyFrame(width, height, tall, product, visible);
-  const nameH = height * 0.03;
+function deviceNameBox(width: number, height: number, tall: boolean, product: Box, visible: Box | undefined, name: string): Box {
+  if (name.trim() && (!tall || visible)) return captionPair(width, height, tall, name.trim()).name;
+  const badge = energyFrame(width, height, tall, product, visible, name);
+  const nameH = captionNameHeight(width, height, tall);
   const right = badge.x - width * 0.012;
-  const left = tall && visible && visible.x > width * 0.24 ? width * 0.06 : tall ? Math.max(width * 0.28, right - width * 0.42) : width * 0.36;
+  const left = tall ? Math.max(width * 0.28, right - width * 0.42) : width * 0.36;
   return { x: left, y: badge.y + (badge.h - nameH) / 2, w: Math.max(8, right - left), h: nameH };
+}
+
+/** Slides the visible phone right until the caption sits completely to its left. */
+function clearPhoneForCaption(product: Box, cutout: Cutout, need: number): void {
+  const seen = visibleProductBox(product, cutout, true, -0.1);
+  if (seen.x < need - 1) product.x += need - seen.x;
 }
 
 function buildKachel(
@@ -1048,19 +1100,43 @@ function buildKachel(
     placed.stern.w = settledStar.w;
     placed.stern.h = settledStar.h;
   }
+  if (tall && deviceMode && placed.product && productCutout && copy.geraetName?.trim()) {
+    const pair = captionPair(w, h, true, copy.geraetName.trim());
+    clearPhoneForCaption(placed.product, productCutout, pair.badge.x + pair.badge.w + w * 0.016);
+  }
   if (deviceMode && !tall && placed.stern && fittedTile.w > 2 && fittedPill && fittedPill.w > 2) {
-    const size = Math.max(fittedTile.w * 0.22, h * 0.105);
-    const ceiling = placed.subline.y + placed.subline.h;
-    placed.stern.w = size;
-    placed.stern.h = size;
-    placed.stern.y = Math.max(ceiling + 1, fittedTile.y - size * 0.55);
-    placed.stern.x = fittedTile.x + fittedTile.w - size * 0.2;
     const glyphs = deviceGlyphs(fittedTile, fittedPill, copy).map((item) => item[1]);
-    const hitsInk = () => glyphs.some((item) => item.w > 2 && overlaps(placed.stern!, item)) || overlaps(placed.stern!, placed.headline) || overlaps(placed.stern!, placed.subline);
-    for (let step = 0; step < 24 && hitsInk(); step += 1) {
-      if (placed.stern.y > ceiling + 1) placed.stern.y -= Math.max(3, size * 0.04);
-      else placed.stern.x += Math.max(3, size * 0.04);
+    const ceiling = placed.subline.y + placed.subline.h;
+    const seenPhone = productCutout && placed.product ? visibleProductBox(placed.product, productCutout, false, -0.1) : undefined;
+    const hitsInk = (box: Box) => glyphs.some((item) => item.w > 2 && overlaps(box, item))
+      || overlaps(box, placed.headline)
+      || overlaps(box, placed.subline)
+      || (placed.cta.w > 2 && overlaps(box, placed.cta))
+      || (seenPhone ? overlapShare(box, seenPhone) > 0.05 : false);
+    const floor = Math.max(fittedTile.w * 0.48, h * 0.1);
+    const full = Math.max(floor, Math.min(fittedTile.w * 0.95, h * 0.34));
+    let chosen: Box | undefined;
+    for (let size = full; size >= floor - 0.5; size = Math.max(floor, size * 0.92)) {
+      const step = Math.max(8, size * 0.08);
+      for (let y = Math.max(ceiling + 1, fittedTile.y - size * 0.55); !chosen && y + size / 2 <= fittedTile.y + fittedTile.h * 0.52; y += step) {
+        for (let x = fittedTile.x + fittedTile.w - size * 0.45; x + size <= w * 0.98; x += step) {
+          const candidate = { x, y, w: size, h: size };
+          if (!hitsInk(candidate)) {
+            chosen = candidate;
+            break;
+          }
+        }
+      }
+      if (chosen || size <= floor + 0.5) break;
     }
+    if (!chosen) {
+      const size = Math.max(fittedTile.w * 0.22, h * 0.105);
+      chosen = { x: fittedTile.x + fittedTile.w - size * 0.2, y: Math.max(ceiling + 1, fittedTile.y - size * 0.55), w: size, h: size };
+    }
+    placed.stern.x = chosen.x;
+    placed.stern.y = chosen.y;
+    placed.stern.w = chosen.w;
+    placed.stern.h = chosen.h;
   }
   if (tall && deviceMode && placed.stern && fittedPill && fittedPill.w > 2 && fittedTile.w > 2) {
     const full = Math.max(fittedTile.w * 0.22, fittedTile.w * 0.2125 / 0.48, h * 0.105, Math.min(w, h) * 0.15);
@@ -1212,13 +1288,11 @@ function buildKachel(
   if (wide && placed.subline.y < placed.headline.y + placed.headline.h + placed.headline.h * 0.1) {
     hints.push(`Headline überlappt Unterzeile im ${label}.`);
   }
-  if (placed.stern && fittedTile.w > 2 && placed.stern.w * 0.96 < fittedTile.w * 0.2) {
+  if (placed.stern && fittedTile.w > 2 && renderedStarDiameter(placed.stern.w) < fittedTile.w * 0.2) {
     hints.push(`Der Stern ist zu klein im ${label}.`);
   }
-  if (placed.stern && placed.stern.h > 2) {
-    const lines = starLines(stern?.text ?? "");
-    const textH = placed.stern.h * (lines.length >= 2 ? 0.2 : 0.34);
-    if (textH < h * 0.02) hints.push(`Der Stern-Text ist zu klein im ${label}.`);
+  if (placed.stern && placed.stern.h > 2 && renderedStarTextSize(placed.stern.w, stern?.text ?? "") < h * 0.02) {
+    hints.push(`Der Stern-Text ist zu klein im ${label}.`);
   }
   if (!cta.text.trim() || placed.cta.h < 2 || placed.cta.w < 2) hints.push(`Der CTA fehlt im ${label}.`);
   if (placed.cta.h * 0.5 < h * (format.id.endsWith("9x16") ? 0.022 : format.id.startsWith("pmax") ? 0.03 : 0.025)) {
@@ -1226,14 +1300,12 @@ function buildKachel(
   }
   if (deviceMode && placed.product && placed.product.h < h * (tall ? 0.42 : 0.55)) hints.push(`Das Gerät ist zu klein im ${label}.`);
   if (placed.stern && headBox && headBox.w > 2 && overlaps(placed.stern, headBox)) hints.push(`Der Stern überdeckt das Gesicht im ${label}.`);
-  const seenDevice = deviceMode && placed.product
-    ? (productCutout ? visibleProductBox(placed.product, productCutout, tall, -0.1) : placed.product)
-    : undefined;
   const opaqueDevice = productCutout && placed.product ? visibleProductBox(placed.product, productCutout, tall, -0.1) : undefined;
-  if (deviceMode && placed.stern && seenDevice && overlapShare(placed.stern, seenDevice) > 0.05) hints.push(`Der Stern überdeckt das Gerät im ${label}.`);
-  if (tall && deviceMode && opaqueDevice && copy.geraetName?.trim()) {
-    const name = deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice);
-    const badge = energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice);
+  if (deviceMode && placed.stern && opaqueDevice && overlapShare(placed.stern, opaqueDevice) > 0.05) hints.push(`Der Stern überdeckt das Gerät im ${label}.`);
+  if (deviceMode && opaqueDevice && copy.geraetName?.trim()) {
+    const name = deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName);
+    const badge = energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName);
+    if (overlaps(name, badge)) hints.push(`nicht bestanden: Der Gerätename überlappt das Energielabel im ${label}.`);
     if (overlaps(name, opaqueDevice) || overlaps(badge, opaqueDevice)) hints.push(`nicht bestanden: Der Gerätename überlappt das Gerät im ${label}.`);
   }
   if (placed.stern && placed.logo && placed.logo.w > 2 && overlaps(placed.stern, placed.logo)) hints.push(`Der Stern überdeckt das Logo im ${label}.`);
@@ -1308,7 +1380,7 @@ function buildKachel(
     headBox,
     product: placed.product,
     productTilt: deviceMode ? -0.1 : undefined,
-    energy: deviceMode ? energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice) : undefined,
+    energy: deviceMode ? energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName ?? "") : undefined,
     headline: { ...headline, box: placed.headline },
     subline: { ...subline, box: placed.subline },
     stoerer: { typ: "stern", box: placed.stern ?? box(0, 0, 0, 0), preis: copy.preis, zusatz: copy.preisZusatz, einmal: copy.einmalpreis, aktion: copy.sternText ?? "" },
@@ -1326,7 +1398,7 @@ function buildKachel(
     deko,
     headlinePfeile: !shifts.pfeile?.hidden,
     sternColor: copy.sternColor,
-    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice) } : undefined,
+    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName) } : undefined,
     textScale: {
       preisAlt: shifts.stattpreis?.scale && shifts.stattpreis.scale > 0 ? shifts.stattpreis.scale : 1,
       alt: shifts.altwert?.scale && shifts.altwert.scale > 0 ? shifts.altwert.scale : 1,

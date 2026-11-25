@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PNG } from "pngjs";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
-import { arrowSpan, buildScene, wavePaintShare, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { arrowSpan, buildScene, fitHeadlineForChevrons, fitSublineText, renderedStarDiameter, renderedStarTextSize, visibleProductBox, wavePaintShare, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
 import { blockingHints } from "../src/modules/visual-builder/server/creative-archive";
 import { headInside, measureCutout, placeCutout, type Cutout } from "../src/modules/visual-builder/server/cutout";
 import { glanceContradictsMeasure } from "../src/modules/visual-builder/server/review";
@@ -208,13 +208,20 @@ test("orange clothing only hints that the deco disappears", () => {
   assert.equal(scene.hints.some((hint) => hint.includes("Deko kaum sichtbar") && !hint.startsWith("Hinweis:")), false);
 });
 
-test("the device name stays off the visible phone", () => {
-  const phone: Cutout = { imageW: 3000, imageH: 2000, opaque: { x: 1140, y: 96, w: 750, h: 1800 }, head: { x: 0, y: 0, w: 1, h: 1 } };
-  const fields = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57" };
-  for (const format of OTELO_FORMATS) {
+test("the device name stays one line left of the label and the phone", () => {
+  const phone: Cutout = { imageW: 900, imageH: 2000, opaque: { x: 40, y: 30, w: 820, h: 1920 }, head: { x: 0, y: 0, w: 1, h: 1 } };
+  const fields = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57 5G" };
+  for (const format of OTELO_FORMATS.filter((item) => item.id.endsWith("9x16"))) {
     const scene = buildScene(format, "kachel_geraet", fields, {}, undefined, undefined, phone);
-    assert.equal(scene.hints.some((hint) => hint.includes("Stern-Text ist zu klein")), false, `${format.id} ${scene.hints.join(" | ")}`);
-    if (format.id.endsWith("9x16")) assert.equal(scene.hints.some((hint) => hint.includes("Gerätename überlappt")), false, scene.hints.join(" | "));
+    const name = scene.deviceLabel?.box;
+    const badge = scene.energy;
+    assert.ok(name && badge && scene.product, format.id);
+    assert.ok(name.w + 1 >= fields.geraetName.length * name.h * 0.55, `${format.id} name ${name.w.toFixed(0)}`);
+    assert.ok(badge.x >= name.x + name.w - 1, `${format.id} label ${badge.x.toFixed(0)}`);
+    const seen = visibleProductBox(scene.product, phone, true, -0.1);
+    assert.ok(seen.x + 1 >= badge.x + badge.w, `${format.id} phone ${seen.x.toFixed(0)} after ${ (badge.x + badge.w).toFixed(0) }`);
+    assert.equal(scene.hints.some((hint) => hint.includes("Gerätename überlappt")), false, scene.hints.join(" | "));
+    assert.equal(scene.hints.some((hint) => hint.includes("Stern-Text ist zu klein")), false, scene.hints.join(" | "));
   }
 });
 
@@ -225,7 +232,8 @@ test("the device star on the wide formats sits on the upper tile corner", () => 
     const star = scene.stern?.box;
     const tile = scene.kachel?.box;
     assert.ok(star && tile, format.id);
-    assert.ok(star.w >= tile.w * 0.2 - 1, `${format.id} ${star.w.toFixed(0)} / ${tile.w.toFixed(0)}`);
+    assert.ok(renderedStarDiameter(star.w) >= tile.w * 0.2 - 1, `${format.id} rendered ${renderedStarDiameter(star.w).toFixed(0)} / tile ${tile.w.toFixed(0)}`);
+    assert.ok(renderedStarTextSize(star.w, "50 GB") >= format.h * 0.02 - 0.2, `${format.id} text ${renderedStarTextSize(star.w, "50 GB").toFixed(1)}`);
     const relY = (star.y + star.h / 2 - tile.y) / tile.h;
     assert.ok(relY < 0.55, `${format.id} relY ${relY.toFixed(2)}`);
     assert.equal(scene.hints.some((hint) => hint.includes("Pillentext") || hint.includes("überdeckt CTA") || hint.includes("überdeckt statt")), false, scene.hints.join(" | "));
@@ -238,6 +246,19 @@ test("the device star on the wide formats sits on the upper tile corner", () => 
   assert.ok(Math.abs(device.headline.box.h - person.headline.box.h) < 2);
   assert.ok(Math.abs(device.subline.box.h - person.subline.box.h) < 2);
   assert.ok(Math.abs(device.cta.box.h - person.cta.box.h) < 2);
+  const rendered = (scene: ReturnType<typeof buildScene>, canvasW: number) => {
+    const text = scene.headline.lines[0] ?? "";
+    const box = scene.headline.box;
+    const natural = Math.min(box.h, box.w / Math.max(1, text.length * 0.572));
+    return fitHeadlineForChevrons(text.length * 0.572 * natural, natural, canvasW * 0.96, box.x).fontSize;
+  };
+  const personHead = rendered(person, wide.w);
+  const deviceHead = rendered(device, wide.w);
+  assert.ok(Math.abs(deviceHead - personHead) < 2, `${deviceHead.toFixed(1)} / ${personHead.toFixed(1)}`);
+  const subSize = (scene: ReturnType<typeof buildScene>, head: number) => fitSublineText(scene.subline.lines.map((line) => line.text).join(" "), head, scene.subline.box.w, (sample, size) => sample.length * size * 0.5).size;
+  assert.ok(subSize(device, deviceHead) >= subSize(person, personHead) - 1);
+  assert.ok((device.deviceLabel?.box.h ?? 0) >= wide.h * 0.05 - 1, `name ${device.deviceLabel?.box.h}`);
+  assert.ok((device.energy?.h ?? 0) >= (device.deviceLabel?.box.h ?? 0) * 1.4);
   const story = OTELO_FORMATS.find((format) => format.id === "meta-9x16");
   assert.ok(story);
   const named = buildScene(story, "kachel_geraet", fields);
