@@ -688,11 +688,17 @@ function buildKachel(
     lines: copy.subline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 2).map((text) => ({ text: /[a-zäöü]/.test(text) ? text : text.toUpperCase(), bold: true, color: copy.sublineColor || ORANGE })),
     box: mirrorBox(box(left, headline.box.y + headline.box.h + (wide ? headH * 0.16 : h * 0.012), headline.box.w, headH * 0.62), w, flip),
   };
+  const sublineText = subline.lines.map((line) => line.text).join(" ");
+  if (sublineText) {
+    const reserved = fitSublineText(sublineText, headH, Math.max(8, subline.box.w), (sample, size) => Math.max(1, sample.length) * size * 0.7);
+    if (reserved.lines.length > 1) subline.box.h = Math.max(subline.box.h, reserved.size * 2.2);
+  }
   const tileRaw = deviceMode
     ? box(left, tall ? h * 0.26 : subline.box.y + subline.box.h + h * 0.04, wide ? w * 0.2 : tall ? w * 0.42 : w * 0.26, wide ? h * 0.36 : tall ? h * 0.12 : h * 0.22)
     : wide
       ? box(left, subline.box.y + subline.box.h + h * 0.035, w * 0.22, h * 0.42)
       : box(left, tall ? h * 0.28 : h * 0.3, w * (tall ? 0.5 : 0.45), tall ? h * 0.28 : h * 0.4);
+  if (tileRaw.y < subline.box.y + subline.box.h + h * 0.012) tileRaw.y = subline.box.y + subline.box.h + h * 0.012;
   const pillBuilt = deviceMode ? devicePill(tileRaw, copy.preis, copy.preisZusatz) : undefined;
   const pillRaw = pillBuilt?.box;
   const pillTextRaw = pillBuilt?.text;

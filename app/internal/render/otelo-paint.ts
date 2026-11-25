@@ -660,8 +660,6 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
       const span = arrowSpan(headlineEnd, headSize, arrowRight);
       if (span.count > 0) drawArrows(ctx, headlineEnd, scene.headline.box.y, headSize, span.count);
     }
-    const subOverflow = drawKachelSubline(ctx, scene, headSize);
-    if (subOverflow) hints.push(subOverflow);
     if (scene.pill) {
       drawDeviceOffer(ctx, scene);
       if (scene.deviceLabel?.text) {
@@ -680,6 +678,8 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
       }
       drawImageBox(ctx, scene.energyKey ? images[scene.energyKey] : null, scene.energy, "center");
     } else drawKachel(ctx, scene, images);
+    const subOverflow = drawKachelSubline(ctx, scene, headSize);
+    if (subOverflow) hints.push(subOverflow);
     if (scene.cta.text.trim()) drawCta(ctx, scene);
     drawImageBox(ctx, scene.logoKey ? images[scene.logoKey] : null, scene.logo.box, "left");
     return hints;
