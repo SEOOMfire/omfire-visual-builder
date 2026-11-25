@@ -451,12 +451,12 @@ export function chevronReach(textEnd: number, fontSize: number, count = 3, scale
 }
 
 /**
- * Three chevrons have to fit. The arrows narrow first, down to about a third.
- * The headline font shrinks only when even the narrow arrows do not fit.
+ * Three chevrons have to fit. The arrows narrow first, but not below 70 percent.
+ * The headline then shrinks. Only if it is already at the floor do the arrows go narrower.
  */
 export function fitHeadlineForChevrons(textWidth: number, fontSize: number, canvasRight: number, origin = 0): { textWidth: number; fontSize: number; arrowScale: number } {
   let scale = 1;
-  while (scale > 0.3 + 0.001 && chevronReach(origin + textWidth, fontSize, 3, scale) > canvasRight) scale = Math.max(0.3, scale - 0.02);
+  while (scale > 0.7 + 0.001 && chevronReach(origin + textWidth, fontSize, 3, scale) > canvasRight) scale = Math.max(0.7, scale - 0.02);
   let width = textWidth;
   let size = fontSize;
   const hold = fontSize * 0.9;
@@ -468,7 +468,40 @@ export function fitHeadlineForChevrons(textWidth: number, fontSize: number, canv
     size *= 0.97;
     width *= 0.97;
   }
+  while (scale > 0.45 && chevronReach(origin + width, size, 3, scale) > canvasRight) scale = Math.max(0.45, scale - 0.02);
   return { textWidth: width, fontSize: size, arrowScale: scale };
+}
+
+/** A hint when the chevrons had to go below 70 percent of their normal width. */
+export function chevronWidthHint(scale: number, label: string): string | undefined {
+  if (scale >= 0.7 - 0.001) return undefined;
+  return `Hinweis: Die Pfeile sind schmaler als 70 Prozent im ${label}.`;
+}
+
+/** Same sentence repeated per format becomes one line naming every format. */
+export function dedupeHints(hints: readonly string[]): string[] {
+  const order: string[] = [];
+  const formats = new Map<string, string[]>();
+  for (const hint of hints) {
+    const match = hint.match(/^(.*?)\s+im\s+(\d+x\d+)((?:\s+\([^)]*\))?\.?)$/);
+    const key = match ? `${match[1].trim()}|${(match[3] ?? "").trim()}` : hint.trim();
+    if (!formats.has(key)) {
+      formats.set(key, []);
+      order.push(key);
+    }
+    const label = match?.[2];
+    const bucket = formats.get(key);
+    if (label && bucket && !bucket.includes(label)) bucket.push(label);
+  }
+  return order.map((key) => {
+    const labels = formats.get(key) ?? [];
+    if (!labels.length) return key;
+    const split = key.indexOf("|");
+    const text = key.slice(0, split);
+    const tail = key.slice(split + 1).replace(/^\./, "").trim();
+    const list = `(${labels.join(", ")})`;
+    return tail ? `${text} ${list} ${tail}`.replace(/\s+\./g, ".").trim() : `${text} ${list}.`;
+  });
 }
 
 /** Two lines of similar width. A single word stays on one line. */
@@ -500,7 +533,11 @@ export function fitSublineText(
   const minSize = Math.max(1, headlineSize * 0.35);
   const preferred = Math.max(minSize, headlineSize * 0.5);
   const fits = (sample: string, size: number) => widthOf(sample, size) <= maxWidth + 1;
-  if (fits(text, preferred)) return { lines: [text], size: preferred, shorten: false };
+  if (fits(text, minSize)) {
+    let size = preferred;
+    while (size > minSize + 0.2 && !fits(text, size)) size *= 0.96;
+    return { lines: [text], size: Math.max(minSize, size), shorten: false };
+  }
   let size = preferred;
   const pair = (sampleSize: number) => {
     const [left, right] = splitBalanced(text, (line) => widthOf(line, sampleSize));
@@ -648,7 +685,7 @@ function applyShift(target: Box, shift: Shift | undefined, width: number, height
 
 function energyFrame(width: number, height: number, tall: boolean, product: Box, visible?: Box): Box {
   const nameH = height * 0.03;
-  const badgeH = nameH * 1.5;
+  const badgeH = Math.max(nameH * 1.5, height * 0.03);
   const badgeW = badgeH * (91.15 / 50.12);
   if (tall && visible && visible.x > width * 0.24) {
     return { x: visible.x - badgeW - width * 0.015, y: height - badgeH - height * 0.018, w: badgeW, h: badgeH };
@@ -719,8 +756,8 @@ function buildKachel(
     ? box(tileRaw.x + tileRaw.w + w * 0.02, tileRaw.y + tileRaw.h - ctaH, w * 0.26, ctaH)
     : box(left, tall ? h * 0.66 : h * 0.74, w * (tall ? 0.55 : wide ? 0.46 : 0.58), ctaH);
   if (deviceMode && wide) {
-    ctaH = Math.min(ctaH, Math.max(h * 0.09, logoTop - (tileRaw.y + tileRaw.h) - h * 0.04));
-    ctaRaw = box(left, logoTop - ctaH - h * 0.016, w * 0.42, ctaH);
+    const below = Math.max(tileRaw.y + tileRaw.h, pillRaw ? pillRaw.y + pillRaw.h : 0) + h * 0.02;
+    ctaRaw = box(left, below, Math.max(w * 0.26, w * 0.42), ctaH);
   } else if (deviceMode && tall) {
     ctaH = Math.max(h * 0.05, h * (0.022 / 0.48));
     const stack = tileRaw.y + tileRaw.h + h * 0.012;
@@ -745,7 +782,7 @@ function buildKachel(
   const deviceH = h * (deviceMode ? (tall ? 0.5 : 0.6) : tall ? 0.42 : wide ? 0.72 : 0.58);
   const deviceTop = deviceMode && tall ? ctaRaw.y + ctaRaw.h + h * 0.006 : h * 0.18;
   const device = name === "kachel_person" ? undefined : mirrorBox(deviceMode
-    ? tall ? box(w * 0.08, deviceTop, w * 1.05, Math.max(deviceH, h * 1.05 - deviceTop)) : box(w * 0.5, Math.max(h * 0.28, subline.box.y + subline.box.h + h * 0.02), w * 0.58, deviceH)
+    ? tall ? box(w * 0.08, deviceTop, w * 1.05, Math.max(deviceH, h * 1.05 - deviceTop)) : box(wide ? w * 0.62 : w * 0.5, wide ? subline.box.y : Math.max(subline.box.y + subline.box.h + h * 0.02, h * 0.28), wide ? w * 0.4 : w * 0.48, deviceH)
     : box(w * 0.52, h * 0.22, Math.min(w * 0.42, deviceH * 0.7), deviceH), w, flip);
   const sternRadius = tileRaw.w * (wide ? 0.22 : 0.2125);
   const deviceStar = copy.sternText?.trim() || copy.datenmenge?.trim() || "";
@@ -815,15 +852,13 @@ function buildKachel(
     fittedPill.y += fittedTile.y - tile.y;
   }
   if (placed.stern) placed.stern.y += fittedTile.y - tile.y;
-  if (deviceMode && placed.product) {
-    const clear = (text: Box) => {
-      const vertical = text.y < placed.product!.y + placed.product!.h && placed.product!.y < text.y + text.h;
-      if (!vertical || text.x >= placed.product!.x) return;
-      const limit = placed.product!.x - w * 0.02;
-      if (text.x + text.w > limit) text.w = Math.max(w * 0.18, limit - text.x);
-    };
-    clear(placed.headline);
-    clear(placed.subline);
+  if (deviceMode && wide && placed.product) {
+    const textRight = Math.max(placed.headline.x + placed.headline.w, placed.subline.x + placed.subline.w, placed.cta.x + placed.cta.w);
+    const minX = textRight + w * 0.025;
+    if (placed.product.x < minX) {
+      placed.product.x = minX;
+      if (placed.product.x + placed.product.w > w * 1.02) placed.product.w = Math.max(w * 0.2, w * 1.02 - placed.product.x);
+    }
   }
   if (placed.figure && headBox && figure) {
     headBox = {
@@ -1013,7 +1048,21 @@ function buildKachel(
     placed.stern.w = settledStar.w;
     placed.stern.h = settledStar.h;
   }
-  if (deviceMode && placed.stern && fittedPill && fittedPill.w > 2 && fittedTile.w > 2) {
+  if (deviceMode && !tall && placed.stern && fittedTile.w > 2 && fittedPill && fittedPill.w > 2) {
+    const size = Math.max(fittedTile.w * 0.22, h * 0.105);
+    const ceiling = placed.subline.y + placed.subline.h;
+    placed.stern.w = size;
+    placed.stern.h = size;
+    placed.stern.y = Math.max(ceiling + 1, fittedTile.y - size * 0.55);
+    placed.stern.x = fittedTile.x + fittedTile.w - size * 0.2;
+    const glyphs = deviceGlyphs(fittedTile, fittedPill, copy).map((item) => item[1]);
+    const hitsInk = () => glyphs.some((item) => item.w > 2 && overlaps(placed.stern!, item)) || overlaps(placed.stern!, placed.headline) || overlaps(placed.stern!, placed.subline);
+    for (let step = 0; step < 24 && hitsInk(); step += 1) {
+      if (placed.stern.y > ceiling + 1) placed.stern.y -= Math.max(3, size * 0.04);
+      else placed.stern.x += Math.max(3, size * 0.04);
+    }
+  }
+  if (tall && deviceMode && placed.stern && fittedPill && fittedPill.w > 2 && fittedTile.w > 2) {
     const full = Math.max(fittedTile.w * 0.22, fittedTile.w * 0.2125 / 0.48, h * 0.105, Math.min(w, h) * 0.15);
     const floor = Math.max(fittedTile.w * 0.22, h * 0.105);
     const junction = fittedTile.x + fittedTile.w;
@@ -1233,7 +1282,15 @@ function buildKachel(
   const minCtaH = tall ? 0.038 : 0.07;
   if (placed.cta.h > 2 && placed.cta.h < h * minCtaH) hints.push(`Hinweis: Die CTA-Leiste ist niedriger als im Bestand im ${label}.`);
   if (cutout?.orangeCloth && (deko?.name === "fruehling_blaetter" || deko?.name === "bw_wellen")) {
-    hints.push("Hinweis: Deko kaum sichtbar vor dem Motiv – Wellen oder keine Deko?");
+    hints.push(`Hinweis: Deko kaum sichtbar vor dem Motiv – Wellen oder keine Deko? im ${label}.`);
+  }
+  if (!shifts.pfeile?.hidden) {
+    const headlineWords = headline.lines[0] ?? "";
+    const fullWidth = glyphWidth(headlineWords, headH);
+    const natural = fullWidth > headW ? headH * (headW / Math.max(1, fullWidth)) : headH;
+    const arrows = fitHeadlineForChevrons(glyphWidth(headlineWords, natural), natural, w * (tiktok ? 0.84 : 0.96), headline.box.x);
+    const arrowHint = chevronWidthHint(arrows.arrowScale, label);
+    if (arrowHint) hints.push(arrowHint);
   }
   for (const note of [...new Set(caps)]) hints.push(`Hinweis: ${note}.`);
   return {

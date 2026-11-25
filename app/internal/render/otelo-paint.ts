@@ -664,17 +664,21 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
       drawDeviceOffer(ctx, scene);
       if (scene.deviceLabel?.text) {
         const label = scene.deviceLabel;
-        let size = Math.min(label.box.h, scene.height * 0.03) * (scene.textScale?.geraetName ?? 1);
+        const target = scene.height * 0.03 * (scene.textScale?.geraetName ?? 1);
         ctx.fillStyle = WHITE;
-        ctx.textAlign = "right";
+        ctx.textAlign = "left";
         ctx.textBaseline = "middle";
+        ctx.font = face(700, target, "Geist");
+        const words = label.text.split(/\s+/).filter(Boolean);
+        const splitAt = Math.max(1, Math.ceil(words.length / 2));
+        const wrapped = [words.slice(0, splitAt).join(" "), words.slice(splitAt).join(" ")].filter(Boolean);
+        const rows = words.length > 1 && ctx.measureText(label.text).width > label.box.w ? wrapped : [label.text];
+        const widest = Math.max(...rows.map((row) => ctx.measureText(row).width));
+        const size = widest > label.box.w && widest > 0 ? Math.max(scene.height * 0.024, target * (label.box.w / widest)) : target;
         ctx.font = face(700, size, "Geist");
-        const measured = ctx.measureText(label.text).width;
-        if (measured > label.box.w && measured > 0) {
-          size *= label.box.w / measured;
-          ctx.font = face(700, size, "Geist");
-        }
-        ctx.fillText(label.text, label.box.x + label.box.w, label.box.y + label.box.h / 2);
+        rows.forEach((row, index) => {
+          ctx.fillText(row, label.box.x, label.box.y + label.box.h / 2 + (index - (rows.length - 1) / 2) * size * 1.05);
+        });
       }
       drawImageBox(ctx, scene.energyKey ? images[scene.energyKey] : null, scene.energy, "center");
     } else drawKachel(ctx, scene, images);

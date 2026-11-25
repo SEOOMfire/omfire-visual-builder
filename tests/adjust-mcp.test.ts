@@ -5,7 +5,7 @@ import { PNG } from "pngjs";
 import { adjustRequest, applyToBook, mergedNudge, newBook, seedBook, type AdjustBook } from "../src/modules/visual-builder/server/adjust-commands";
 import { withoutInstructed } from "../src/modules/visual-builder/server/review";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
-import { arrowSpan, buildScene, chevronReach, elementRelation, fitHeadlineForChevrons, fitSublineText, starLines, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { arrowSpan, buildScene, chevronReach, chevronWidthHint, dedupeHints, elementRelation, fitHeadlineForChevrons, fitSublineText, starLines, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
 
 const route = readFileSync(new URL("../app/mcp/route.ts", import.meta.url), "utf8");
 
@@ -214,25 +214,30 @@ test("a wide headline narrows the arrows before the type shrinks", () => {
   const fitted = fitHeadlineForChevrons(900, 140, 1080);
   assert.ok(chevronReach(fitted.textWidth, fitted.fontSize, 3, fitted.arrowScale) <= 1080);
   assert.ok(fitted.arrowScale < 1 || fitted.fontSize < 140);
-  assert.ok(fitted.arrowScale >= 0.3 - 0.001);
+  assert.ok(fitted.arrowScale >= 0.7 - 0.001);
   const span = arrowSpan(fitted.textWidth, fitted.fontSize, 1080, fitted.arrowScale);
   assert.equal(span.count, 3);
 });
 
-test("ENDLOS SURFEN keeps at least 90 percent of the BLACK WEEK headline", () => {
-    const widthOf = (chars: number, size: number) => chars * size * 0.5;
-  for (const format of OTELO_FORMATS) {
-    const scene = buildScene(format, "kachel_person", base());
-    const right = format.id === "tiktok-9x16" ? format.w * 0.84 : format.w * 0.96;
-    const fit = (chars: number) => {
+test("ENDLOS SURFEN and SOMMER-DEAL keep three chevrons at least 70 percent wide", () => {
+  const widthOf = (chars: number, size: number) => chars * size * 0.62;
+  const names = ["ENDLOS SURFEN", "SOMMER-DEAL"];
+  for (const headline of names) {
+    for (const format of OTELO_FORMATS) {
+      if (headline === "SOMMER-DEAL" && !["pmax-960x1200", "meta-1x1"].includes(format.id) && !format.id.endsWith("9x16")) continue;
+      const scene = buildScene(format, "kachel_person", { ...base(), headline });
+      const right = format.id === "tiktok-9x16" ? format.w * 0.84 : format.w * 0.96;
       const box = scene.headline.box;
-      const natural = Math.min(box.h, (box.w / Math.max(1, widthOf(chars, 100))) * 100);
-      return fitHeadlineForChevrons(widthOf(chars, natural), natural, right, box.x);
-    };
-    const week = fit(10);
-    const endless = fit(13);
-    assert.ok(endless.fontSize >= week.fontSize * 0.9 - 0.5, `${format.id} ${endless.fontSize.toFixed(1)} / ${week.fontSize.toFixed(1)}`);
+      const natural = Math.min(box.h, (box.w / Math.max(1, widthOf(headline.length, 100))) * 100);
+      const fitted = fitHeadlineForChevrons(widthOf(headline.length, natural), natural, right, box.x);
+      const span = arrowSpan(box.x + fitted.textWidth, fitted.fontSize, right, fitted.arrowScale);
+      assert.equal(span.count, 3, `${headline} ${format.id}`);
+      assert.ok(fitted.arrowScale >= 0.7 - 0.001, `${headline} ${format.id} ${fitted.arrowScale.toFixed(2)}`);
+      assert.equal(scene.hints.some((hint) => hint.includes("schmaler als 70 Prozent")), false, scene.hints.join(" | "));
+    }
   }
+  assert.match(chevronWidthHint(0.69, "1200x1200") ?? "", /Hinweis: Die Pfeile sind schmaler als 70 Prozent im 1200x1200/);
+  assert.equal(chevronWidthHint(0.7, "1200x1200"), undefined);
 });
 
 test("three chevrons fit for headlines of 8, 11, 13 and 16 characters", () => {
@@ -263,6 +268,23 @@ test("a long subline stays at least 35 percent of the headline in every format",
     assert.equal(fitted.lines.length, 2, format.id);
     assert.equal(fitted.shorten, false, format.id);
   }
+  const offer = "GALAXY A57 5G EINMALIG 1 €";
+  const square = buildScene(OTELO_FORMATS.find((format) => format.id === "pmax-960x1200") ?? OTELO_FORMATS[0], "kachel_geraet", { ...base(), subline: offer, einmalpreis: "1 €", geraetName: "Galaxy A57" });
+  const oneLine = fitSublineText(offer, square.headline.box.h, square.subline.box.w, widthOf);
+  assert.deepEqual(oneLine.lines, [offer]);
+  assert.ok(oneLine.size >= square.headline.box.h * 0.35 - 0.2);
+});
+
+test("repeated hints name each format once", () => {
+  const hints = dedupeHints([
+    "Hinweis: Deko kaum sichtbar vor dem Motiv – Wellen oder keine Deko? im 1200x1200.",
+    "Hinweis: Deko kaum sichtbar vor dem Motiv – Wellen oder keine Deko? im 960x1200.",
+    "Hinweis: Deko kaum sichtbar vor dem Motiv – Wellen oder keine Deko? im 1080x1920.",
+    "Der Stern-Text ist zu klein im 1200x628.",
+  ]);
+  assert.equal(hints.length, 2);
+  assert.match(hints[0] ?? "", /1200x1200, 960x1200, 1080x1920/);
+  assert.match(hints[1] ?? "", /1200x628/);
 });
 
 test("more air keeps the tile off the CTA", () => {

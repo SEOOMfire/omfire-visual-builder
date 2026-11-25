@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { OTELO_FORMATS } from "../otelo-formats";
 import { type AdjustSnap, type ElementId } from "./adjust-commands";
-import { buildScene, defaultHeadline, defaultOrange, defaultStoerer, normalizeVorlage, type HeadlineVariant, type OrangeSide, type OteloScene, type SceneCopy, type StoererTyp, type VorlageName } from "../otelo-scene";
+import { buildScene, dedupeHints, defaultHeadline, defaultOrange, defaultStoerer, normalizeVorlage, type HeadlineVariant, type OrangeSide, type OteloScene, type SceneCopy, type StoererTyp, type VorlageName } from "../otelo-scene";
 import type { RenderJob } from "../render-protocol";
 import type { CreativeState } from "../types";
 import { renderInBrowser } from "./browser-pool";
@@ -267,7 +267,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     formats.push({ id: format.format, label: labels.get(format.format) ?? format.pixelSize, token, pngBase64: format.pngBase64 });
   }
   const token = await storePreview(`${randomUUID()}-kontakt.jpg`, Buffer.from(output.contactSheetBase64, "base64"));
-  const hints = output.formats.flatMap((format) => format.hints.map((hint) => hint.sentence));
+  const hints = dedupeHints(output.formats.flatMap((format) => format.hints.map((hint) => hint.sentence)));
   const measureText = Object.values(otelo).map((scene) => {
     const head = scene.headBox ? Math.round((scene.headBox.y / scene.height) * 100) : undefined;
     const top = scene.figure ? Math.round((scene.figure.y / scene.height) * 100) : undefined;

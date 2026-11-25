@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockingHints } from "../src/modules/visual-builder/server/creative-archive";
-import { glanceContradictsMeasure, pruefungText } from "../src/modules/visual-builder/server/review";
+import { completeSentences, failedGlanceFormats, glanceContradictsMeasure, pruefungText } from "../src/modules/visual-builder/server/review";
 
 test("the reply always names the image check", () => {
   assert.match(pruefungText([], ""), /Bildprüfung: nicht gelaufen/);
@@ -13,4 +13,9 @@ test("the reply always names the image check", () => {
   assert.equal(blockingHints(["nicht bestanden: Der Stern überdeckt die Headline im 1200x1200."]).length, 1);
   assert.equal(glanceContradictsMeasure([], "Die Unterzeile wird vom Stern überlappt."), true);
   assert.equal(glanceContradictsMeasure(["nicht bestanden: Der Stern überdeckt die Unterzeile im 1080x1920."], "Text überlappt."), false);
+  const glance = "1200x628: Nicht bestanden: Headline nur 55 Prozent.\n960x1200: Bestanden. Aufbau passt.\n1080x1080: Nicht bestanden: Der Stern ist klein.";
+  assert.match(pruefungText([], glance), /Prüfung: Bildprüfung nicht bestanden \(1200x628, 1080x1080\)/);
+  assert.deepEqual(failedGlanceFormats(glance), ["1200x628", "1080x1080"]);
+  assert.equal(completeSentences("Headline Lime bzw. die Unterzeile bleibt orange. Zweiter Satz."), "Headline Lime bzw. die Unterzeile bleibt orange. Zweiter Satz.");
+  assert.equal(completeSentences("Erster Satz. Zweiter Satz. Dritter Satz."), "Erster Satz. Zweiter Satz.");
 });

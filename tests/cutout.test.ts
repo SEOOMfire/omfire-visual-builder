@@ -218,6 +218,33 @@ test("the device name stays off the visible phone", () => {
   }
 });
 
+test("the device star on the wide formats sits on the upper tile corner", () => {
+  const fields = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57", subline: "3-FACH DATEN. GLEICHER PREIS." };
+  for (const format of OTELO_FORMATS.filter((item) => !item.id.endsWith("9x16"))) {
+    const scene = buildScene(format, "kachel_geraet", fields);
+    const star = scene.stern?.box;
+    const tile = scene.kachel?.box;
+    assert.ok(star && tile, format.id);
+    assert.ok(star.w >= tile.w * 0.2 - 1, `${format.id} ${star.w.toFixed(0)} / ${tile.w.toFixed(0)}`);
+    const relY = (star.y + star.h / 2 - tile.y) / tile.h;
+    assert.ok(relY < 0.55, `${format.id} relY ${relY.toFixed(2)}`);
+    assert.equal(scene.hints.some((hint) => hint.includes("Pillentext") || hint.includes("überdeckt CTA") || hint.includes("überdeckt statt")), false, scene.hints.join(" | "));
+  }
+  const wide = OTELO_FORMATS.find((format) => format.id === "pmax-1200x628");
+  assert.ok(wide);
+  const person = buildScene(wide, "kachel_person", copy());
+  const device = buildScene(wide, "kachel_geraet", fields);
+  assert.ok(Math.abs(device.headline.box.w - person.headline.box.w) < 2, `${device.headline.box.w} / ${person.headline.box.w}`);
+  assert.ok(Math.abs(device.headline.box.h - person.headline.box.h) < 2);
+  assert.ok(Math.abs(device.subline.box.h - person.subline.box.h) < 2);
+  assert.ok(Math.abs(device.cta.box.h - person.cta.box.h) < 2);
+  const story = OTELO_FORMATS.find((format) => format.id === "meta-9x16");
+  assert.ok(story);
+  const named = buildScene(story, "kachel_geraet", fields);
+  assert.ok((named.deviceLabel?.box.h ?? 0) >= story.h * 0.03 - 1);
+  assert.ok((named.energy?.h ?? 0) >= story.h * 0.03 - 1);
+});
+
 test("chevrons stay when the deco is leaves", () => {
   const scene = buildScene(OTELO_FORMATS[3], "kachel_person", { ...copy(), deko: "fruehling_blaetter" });
   assert.equal(scene.headlinePfeile, true);

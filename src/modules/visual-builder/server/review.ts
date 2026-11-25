@@ -20,12 +20,30 @@ export function glanceContradictsMeasure(measured: readonly string[], glance: st
   return !measured.some((hint) => /nicht bestanden/i.test(hint) && /stern/i.test(hint) && /überdeckt|überlappt|verdeckt/i.test(hint));
 }
 
+/** Formats whose image review starts with „Nicht bestanden“. */
+export function failedGlanceFormats(glance: string): string[] {
+  return glance.split(/\n/).flatMap((line) => {
+    const match = line.match(/^([^:\n]+):\s*nicht bestanden\b/i);
+    return match?.[1] ? [match[1].trim()] : [];
+  });
+}
+
 export function pruefungText(measured: readonly string[], glance: string): string {
   const blocking = blockingHints(measured);
   const image = imageLine(glance);
+  const failed = failedGlanceFormats(glance);
   const noted = !image.endsWith("keine Anmerkungen") && !/nicht gelaufen/i.test(image);
-  const status = blocking.length ? "nicht bestanden" : noted ? "Hinweise" : "bestanden";
+  const status = blocking.length ? "nicht bestanden" : failed.length ? `Bildprüfung nicht bestanden (${failed.join(", ")})` : noted ? "Hinweise" : "bestanden";
   return [`Prüfung: ${status}`, ...blocking, image].join("\n");
+}
+
+/** Keeps whole sentences. A period inside „bzw.“ does not end a sentence. */
+export function completeSentences(text: string, limit = 2): string {
+  const masked = text.replace(/\b(bzw|usw|etc|ca|Nr|Dr|z\. B)\./gi, (token) => token.replace(/\./g, "\u0001"));
+  const parts = masked.split(/(?<=[.!?])\s+/).map((part) => part.replace(/\u0001/g, ".").trim()).filter(Boolean);
+  const complete = parts.filter((part) => /[.!?]$/.test(part));
+  const chosen = (complete.length ? complete : parts).slice(0, limit);
+  return chosen.join(" ").trim();
 }
 
 export function fullReport(measured: readonly string[], glance: string): string {
@@ -73,7 +91,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
         {
           role: "user",
           content: [
-            { type: "text", text: `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nIm 9x16 ist kein Logo vorgesehen.\nAngewiesene Änderungen sind kein Fehler. Melde sie nicht. Deko „keine“ ist eine bewusste Wahl. Fehlende Wellen oder fehlende Blätter sind dann kein Fehler und werden nicht gemeldet. ${fontRule} Melde nur CI-Verstöße an gesetzten Flächen und Texten (Headline, Unterzeile, Kachel, CTA, Stern, Logo). Farben im Foto oder Produktbild, also Kleidung und Display, sind kein Verstoß. Die Farben des Energielabels sind gesetzlich vorgegeben und nie ein CI-Fehler. Eine unzulässige Textfarbe außerhalb von Lime, Orange, Schwarz und Weiß bleibt ein Verstoß. Textinhalte des Nutzers, auch der Sterntext, nie mit dem Referenztext vergleichen und nie als Abweichung werten.\nAngewiesen: ${instructed || "keine"}\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"}.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens zwei Sätze zu diesem einen Format.` },
+            { type: "text", text: `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nIm 9x16 ist kein Logo vorgesehen.\nIm Format 1200x628 ist eine Headline-Breite um 55 Prozent der Normalfall, bei der Personen-Kachel und beim Gerät. Das ist kein Fehler.\nAngewiesene Änderungen sind kein Fehler. Melde sie nicht. Deko „keine“ ist eine bewusste Wahl. Fehlende Wellen oder fehlende Blätter sind dann kein Fehler und werden nicht gemeldet. ${fontRule} Melde nur CI-Verstöße an gesetzten Flächen und Texten (Headline, Unterzeile, Kachel, CTA, Stern, Logo). Farben im Foto oder Produktbild, also Kleidung und Display, sind kein Verstoß. Die Farben des Energielabels sind gesetzlich vorgegeben und nie ein CI-Fehler. Eine unzulässige Textfarbe außerhalb von Lime, Orange, Schwarz und Weiß bleibt ein Verstoß. Textinhalte des Nutzers, auch der Sterntext, nie mit dem Referenztext vergleichen und nie als Abweichung werten.\nAngewiesen: ${instructed || "keine"}\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"}.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens zwei Sätze zu diesem einen Format.` },
             ...images,
           ],
         },
@@ -94,7 +112,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
       if (!/keine Antwort|abgelehnt/.test(message)) throw error;
       text = await ask(undefined);
     }
-    return withoutInstructed(text.split(/(?<=\.)\s+/).slice(0, 2).join(" "), instructed);
+    return withoutInstructed(completeSentences(text), instructed);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unbekannter Fehler";
     return `nicht gelaufen, weil ${message.replace(/\s+/g, " ").slice(0, 180)}`;
