@@ -71,6 +71,7 @@ export type OteloScene = {
   figureSource?: { x: number; y: number; w: number; h: number };
   headBox?: Box;
   product?: Box;
+  productTilt?: number;
   productKey?: string;
   energy?: Box;
   energyKey?: string;
@@ -253,26 +254,26 @@ function overlaps(left: Box, right: Box): boolean {
   return left.x < right.x + right.w && right.x < left.x + left.w && left.y < right.y + right.h && right.y < left.y + left.h;
 }
 
-export const WAVE_STROKE = 0.02;
+export const WAVE_STROKE = 0.036;
 
-/** Eleven parallel waves, rising from lower left to upper right, clear of the text column. */
+/** Twelve close, almost parallel waves. The strokes overlap, so the bundle reads as one surface. */
 export function wavePaths(width: number, height: number): Array<Array<{ x: number; y: number }>> {
-  const count = 11;
+  const count = 12;
   return Array.from({ length: count }, (_, index) => {
     const t = index / (count - 1);
-    const x0 = width * (0.7 + t * 0.28);
-    const y0 = height * (0.98 - t * 0.02);
-    const x1 = width * (0.84 + t * 0.15);
-    const y1 = height * (0.3 + t * 0.05);
+    const x0 = width * (0.68 + t * 0.3);
+    const y0 = height * 0.99;
+    const x1 = width * (0.86 + t * 0.13);
+    const y1 = height * 0.26;
     const dx = x1 - x0;
     const dy = y1 - y0;
     const length = Math.hypot(dx, dy) || 1;
     const nx = -dy / length;
     const ny = dx / length;
     const points: Array<{ x: number; y: number }> = [];
-    for (let step = 0; step <= 26; step += 1) {
-      const u = step / 26;
-      const wave = Math.sin(u * Math.PI * 3.4 + index * 0.6) * width * 0.011;
+    for (let step = 0; step <= 24; step += 1) {
+      const u = step / 24;
+      const wave = Math.sin(u * Math.PI * 2.4 + index * 0.35) * width * 0.004;
       points.push({ x: x0 + dx * u + nx * wave, y: y0 + dy * u + ny * wave });
     }
     return points;
@@ -453,7 +454,7 @@ function buildKachel(
   const flip = copy.orange === "links";
   const deviceMode = name === "kachel_geraet" || name === "kachel_geraet_person";
   const left = w * 0.06;
-  const headW = wide ? w * 0.55 : tall ? w * (tiktok ? 0.66 : 0.74) : w * 0.78;
+  const headW = wide ? w * 0.55 : tall ? w * (tiktok ? 0.76 : 0.78) : w * 0.78;
   const headH = tall ? h * 0.062 : wide ? h * 0.12 : h * 0.11;
   const headY = tall ? h * 0.134 : h * 0.055;
   const headline = {
@@ -472,16 +473,16 @@ function buildKachel(
       ? box(left, subline.box.y + subline.box.h + h * 0.035, w * 0.22, h * 0.42)
       : box(left, tall ? h * 0.28 : h * 0.3, w * (tall ? 0.5 : 0.45), tall ? h * 0.28 : h * 0.4);
   const pillRaw = deviceMode
-    ? box(tileRaw.x + tileRaw.w + w * 0.015, tileRaw.y + tileRaw.h * 0.16, Math.max(w * 0.14, w * 0.5 - (tileRaw.x + tileRaw.w) - w * 0.03), tileRaw.h * 0.68)
+    ? box(tileRaw.x + tileRaw.w - tileRaw.w * 0.16, tileRaw.y + tileRaw.h * 0.2, Math.max(tileRaw.h * 1.7, w * 0.24), tileRaw.h * 0.58)
     : undefined;
   const tile = mirrorBox(tileRaw, w, flip);
   const ctaH = Math.max(wide ? h * 0.14 : tall ? h * 0.05 : h * 0.082, h * ((format.id.startsWith("pmax") ? 0.03 : tall ? 0.022 : 0.025) / 0.48));
-  const ctaRaw = wide
+  const ctaRaw = (!deviceMode && wide)
     ? box(tileRaw.x + tileRaw.w + w * 0.02, tileRaw.y + tileRaw.h - ctaH, w * 0.26, ctaH)
-    : box(left, tall ? h * 0.66 : h * 0.75, w * (tall ? 0.55 : 0.58), ctaH);
+    : box(left, tall ? h * 0.66 : h * 0.74, w * (tall ? 0.55 : wide ? 0.46 : 0.58), ctaH);
   const cta = {
-    box: deviceMode ? box(0, 0, 0, 0) : mirrorBox(ctaRaw, w, flip),
-    text: copy.button.trim(),
+    box: mirrorBox(ctaRaw, w, flip),
+    text: copy.button.trim() || (deviceMode ? "Jetzt sichern" : ""),
   };
   const showLogo = !tall;
   const logoW = w * 0.25;
@@ -496,14 +497,16 @@ function buildKachel(
       : mid
         ? box(w * 0.34, h * 0.35, w * 0.7, h * 0.7)
         : box(w * 0.4, h * 0.3, w * 0.64, h * 0.74), w, flip);
-  const deviceH = h * (deviceMode ? (tall ? 0.5 : 0.62) : tall ? 0.42 : wide ? 0.72 : 0.58);
+  const deviceH = h * (deviceMode ? (tall ? 0.45 : 0.6) : tall ? 0.42 : wide ? 0.72 : 0.58);
   const device = name === "kachel_person" ? undefined : mirrorBox(deviceMode
-    ? box(w * 0.5, h * 0.18, w * 0.46, deviceH)
+    ? box(w * 0.46, h * 0.2, w * 0.62, deviceH)
     : box(w * 0.52, h * 0.22, Math.min(w * 0.42, deviceH * 0.7), deviceH), w, flip);
   const sternRadius = tileRaw.w * (wide ? 0.22 : 0.2125);
-  const deviceStar = [copy.datenmenge?.trim(), copy.sternText?.trim()].filter(Boolean).join("\n");
+  const deviceStarLines = [copy.datenmenge?.trim(), copy.datenmengeAlt?.trim() ? `statt ${copy.datenmengeAlt.trim()}` : ""].filter(Boolean).slice(0, 2);
+  const deviceStar = deviceStarLines.join("\n") || copy.sternText?.trim() || "";
+  const starSize = Math.min(w * 0.24, h * 0.22);
   const stern = deviceMode
-    ? (deviceStar ? { box: mirrorBox(box(left, tileRaw.y + tileRaw.h + h * 0.03, Math.min(w * 0.22, h * 0.22, Math.max(8, h * 0.9 - (tileRaw.y + tileRaw.h + h * 0.04))), Math.min(w * 0.22, h * 0.22, Math.max(8, h * 0.9 - (tileRaw.y + tileRaw.h + h * 0.04)))), w, flip), text: [copy.datenmenge?.trim(), copy.datenmengeAlt?.trim() ? `statt ${copy.datenmengeAlt.trim()}` : "", copy.sternText?.trim()].filter(Boolean).join("\n") } : undefined)
+    ? (deviceStar ? { box: mirrorBox(box(tileRaw.x + tileRaw.w - starSize * 0.35, tileRaw.y + tileRaw.h - starSize * 0.42, starSize, starSize), w, flip), text: deviceStar } : undefined)
     : copy.sternText?.trim()
       ? { box: mirrorBox(starBox(tileRaw, sternRadius, [headline.box, subline.box]), w, flip), text: copy.sternText.trim() }
       : undefined;
@@ -603,6 +606,7 @@ function buildKachel(
       const leftItem = texts[leftIndex];
       const rightItem = texts[rightIndex];
       if (!leftItem || !rightItem || leftItem[1].w < 2 || rightItem[1].w < 2) continue;
+      if (leftItem[0] === "Einmalpreis" && rightItem[0] === "Monatspreis") continue;
       if (overlaps(leftItem[1], rightItem[1])) hints.push(`${leftItem[0]} überlappt ${rightItem[0]} im ${label}.`);
     }
   }
@@ -612,9 +616,12 @@ function buildKachel(
   if (placed.stern && fittedTile.w > 2 && placed.stern.w * 0.96 < fittedTile.w * 0.2) {
     hints.push(`Der Stern ist zu klein im ${label}.`);
   }
+  if (!cta.text.trim() || placed.cta.h < 2 || placed.cta.w < 2) hints.push(`Der CTA fehlt im ${label}.`);
   if (placed.cta.h * 0.5 < h * (format.id.endsWith("9x16") ? 0.022 : format.id.startsWith("pmax") ? 0.03 : 0.025)) {
     hints.push(`Der CTA-Text ist zu klein im ${label}.`);
   }
+  if (deviceMode && placed.product && placed.product.h < h * (tall ? 0.42 : 0.55)) hints.push(`Das Gerät ist zu klein im ${label}.`);
+  if (placed.stern && placed.logo && placed.logo.w > 2 && overlaps(placed.stern, placed.logo)) hints.push(`Der Stern überdeckt das Logo im ${label}.`);
   if (!deviceMode && placed.stern && placed.stern.w > 2) {
     const cx = placed.stern.x + placed.stern.w / 2;
     const cy = placed.stern.y + placed.stern.h / 2;
@@ -650,7 +657,8 @@ function buildKachel(
     figureSource: cutout ? { x: cutout.opaque.x / cutout.imageW, y: cutout.opaque.y / cutout.imageH, w: cutout.opaque.w / cutout.imageW, h: cutout.opaque.h / cutout.imageH } : undefined,
     headBox,
     product: placed.product,
-    energy: deviceMode ? { x: w * 0.86, y: h * 0.905, w: Math.min(w * 0.08, h * 0.07), h: h * 0.045 } : undefined,
+    productTilt: deviceMode ? -0.1 : undefined,
+    energy: deviceMode ? { x: w * 0.88, y: h * 0.925, w: h * 0.07, h: h * 0.045 } : undefined,
     headline: { ...headline, box: placed.headline },
     subline: { ...subline, box: placed.subline },
     stoerer: { typ: "stern", box: placed.stern ?? box(0, 0, 0, 0), preis: copy.preis, zusatz: copy.preisZusatz, einmal: copy.einmalpreis, aktion: copy.sternText ?? "" },
@@ -667,7 +675,7 @@ function buildKachel(
     deko,
     headlinePfeile: dekoName === "bw_wellen" && !shifts.pfeile?.hidden,
     sternColor: copy.sternColor,
-    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: box(w * 0.55, h * 0.9, w * 0.32, h * 0.04) } : undefined,
+    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: box(w * 0.52, h * 0.935, w * 0.34, h * 0.03) } : undefined,
     cta: { ...cta, box: placed.cta },
     logo: placed.logo && placed.logo.w > 2 ? { ...logo, box: placed.logo } : { ...logo, box: { x: 0, y: 0, w: 0, h: 0 } },
     hints,

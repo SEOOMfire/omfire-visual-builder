@@ -45,7 +45,7 @@ export type CreativeDraft = {
   summary?: string;
 };
 
-const BLOCKING = /überlappt|unteren Rand|Orange-Anteil|Schräge|CTA-Leiste|CTA-Text|Fußnote|Ersatzschrift|mehr als|auf Orange|zu klein|zu weit|sicheren Zone|Kopf ist nicht|zu kurz|Stern überdeckt|Wellen überlagern/;
+const BLOCKING = /überlappt|unteren Rand|Orange-Anteil|Schräge|CTA-Leiste|CTA-Text|CTA fehlt|Fußnote|Ersatzschrift|mehr als|auf Orange|zu klein|zu weit|sicheren Zone|Kopf ist nicht|zu kurz|Stern überdeckt|Wellen überlagern|nicht vollständig in der/;
 
 export function blockingHints(hints: readonly string[]): string[] {
   return hints.filter((hint) => !hint.startsWith("Hinweis:") && BLOCKING.test(hint));

@@ -101,9 +101,10 @@ test("a device tile keeps the price, the pill and the phone apart", () => {
   deviceCopy.geraetName = "Samsung Galaxy A57";
   for (const format of OTELO_FORMATS) {
     const scene = buildScene(format, "kachel_geraet", deviceCopy);
-    assert.ok(scene.pill, format.id);
-    assert.equal(scene.hints.some((hint) => /überlappt/.test(hint)), false, `${format.id} ${scene.hints.join(" | ")}`);
-    assert.ok(scene.product && scene.product.x > (scene.kachel?.box.x ?? 0), format.id);
+    assert.ok(scene.pill && scene.pill.box.w > scene.pill.box.h, format.id);
+    assert.ok(scene.cta.box.h > 2 && scene.cta.text.length > 0, format.id);
+    assert.equal(scene.hints.some((hint) => /CTA fehlt|überlappt|Gerät ist zu klein|Stern überdeckt das Logo/.test(hint)), false, `${format.id} ${scene.hints.join(" | ")}`);
+    assert.ok(scene.product && scene.product.h >= format.h * (format.id.endsWith("9x16") ? 0.42 : 0.55), format.id);
   }
 });
 
