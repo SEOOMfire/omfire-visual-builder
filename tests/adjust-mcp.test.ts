@@ -5,7 +5,7 @@ import { PNG } from "pngjs";
 import { adjustRequest, applyToBook, mergedNudge, newBook, seedBook, type AdjustBook } from "../src/modules/visual-builder/server/adjust-commands";
 import { withoutInstructed } from "../src/modules/visual-builder/server/review";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
-import { buildScene, fitHeadlineForChevrons, starLines, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { buildScene, elementRelation, fitHeadlineForChevrons, starLines, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
 
 const route = readFileSync(new URL("../app/mcp/route.ts", import.meta.url), "utf8");
 
@@ -31,7 +31,7 @@ const base = (): SceneCopy => ({
 
 function shiftsFor(book: AdjustBook, format: { id: string; token: string; w: number; h: number }) {
   const keys = ["*", format.id, format.token, `${format.w}x${format.h}`];
-  const elements = ["headline", "subline", "stoerer", "person", "geraet", "cta", "logo", "deko", "kachel", "pfeile"] as const;
+  const elements = ["headline", "subline", "stoerer", "person", "geraet", "cta", "logo", "deko", "kachel", "pfeile", "stattpreis", "altwert", "zusatz", "einmalig", "geraetename"] as const;
   return Object.fromEntries(elements.map((element) => {
     const parts = keys.map((key) => book.snap.nudges[key]?.[element]).filter((item) => item);
     return [element, {
@@ -57,7 +57,7 @@ function sceneFor(book: AdjustBook, format = OTELO_FORMATS[3]) {
   if (fields.datenmengeAlt !== undefined) copy.datenmengeAlt = fields.datenmengeAlt;
   copy.orange = book.snap.orange;
   const name = fields.vorlage === "kachel_geraet" ? "kachel_geraet" : "kachel_person";
-  return buildScene(format, name, copy, shiftsFor(book, format));
+  return buildScene(format, name, copy, shiftsFor(book, format), undefined, book.snap.follows);
 }
 
 function raster(book: AdjustBook, format = OTELO_FORMATS[3]): Buffer {
@@ -318,6 +318,41 @@ test("the live device sentence matches a direct device compose", () => {
   assert.equal(direct.stern?.text, "NUR BIS SONNTAG");
   assert.equal(via.hints.some((hint) => hint.includes("Stern überdeckt Text")), false, via.hints.join(" | "));
   assert.equal(via.hints.some((hint) => hint.includes("Abstand zwischen Gerät")), false, via.hints.join(" | "));
+});
+
+test("two clauses become two lines and the old price can grow", () => {
+  const book = seedBook("rechts", {
+    vorlage: "kachel_geraet",
+    sternText: "NUR BIS SONNTAG",
+    einmalpreis: "1 €",
+    preisAlt: "229 €",
+    preis: "19,99 €",
+    geraetName: "Galaxy A56 5G",
+    headline: "BLACK WEEK",
+    subline: "3-FACH DATEN. GLEICHER PREIS.",
+    button: "Jetzt sichern",
+  });
+  const step = applyToBook(book, "Stern im 9x16 wie im Quadrat und statt-Preis größer");
+  const lines = step.summary.split("\n").map((line) => line.trim()).filter(Boolean);
+  assert.ok(lines.length >= 2, step.summary);
+  assert.match(step.summary, /umgesetzt: Stern wie im Quadrat/);
+  assert.match(step.summary, /umgesetzt: statt-Preis 15 % größer/);
+  assert.equal(mergedNudge(step.book.snap, "meta-1x1", "stattpreis").scale, 1.15);
+  const square = sceneFor(step.book, OTELO_FORMATS[0]);
+  const story = sceneFor(step.book, OTELO_FORMATS[4]);
+  const from = elementRelation(square, "stoerer");
+  const to = elementRelation(story, "stoerer");
+  assert.ok(from && to);
+  assert.ok(Math.abs(from.x - to.x) < 0.08 && Math.abs(from.y - to.y) < 0.08 && Math.abs(from.w - to.w) < 0.08, `${JSON.stringify(from)} ${JSON.stringify(to)}`);
+  assert.equal(story.textScale?.preisAlt, 1.15);
+  const alone = applyToBook(book, "wie im Quadrat");
+  assert.match(alone.question ?? alone.summary, /Welches Element/);
+  assert.equal(alone.book.version, book.version);
+  const turned = applyToBook(book, "180°");
+  assert.equal(turned.book.snap.fields.motivWinkel, "180");
+  const once = applyToBook(book, "Einmalig größer");
+  assert.equal(once.book.snap.fields.einmalpreis, "1 €");
+  assert.equal(mergedNudge(once.book.snap, "meta-1x1", "einmalig").scale, 1.15);
 });
 
 test("a long star stays on two lines", () => {

@@ -78,6 +78,10 @@ test("transparent margins are ignored and the head stays in the frame", () => {
       const tile = scene.kachel.box;
       const inside = centerX > tile.x && centerX < tile.x + tile.w && centerY > tile.y && centerY < tile.y + tile.h;
       assert.equal(inside, false, format.id);
+      if (!wide && !tall) {
+        assert.ok(centerY < tile.y + tile.h * 0.25, `${format.id} Stern sitzt nicht oben`);
+        assert.ok(centerX > tile.x + tile.w || centerX < tile.x, `${format.id} Mittelpunkt liegt in der Kachel`);
+      }
     }
     if (wide) {
       assert.ok(Math.abs(scene.headline.box.w / format.w - 0.55) < 0.02, format.id);
@@ -120,7 +124,13 @@ test("a device tile keeps the price, the pill and the phone apart", () => {
       const hits = product.x < cta.x + cta.w && cta.x < product.x + product.w && product.y < cta.y + cta.h && cta.y < product.y + product.h;
       assert.equal(hits, false, `${format.id} Gerät überlappt CTA`);
       assert.ok(product.y <= cta.y + cta.h + format.h * 0.02, `${format.id} Gerät sitzt nicht unter der CTA`);
-      assert.equal(scene.hints.some((hint) => hint.includes("Pillentext") || hint.includes("außerhalb der sicheren Zone")), false, scene.hints.join(" | "));
+      if (scene.stern) {
+        const overlapW = Math.max(0, Math.min(scene.stern.box.x + scene.stern.box.w, product.x + product.w) - Math.max(scene.stern.box.x, product.x));
+        const overlapH = Math.max(0, Math.min(scene.stern.box.y + scene.stern.box.h, product.y + product.h) - Math.max(scene.stern.box.y, product.y));
+        const share = (overlapW * overlapH) / Math.max(1, scene.stern.box.w * scene.stern.box.h);
+        assert.ok(share <= 0.05, `${format.id} Stern über dem Gerät ${share.toFixed(2)}`);
+      }
+      assert.equal(scene.hints.some((hint) => hint.includes("Pillentext") || hint.includes("außerhalb der sicheren Zone") || hint.includes("überdeckt das Gerät")), false, scene.hints.join(" | "));
     }
   }
 });

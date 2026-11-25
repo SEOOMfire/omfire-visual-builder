@@ -1,6 +1,7 @@
-import type { OrangeSide } from "../otelo-scene";
+import { OTELO_FORMATS } from "../otelo-formats";
+import { buildScene, elementRelation, type OrangeSide, type SceneCopy, type SquareFollow, type VorlageName } from "../otelo-scene";
 
-export type ElementId = "headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko" | "kachel" | "pfeile" | "altwert" | "datenmenge";
+export type ElementId = "headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko" | "kachel" | "pfeile" | "altwert" | "datenmenge" | "stattpreis" | "zusatz" | "einmalig" | "geraetename";
 
 export type Nudge = { dx: number; dy: number; scale: number; flip: boolean; hidden: boolean };
 
@@ -27,12 +28,14 @@ export type FieldPatch = {
   sublineColor?: string;
   sternColor?: string;
   headlineColor?: string;
+  motivWinkel?: string;
 };
 
 export type AdjustSnap = {
   orange: OrangeSide;
   nudges: Record<string, Partial<Record<ElementId, Nudge>>>;
   fields: FieldPatch;
+  follows?: SquareFollow[];
 };
 
 export type VersionEntry = { n: number; summary: string; snap: AdjustSnap };
@@ -51,12 +54,16 @@ export type AdjustCommand =
   | { op: "deko_setzen"; name: "bw_wellen" | "fruehling_blaetter" | "keine" }
   | { op: "vorlage_setzen"; vorlage: string; motiv?: string; hinweis?: string }
   | { op: "feld"; key: keyof FieldPatch; value: string; hinweis?: string }
-  | { op: "wie_format"; quelle: string }
+  | { op: "wie_format"; quelle: string; element?: ElementId; formate?: string[] }
   | { op: "rueckgaengig" }
   | { op: "version"; nummer: number }
   | { op: "vergleichen"; links: number; rechts: number };
 
 const WORDS: Array<[RegExp, ElementId]> = [
+  [/statt[-\s]?preis/i, "stattpreis"],
+  [/preis[-\s]?zusatz/i, "zusatz"],
+  [/ger[äa]tename/i, "geraetename"],
+  [/\beinmalig\b/i, "einmalig"],
   [/altwert|alter wert/i, "altwert"],
   [/datenmenge/i, "datenmenge"],
   [/pfeile|chevron/i, "pfeile"],
@@ -108,7 +115,8 @@ export const ADJUST_HELP = [
   "Texte: „CTA: Jetzt wechseln“, „Stern: NUR BIS SONNTAG“, „Unterzeile: gleicher Preis“.",
   "Sichtbar: „Stern weg“, „Stern wieder rein mit NUR BIS SONNTAG“, „Altwert weg“, „Logo weg“, „Energielabel B dazu“, „Pfeile weg“.",
   "Varianten: „nimm Blätter statt Wellen“, „Deko keine“, „Gerät statt Person: Galaxy A56, Energielabel B“, „Headline als Box“.",
-  "Lage: „Kachel etwas höher“, „Frau deutlich größer“, „Frau spiegeln“, „auf die andere Seite“, „mehr Luft zwischen Headline und Kachel“, „wie im Quadrat“.",
+  "Lage: „Kachel etwas höher“, „Frau deutlich größer“, „Frau spiegeln“, „auf die andere Seite“, „mehr Luft zwischen Headline und Kachel“, „Stern im 9x16 wie im Quadrat“.",
+  "Kleintexte: „statt-Preis größer“, „Altwert größer“, „Preiszusatz größer“, „Gerätename größer“, „Einmalig größer“.",
   "Farben nur Lime, Orange, Schwarz, Weiß: „Unterzeile in Lime“, „Stern in Lime“.",
   "Geltung: alle Formate, „nur 9x16“, „nur PMax“, „nur TikTok“, „außer 1200x628“.",
   "Versionen: „rückgängig“, „zurück zu Version 2“, „vergleiche Version 2 und 4“.",
@@ -142,6 +150,10 @@ const LABEL: Record<ElementId, string> = {
   pfeile: "Pfeile",
   altwert: "Altwert",
   datenmenge: "Datenmenge",
+  stattpreis: "statt-Preis",
+  zusatz: "Zusatz",
+  einmalig: "Einmalig",
+  geraetename: "Gerätename",
 };
 
 function elementIn(text: string): ElementId | undefined {
@@ -240,8 +252,15 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
     return { commands, element: named };
   }
   if (/wie im quadrat/i.test(clause)) {
-    commands.push({ op: "wie_format", quelle: "1x1" });
-    return { commands, element: inherited };
+    const element = elementIn(clause) ?? inherited;
+    if (!element) return { commands, question: "Welches Element soll wie im Quadrat sitzen? Zum Beispiel der Stern." };
+    commands.push({ op: "wie_format", quelle: "1200x1200", element, formate: formatsIn(clause) });
+    return { commands, element };
+  }
+  const angle = clause.match(/^(?:nimm\s+(?:die\s+)?)?(45|90|180)\s*(?:°|grad)?$/i);
+  if (angle?.[1]) {
+    commands.push({ op: "feld", key: "motivWinkel", value: angle[1] });
+    return { commands, element: "geraet" };
   }
   if (/bl[äa]tter\s+statt\s+wellen/i.test(clause)) {
     commands.push({ op: "deko_setzen", name: "fruehling_blaetter" });
@@ -256,8 +275,9 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
     commands.push({ op: "vorlage_setzen", vorlage: "kachel_geraet", motiv: motiv || undefined });
     return { commands, element: "geraet" };
   }
+  const sizeWord = /^(?:deutlich\s+|etwas\s+)?(?:gr[öo]ßer|groesser|kleiner)\b/i;
   const deviceName = clause.match(/^(?:ger[äa]tename|modell)\s+(.+)$/i) ?? (/^name\s+\S*\d/i.test(clause) ? clause.match(/^name\s+(.+)$/i) : null);
-  if (deviceName?.[1]) {
+  if (deviceName?.[1] && !sizeWord.test(deviceName[1])) {
     commands.push({ op: "feld", key: "geraetName", value: deviceName[1].trim() });
     return { commands, element: "geraet" };
   }
@@ -267,7 +287,7 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
     return { commands, element: "geraet" };
   }
   const once = clause.match(/^(?:einmalig|einmalpreis|zuzahlung)\s+(.+)$/i);
-  if (once?.[1]) {
+  if (once?.[1] && !sizeWord.test(once[1])) {
     const parts = splitStatt(once[1]);
     const alt = parts.alt;
     const higher = alt ? (money(alt) ?? 0) > (money(parts.neu) ?? 0) : false;
@@ -423,8 +443,8 @@ export function describeAdjust(commands: readonly AdjustCommand[]): string {
     else if (command.op === "vorlage_setzen") {
       add("", command.vorlage === "kachel_geraet" ? `Gerät statt Person${command.motiv ? `: ${command.motiv}` : ""}` : `Person statt Gerät${command.motiv ? `: ${command.motiv}` : ""}`);
       if (command.hinweis) add("", command.hinweis);
-    } else if (command.op === "feld") add(command.key === "preisAlt" ? "statt-Preis" : command.key === "preisMonatAlt" ? "alter Monatspreis" : command.key === "datenmengeAlt" ? "Altwert" : command.key === "geraetName" ? "Gerätename" : command.key === "einmalpreis" ? "Einmalpreis" : command.key === "energielabel" ? "Energielabel" : String(command.key), `ist jetzt ${command.value}${command.hinweis ? `. ${command.hinweis}` : ""}`);
-    else if (command.op === "wie_format") add("", "Lage wie im Quadrat");
+    }     else if (command.op === "feld") add(command.key === "preisAlt" ? "statt-Preis" : command.key === "preisMonatAlt" ? "alter Monatspreis" : command.key === "datenmengeAlt" ? "Altwert" : command.key === "geraetName" ? "Gerätename" : command.key === "einmalpreis" ? "Einmalpreis" : command.key === "energielabel" ? "Energielabel" : command.key === "motivWinkel" ? "Blickwinkel" : String(command.key), `ist jetzt ${command.value}${command.hinweis ? `. ${command.hinweis}` : ""}`);
+    else if (command.op === "wie_format") add(command.element === "stoerer" ? "Stern" : command.element ? LABEL[command.element] : "", "wie im Quadrat");
     else if (command.op === "vergleichen") add("", `Version ${command.links} und ${command.rechts}`);
   }
   const sentence = parts.join(", ");
@@ -473,6 +493,60 @@ export function mergedNudge(snap: AdjustSnap | undefined, formatId: string, elem
   return { ...base, ...star, ...own, scale: (star?.scale ?? 1) * (own?.scale ?? 1), dx: (star?.dx ?? 0) + (own?.dx ?? 0), dy: (star?.dy ?? 0) + (own?.dy ?? 0), flip: Boolean(own?.flip ?? star?.flip), hidden: Boolean(own?.hidden ?? star?.hidden) };
 }
 
+function copyOf(snap: AdjustSnap): SceneCopy {
+  const fields = snap.fields;
+  return {
+    headline: fields.headline || "BLACK WEEK",
+    subline: fields.subline || "",
+    button: fields.button ?? "Jetzt sichern",
+    stoererTyp: "stern",
+    preis: fields.preis || "19,99 €",
+    preisZusatz: fields.preisZusatz || "pro Monat",
+    einmalpreis: fields.einmalpreis || "",
+    aktionText: "",
+    pflichttext: fields.pflichttext || "",
+    headlineVariante: fields.headlineVariante || "direkt",
+    orange: snap.orange,
+    produktname: "",
+    datenmenge: fields.datenmenge,
+    datenmengeAlt: fields.datenmengeAlt,
+    sternText: fields.sternText,
+    deko: fields.deko,
+    geraetName: fields.geraetName,
+    preisAlt: fields.preisAlt,
+    einmalpreisZusatz: fields.einmalpreisZusatz,
+    preisMonatAlt: fields.preisMonatAlt,
+    sublineColor: fields.sublineColor,
+    sternColor: fields.sternColor,
+    headlineColor: fields.headlineColor,
+  };
+}
+
+function vorlageOf(name: string | undefined): VorlageName {
+  if (name === "kachel_geraet" || name === "kachel_geraet_person" || name === "kachel_person") return name;
+  return "kachel_person";
+}
+
+function shiftsOf(snap: AdjustSnap, format: { id: string; token: string; w: number; h: number }) {
+  const keys = ["*", format.id, format.token, `${format.w}x${format.h}`];
+  const elements: ElementId[] = ["headline", "subline", "stoerer", "person", "geraet", "cta", "logo", "deko", "kachel", "pfeile", "stattpreis", "altwert", "zusatz", "einmalig", "geraetename"];
+  return Object.fromEntries(elements.map((element) => {
+    const parts = keys.map((key) => snap.nudges[key]?.[element]).filter((item) => item);
+    return [element, {
+      dx: parts.reduce((sum, item) => sum + (item?.dx ?? 0), 0),
+      dy: parts.reduce((sum, item) => sum + (item?.dy ?? 0), 0),
+      scale: parts.reduce((product, item) => product * (item?.scale ?? 1), 1),
+      flip: parts.some((item) => item?.flip),
+      hidden: parts.some((item) => item?.hidden),
+    }];
+  }));
+}
+
+function targetsOf(formate: string[] | undefined) {
+  const tokens = formate?.length ? formate : OTELO_FORMATS.map((format) => format.id).filter((id) => id !== "pmax-1200x1200");
+  return OTELO_FORMATS.filter((format) => format.id !== "pmax-1200x1200" && tokens.some((token) => token === format.id || token === format.token || token === `${format.w}x${format.h}`));
+}
+
 export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBook; summary: string; question?: string; compare?: { links: number; rechts: number } } {
   const parsed = parseAdjust(input);
   if (parsed.question && !parsed.commands.length) return { book, summary: `nicht verstanden: ${parsed.question}`, question: parsed.question };
@@ -482,6 +556,7 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
   const snap = clone(book.snap);
   snap.fields ??= {};
   const bits: AdjustCommand[] = [];
+  const noop: string[] = [];
   if (parsed.commands.length === 1 && parsed.commands[0]?.op === "vergleichen") {
     const command = parsed.commands[0];
     return { book, summary: `Version ${command.links} und ${command.rechts}.`, compare: { links: command.links, rechts: command.rechts } };
@@ -507,13 +582,30 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
       continue;
     }
     if (command.op === "wie_format") {
-      const source = snap.nudges["1x1"] ?? snap.nudges["1080x1080"] ?? snap.nudges["meta-1x1"];
-      if (source) {
-        for (const id of FORMAT_IDS) {
-          if (id === "meta-1x1") continue;
-          snap.nudges[id] = clone(source);
-        }
+      const element = command.element;
+      const label = element === "stoerer" ? "Stern" : element ? LABEL[element] : "Element";
+      if (!element || (element !== "stoerer" && element !== "headline" && element !== "subline" && element !== "cta")) {
+        noop.push(`nicht umgesetzt: ${label} wie im Quadrat kann ich für Stern, Headline, Unterzeile und Leiste.`);
+        continue;
       }
+      const square = OTELO_FORMATS[0];
+      const name = vorlageOf(snap.fields.vorlage);
+      const rel = square ? elementRelation(buildScene(square, name, copyOf(snap), shiftsOf(snap, square)), element) : undefined;
+      if (!rel) {
+        noop.push(`nicht umgesetzt: Im Quadrat hat ${label} keine Fläche.`);
+        continue;
+      }
+      const targets = targetsOf(command.formate);
+      const changes = targets.some((format) => {
+        const current = elementRelation(buildScene(format, name, copyOf(snap), shiftsOf(snap, format)), element);
+        if (!current) return true;
+        return Math.abs(current.x - rel.x) > 0.03 || Math.abs(current.y - rel.y) > 0.03 || Math.abs(current.w - rel.w) > 0.03 || Math.abs(current.h - rel.h) > 0.03;
+      });
+      if (!changes) {
+        noop.push(`nicht umgesetzt: ${label} wie im Quadrat ändert nichts.`);
+        continue;
+      }
+      snap.follows = [...(snap.follows ?? []), { element, targets: command.formate?.length ? command.formate : targets.map((format) => format.id), rel }];
       bits.push(command);
       continue;
     }
@@ -613,16 +705,14 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
   });
   const missed = parsed.unknown.map((clause) => `nicht verstanden: ${clause}${parsed.question ? ` (Vorschlag: ${parsed.question})` : ""}`);
   if (same) {
-    const summary = done.length
-      ? `${done.join(" ")} Die Anweisung ändert keine Eigenschaft.`
-      : missed.join(" ") || (parsed.question ? `nicht verstanden: ${parsed.question}` : "nicht verstanden: Die Anweisung ändert keine Eigenschaft.");
+    const summary = [...noop, ...missed].filter(Boolean).join("\n") || (parsed.question ? `nicht verstanden: ${parsed.question}` : "Die Anweisung ändert keine Eigenschaft.");
     return { book, summary, question: parsed.commands.length ? undefined : parsed.question };
   }
-  const namesOf = (command: AdjustCommand) => "element" in command ? LABEL[command.element] : command.op === "abstand" ? LABEL[command.nach] : "";
+  const namesOf = (command: AdjustCommand) => "element" in command && command.element ? LABEL[command.element] : command.op === "abstand" ? LABEL[command.nach] : "";
   const scoped = bits.some((command) => "formate" in command && command.formate?.length);
   const open = bits.filter((command) => ("element" in command || command.op === "abstand") && !("formate" in command && command.formate?.length));
   const scopeNote = scoped && open.length ? ` ${[...new Set(open.map(namesOf).filter(Boolean))].join("/")}: alle Formate – sag „nur 9x16“, wenn anders gemeint.` : "";
-  const summary = `${[...done, ...missed].join(" ")}${scopeNote}`;
+  const summary = `${[...done, ...noop, ...missed].join("\n")}${scopeNote}`;
   history.push({ n: book.version + 1, summary, snap: clone(snap) });
   return {
     book: { version: book.version + 1, snap, history },

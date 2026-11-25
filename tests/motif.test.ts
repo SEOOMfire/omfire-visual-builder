@@ -33,4 +33,10 @@ test("an ambiguous motif prefers 45 degrees and asks", () => {
   assert.match(pick.note ?? "", /45°/);
   assert.match(pick.note ?? "", /180°/);
   assert.throws(() => resolveMotif(files, "gibt-es-nicht", "figur"), /Kein Motiv/);
+  const chosen = resolveMotif(devices, "A56", "produkt", "45");
+  assert.equal(chosen.file.name, "Galaxy_A56_45.png");
+  assert.equal(chosen.note, undefined);
+  const turned = resolveMotif(devices, "A56", "produkt", "180");
+  assert.equal(turned.file.name, "Galaxy_A56_180.png");
+  assert.equal(turned.note, undefined);
 });

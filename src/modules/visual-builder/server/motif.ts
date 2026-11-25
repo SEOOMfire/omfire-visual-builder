@@ -29,7 +29,7 @@ function angleLabel(name: string): string {
 }
 
 /** The file whose name matches the requested motif. Several hits prefer the 45° view and ask. */
-export function resolveMotif(files: readonly MotifFile[], query: string, role: string): MotifPick {
+export function resolveMotif(files: readonly MotifFile[], query: string, role: string, preferred?: string): MotifPick {
   const needle = query.trim().toLowerCase().replace(/\.[a-z0-9]+$/i, "");
   if (!needle) throw new Error("Das Motiv fehlt. Nenne den Dateinamen.");
   const pool = files.filter((file) => file.role === role);
@@ -37,6 +37,10 @@ export function resolveMotif(files: readonly MotifFile[], query: string, role: s
   const matches = exact.length ? exact : pool.filter((file) => stem(file.name).includes(needle) || motifQueryMatches(file.name, needle));
   if (matches.length === 1 && matches[0]) return { file: matches[0] };
   if (!matches.length) throw new Error(`Kein Motiv „${query.trim()}“ in den Dateien für ${role}.`);
+  if (preferred) {
+    const picked = matches.find((file) => new RegExp(`(?:^|[^0-9])${preferred}(?:[^0-9]|$)`).test(file.name));
+    if (picked) return { file: picked };
+  }
   const chosen = matches.find((file) => /(?:^|[^0-9])45(?:[^0-9]|$)/.test(file.name)) ?? matches[0];
   if (!chosen) throw new Error(`Kein Motiv „${query.trim()}“ in den Dateien für ${role}.`);
   const labels = [...new Set(matches.slice(0, 4).map((file) => angleLabel(file.name)))];

@@ -106,6 +106,7 @@ export type RenderRequest = {
   sublineColor?: string;
   sternColor?: string;
   headlineColor?: string;
+  motivWinkel?: string;
   layout?: AdjustSnap;
 };
 
@@ -155,7 +156,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
   if (!logo) throw new Error("Die Wortmarke fehlt auf dem Volume.");
   const wantsProduct = name === "product" || name === "product_person" || name === "kachel_geraet" || name === "kachel_geraet_person";
   const wantsPerson = name === "tarif" || name === "young" || name === "product_person" || name === "kachel_person" || name === "kachel_geraet_person" || (name === "product" && Boolean(input.person?.trim()));
-  const devicePick = wantsProduct ? resolveMotif(products(files), input.motiv, "produkt") : null;
+  const devicePick = wantsProduct ? resolveMotif(products(files), input.motiv, "produkt", input.motivWinkel) : null;
   const device = devicePick?.file ?? null;
   const personQuery = name === "product_person" || name === "kachel_geraet_person" ? (input.person?.trim() || "") : input.motiv;
   const personPick = wantsPerson && personQuery ? resolveMotif(files.filter((file) => file.role === "figur"), personQuery, "figur") : null;
@@ -217,7 +218,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
   }
   const otelo: Record<string, OteloScene> = {};
   for (const format of OTELO_FORMATS) {
-    const elements: ElementId[] = ["headline", "subline", "stoerer", "person", "geraet", "cta", "logo", "pflichttext", "energielabel", "schraege", "deko", "kachel", "pfeile", "altwert", "datenmenge"];
+    const elements: ElementId[] = ["headline", "subline", "stoerer", "person", "geraet", "cta", "logo", "pflichttext", "energielabel", "schraege", "deko", "kachel", "pfeile", "altwert", "datenmenge", "stattpreis", "zusatz", "einmalig", "geraetename"];
     const shifts = Object.fromEntries(elements.map((element) => {
       const parts = ["*", format.id, format.token, `${format.w}x${format.h}`].map((key) => input.layout?.nudges[key]?.[element]).filter((item) => item);
       return [element, {
@@ -228,7 +229,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
         hidden: parts.some((item) => item?.hidden),
       }];
     }));
-    const scene = buildScene(format, name, copy, shifts, cutout);
+    const scene = buildScene(format, name, copy, shifts, cutout, input.layout?.follows);
     scene.logoKey = logo.path;
     if (person) scene.figureKey = person.path;
     if (device) scene.productKey = device.path;

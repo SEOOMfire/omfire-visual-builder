@@ -95,6 +95,7 @@ export type OteloScene = {
   deko?: { name: DekoName; box: Box; strength?: number };
   headlinePfeile?: boolean;
   deviceLabel?: { text: string; box: Box };
+  textScale?: { preisAlt: number; alt: number; zusatz: number; geraetName: number; einmalig: number };
   hints: string[];
 };
 
@@ -256,20 +257,27 @@ function insetBox(rect: Box, pad = 0.2): Box {
   return { x: rect.x + rect.w * pad, y: rect.y + rect.h * pad, w: rect.w * (1 - pad * 2), h: rect.h * (1 - pad * 2) };
 }
 
-function freeStarCorner(anchor: Box, size: number, blocked: Box[], bounds: { left: number; top: number; right: number; bottom: number }): Box {
-  const spots = [
-    box(anchor.x + anchor.w - size * 0.25, anchor.y - size * 0.7, size, size),
-    box(anchor.x + anchor.w - size * 0.2, anchor.y + anchor.h * 0.35 - size * 0.5, size, size),
-    box(anchor.x - size * 0.7, anchor.y - size * 0.25, size, size),
-    box(anchor.x + anchor.w - size * 0.25, anchor.y + anchor.h - size * 0.3, size, size),
-    box(anchor.x - size * 0.7, anchor.y + anchor.h - size * 0.3, size, size),
-  ].map((spot) => ({
-    x: Math.max(bounds.left, Math.min(spot.x, bounds.right - size)),
-    y: Math.max(bounds.top, Math.min(spot.y, bounds.bottom - size)),
-    w: size,
-    h: size,
-  }));
-  return spots.find((spot) => spot.x >= bounds.left - 1 && spot.y >= bounds.top - 1 && spot.x + spot.w <= bounds.right + 1 && spot.y + spot.h <= bounds.bottom + 1 && !blocked.some((item) => item.w > 2 && item.h > 2 && overlaps(spot, item))) ?? spots[1] ?? box(anchor.x, anchor.y, size, size);
+/** Top-right first, then top-left. The center stays outside the anchor, never on an edge middle. */
+function cornerStar(anchor: Box, size: number, which: "tr" | "tl"): Box {
+  const cx = which === "tr" ? anchor.x + anchor.w + size * 0.12 : anchor.x - size * 0.12;
+  const cy = anchor.y - size * 0.2;
+  return { x: cx - size / 2, y: cy - size / 2, w: size, h: size };
+}
+
+function overlapShare(left: Box, right: Box): number {
+  const w = Math.max(0, Math.min(left.x + left.w, right.x + right.w) - Math.max(left.x, right.x));
+  const h = Math.max(0, Math.min(left.y + left.h, right.y + right.h) - Math.max(left.y, right.y));
+  return (w * h) / Math.max(1, left.w * left.h);
+}
+
+export type SquareFollow = { element: string; targets: string[]; rel: { x: number; y: number; w: number; h: number } };
+
+export function priceGroupBox(tile: Box | undefined, pill: Box | undefined): Box | undefined {
+  if (!tile || tile.w < 2) return undefined;
+  if (!pill || pill.w < 2) return tile;
+  const x = Math.min(tile.x, pill.x);
+  const y = Math.min(tile.y, pill.y);
+  return { x, y, w: Math.max(tile.x + tile.w, pill.x + pill.w) - x, h: Math.max(tile.y + tile.h, pill.y + pill.h) - y };
 }
 
 function overlaps(left: Box, right: Box): boolean {
@@ -378,18 +386,11 @@ export function arrowSpan(start: number, fontSize: number, maxX: number): { end:
 }
 
 function starBox(tile: Box, radius: number, extra: Box[]): Box {
-  const ceiling = extra.filter((rect) => rect.h > 2 && rect.y + rect.h <= tile.y + 2).reduce((max, rect) => Math.max(max, rect.y + rect.h), 0);
-  const gap = tile.y - ceiling;
-  const fitted = radius;
-  let cx = tile.x + tile.w + fitted * 0.16;
-  let cy = tile.y - Math.max(2, fitted * 0.1);
-  if (gap < fitted * 1.15) {
-    cy = Math.max(tile.y - 2, ceiling + fitted * 0.92);
-    cx = tile.x + tile.w + fitted * 0.42;
-  }
+  const size = radius / 0.48;
+  let cx = tile.x + tile.w + size * 0.06;
+  const cy = tile.y - size * 0.06;
   const blocked = [...tileInk(tile), ...extra];
-  for (let step = 0; step < 8 && blocked.some((rect) => circleHits(cx, cy, fitted * 0.82, rect)); step += 1) cx += fitted * 0.16;
-  const size = fitted / 0.48;
+  for (let step = 0; step < 6 && blocked.some((rect) => circleHits(cx, cy, size * 0.4, rect)); step += 1) cx += size * 0.08;
   return { x: cx - size / 2, y: cy - size / 2, w: size, h: size };
 }
 
@@ -512,8 +513,9 @@ function buildKachel(
   format: { id: string; w: number; h: number },
   name: VorlageName,
   copy: SceneCopy,
-  shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko" | "kachel" | "pfeile", Shift>>,
+  shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko" | "kachel" | "pfeile" | "stattpreis" | "altwert" | "zusatz" | "einmalig" | "geraetename", Shift>>,
   cutout?: Cutout,
+  follows?: readonly SquareFollow[],
 ): OteloScene {
   const { w, h } = format;
   const wide = w / h > 1.5;
@@ -584,8 +586,11 @@ function buildKachel(
   const deviceStar = copy.sternText?.trim() || copy.datenmenge?.trim() || "";
   const starWords = (deviceStar || copy.sternText || "").trim().split(/\s+/).filter(Boolean).length;
   const starSize = Math.min(w * 0.24, h * 0.22) * (starWords >= 3 ? 1.15 : 1);
+  const groupRaw = pillRaw
+    ? { x: Math.min(tileRaw.x, pillRaw.x), y: Math.min(tileRaw.y, pillRaw.y), w: Math.max(tileRaw.x + tileRaw.w, pillRaw.x + pillRaw.w) - Math.min(tileRaw.x, pillRaw.x), h: Math.max(tileRaw.y + tileRaw.h, pillRaw.y + pillRaw.h) - Math.min(tileRaw.y, pillRaw.y) }
+    : tileRaw;
   const stern = deviceMode
-    ? (deviceStar ? { box: mirrorBox(freeStarCorner(pillRaw ?? tileRaw, starSize, [insetBox(tileRaw, 0.22), ...(pillRaw ? [insetBox(pillRaw, 0.2)] : []), headline.box, subline.box, cta.box, logo.box], { left: w * 0.04, top: h * (tall ? 0.1 : 0.04), right: w * (tiktok ? 0.85 : 0.96), bottom: h * (tiktok ? 0.8 : 0.96) }), w, flip), text: deviceStar } : undefined)
+    ? (deviceStar ? { box: mirrorBox(cornerStar(groupRaw, starSize, "tr"), w, flip), text: deviceStar } : undefined)
     : copy.sternText?.trim()
       ? { box: mirrorBox(starBox(tileRaw, sternRadius, [headline.box, subline.box]), w, flip), text: copy.sternText.trim() }
       : undefined;
@@ -655,24 +660,65 @@ function buildKachel(
     clear(placed.headline);
     clear(placed.subline);
   }
-  if (placed.stern && placed.stern.w > 2) {
-    const blocked = [placed.headline, placed.subline, placed.cta, placed.logo ?? box(0, 0, 0, 0), insetBox(fittedTile, 0.22), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.2)] : [])].filter((item) => item.w > 2);
-    const host = placed.pill && placed.pill.w > 2
-      ? { x: Math.min(fittedTile.x, placed.pill.x), y: Math.min(fittedTile.y, placed.pill.y), w: Math.max(fittedTile.x + fittedTile.w, placed.pill.x + placed.pill.w) - Math.min(fittedTile.x, placed.pill.x), h: Math.max(fittedTile.y + fittedTile.h, placed.pill.y + placed.pill.h) - Math.min(fittedTile.y, placed.pill.y) }
-      : fittedTile;
-    const bounds = { left: w * 0.04, top: h * (tall ? 0.1 : 0.04), right: w * (tiktok ? 0.85 : 0.96), bottom: h * (tiktok ? 0.8 : 0.96) };
-    const outside = () => placed.stern!.x < bounds.left - 1 || placed.stern!.y < bounds.top - 1 || placed.stern!.x + placed.stern!.w > bounds.right + 1 || placed.stern!.y + placed.stern!.h > bounds.bottom + 1;
-    let size = placed.stern.w;
-    while (size > placed.stern.w * 0.55 && (blocked.some((item) => overlaps(placed.stern!, item)) || outside())) {
-      const moved = freeStarCorner(host, size, blocked, bounds);
-      placed.stern.x = moved.x;
-      placed.stern.y = moved.y;
-      placed.stern.w = size;
-      placed.stern.h = size;
-      if (!blocked.some((item) => overlaps(placed.stern!, item)) && !outside()) break;
-      size *= 0.88;
-    }
+  if (placed.figure && headBox && figure) {
+    headBox = {
+      x: headBox.x + (placed.figure.x - figure.x),
+      y: headBox.y + (placed.figure.y - figure.y),
+      w: headBox.w * (figure.w ? placed.figure.w / figure.w : 1),
+      h: headBox.h * (figure.h ? placed.figure.h / figure.h : 1),
+    };
   }
+  const settleStar = () => {
+    if (!placed.stern || placed.stern.w < 2) return;
+    const anchor = priceGroupBox(fittedTile, placed.pill) ?? fittedTile;
+    const bounds = { left: w * 0.04, top: h * (tall ? 0.1 : 0.04), right: w * (tiktok ? 0.85 : 0.96), bottom: h * (tiktok ? 0.8 : 0.96) };
+    const texts = [placed.cta, ...(placed.logo && placed.logo.w > 2 ? [placed.logo] : []), ...tileInk(fittedTile), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.28)] : []), ...(deviceMode ? [insetBox(fittedTile, 0.3)] : [])];
+    const bad = (spot: Box) => texts.some((item) => item.w > 2 && overlaps(spot, item))
+      || Boolean(headBox && headBox.w > 2 && overlaps(spot, headBox))
+      || Boolean(placed.product && overlapShare(spot, placed.product) > 0.05);
+    if (!bad(placed.stern)) return;
+    const floor = Math.max(anchor.w * 0.18, placed.stern.w * 0.45);
+    for (const which of ["tr", "tl"] as const) {
+      let size = placed.stern.w;
+      while (size >= floor) {
+        const spot = cornerStar(anchor, size, which);
+        spot.x = Math.max(bounds.left, Math.min(spot.x, bounds.right - spot.w));
+        spot.y = Math.max(bounds.top, Math.min(spot.y, bounds.bottom - spot.h));
+        const cx = spot.x + spot.w / 2;
+        const cy = spot.y + spot.h / 2;
+        const centerOutside = cx > anchor.x + anchor.w || cx < anchor.x || cy < anchor.y || cy > anchor.y + anchor.h;
+        const nearTop = cy < anchor.y + anchor.h * 0.25;
+        if (centerOutside && nearTop && !bad(spot)) {
+          placed.stern.x = spot.x;
+          placed.stern.y = spot.y;
+          placed.stern.w = spot.w;
+          placed.stern.h = spot.h;
+          return;
+        }
+        size *= 0.9;
+      }
+    }
+  };
+  settleStar();
+  for (const follow of follows ?? []) {
+    const wanted = follow.targets.some((token) => token === format.id || token === `${w}x${h}` || format.id.endsWith(token) || (token === "9x16" && format.id.endsWith("9x16")) || (token === "1x1" && format.id.endsWith("1x1")));
+    if (!wanted || format.id === "pmax-1200x1200") continue;
+    const group = priceGroupBox(fittedTile, placed.pill);
+    if (!group) continue;
+    const moved = {
+      x: group.x + follow.rel.x * group.w,
+      y: group.y + follow.rel.y * group.h,
+      w: follow.rel.w * group.w,
+      h: follow.element === "stoerer" ? follow.rel.w * group.w : follow.rel.h * group.h,
+    };
+    const target = follow.element === "stoerer" ? placed.stern : follow.element === "headline" ? placed.headline : follow.element === "subline" ? placed.subline : follow.element === "cta" ? placed.cta : undefined;
+    if (!target) continue;
+    target.x = moved.x;
+    target.y = moved.y;
+    target.w = moved.w;
+    target.h = moved.h;
+  }
+  if (placed.stern && placed.product && overlapShare(placed.stern, placed.product) > 0.05) settleStar();
   const gap = h * 0.015;
   const floor = h * (tiktok ? 0.78 : 0.955);
   if (fittedTile.w > 2 && placed.cta.w > 2 && fittedTile.y + fittedTile.h + gap > placed.cta.y && overlaps(fittedTile, { ...placed.cta, y: placed.cta.y - gap, h: placed.cta.h + gap })) {
@@ -697,13 +743,6 @@ function buildKachel(
     }
   }
   if (placed.figure && headBox) {
-    const movedHead = {
-      x: headBox.x + (placed.figure.x - (figure?.x ?? placed.figure.x)),
-      y: headBox.y + (placed.figure.y - (figure?.y ?? placed.figure.y)),
-      w: headBox.w * (figure && figure.w ? placed.figure.w / figure.w : 1),
-      h: headBox.h * (figure && figure.h ? placed.figure.h / figure.h : 1),
-    };
-    headBox = movedHead;
     if (!headInside(headBox, w, h)) hints.push(`Der Kopf ist nicht vollständig sichtbar im ${label}.`);
     const top = placed.figure.y / h;
     const band = wide ? [0.1, 0.2] : tall ? [0.35, 0.5] : [0.3, 0.4];
@@ -748,10 +787,12 @@ function buildKachel(
     hints.push(`Der CTA-Text ist zu klein im ${label}.`);
   }
   if (deviceMode && placed.product && placed.product.h < h * (tall ? 0.42 : 0.55)) hints.push(`Das Gerät ist zu klein im ${label}.`);
+  if (placed.stern && headBox && headBox.w > 2 && overlaps(placed.stern, headBox)) hints.push(`Der Stern überdeckt das Gesicht im ${label}.`);
+  if (deviceMode && placed.stern && placed.product && overlapShare(placed.stern, placed.product) > 0.05) hints.push(`Der Stern überdeckt das Gerät im ${label}.`);
   if (placed.stern && placed.logo && placed.logo.w > 2 && overlaps(placed.stern, placed.logo)) hints.push(`Der Stern überdeckt das Logo im ${label}.`);
   if (fittedTile.w > 2 && placed.cta.w > 2 && overlaps(fittedTile, placed.cta)) hints.push(`Die Kachel überlappt die CTA im ${label}.`);
   if (placed.stern && placed.stern.w > 2) {
-    const covered = [placed.headline, placed.subline, placed.cta, insetBox(fittedTile, 0.22), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.2)] : [])].filter((item) => item.w > 2 && overlaps(placed.stern!, item));
+    const covered = [placed.cta, ...tileInk(fittedTile), ...(deviceMode ? [insetBox(fittedTile, 0.3)] : []), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.28)] : [])].filter((item) => item.w > 2 && overlaps(placed.stern!, item));
     if (covered.length) hints.push(`Der Stern überdeckt Text im ${label}.`);
   }
   if (deviceMode && placed.product) {
@@ -765,7 +806,7 @@ function buildKachel(
   if (placed.logo && placed.logo.w > 2 && placed.cta.w > 2 && overlaps(placed.cta, placed.logo)) hints.push(`Das Logo überlappt die CTA im ${label}.`);
   if (tall && deviceMode && placed.product && placed.cta.w > 2 && overlaps(placed.product, placed.cta)) hints.push(`Das Gerät überlappt die CTA im ${label}.`);
   if (deviceMode && placed.pill && placed.stern) {
-    const text = insetBox(placed.pill, 0.2);
+    const text = insetBox(placed.pill, 0.28);
     if (overlaps(placed.stern, text)) hints.push(`Der Stern überdeckt den Pillentext im ${label}.`);
   }
   if (!deviceMode && placed.stern && placed.stern.w > 2) {
@@ -773,7 +814,7 @@ function buildKachel(
     const cy = placed.stern.y + placed.stern.h / 2;
     const radius = placed.stern.w * 0.48;
     const outside = cx > fittedTile.x + fittedTile.w || cy < fittedTile.y || cx < fittedTile.x || cy > fittedTile.y + fittedTile.h;
-    const texts = [...tileInk(fittedTile), placed.headline, placed.subline, placed.cta];
+    const texts = [...tileInk(fittedTile), placed.cta];
     if (!outside || texts.some((rect) => circleHits(cx, cy, radius * 0.82, rect))) hints.push(`Der Stern überdeckt Text im ${label}.`);
   }
   if (deko?.name === "bw_wellen") {
@@ -823,20 +864,35 @@ function buildKachel(
     headlinePfeile: !shifts.pfeile?.hidden,
     sternColor: copy.sternColor,
     deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4)) } : undefined,
+    textScale: {
+      preisAlt: shifts.stattpreis?.scale && shifts.stattpreis.scale > 0 ? shifts.stattpreis.scale : 1,
+      alt: shifts.altwert?.scale && shifts.altwert.scale > 0 ? shifts.altwert.scale : 1,
+      zusatz: shifts.zusatz?.scale && shifts.zusatz.scale > 0 ? shifts.zusatz.scale : 1,
+      geraetName: shifts.geraetename?.scale && shifts.geraetename.scale > 0 ? shifts.geraetename.scale : 1,
+      einmalig: shifts.einmalig?.scale && shifts.einmalig.scale > 0 ? shifts.einmalig.scale : 1,
+    },
     cta: { ...cta, box: placed.cta },
     logo: placed.logo && placed.logo.w > 2 ? { ...logo, box: placed.logo } : { ...logo, box: { x: 0, y: 0, w: 0, h: 0 } },
     hints,
   };
 }
 
+export function elementRelation(scene: OteloScene, element: string): { x: number; y: number; w: number; h: number } | undefined {
+  const group = priceGroupBox(scene.kachel?.box, scene.pill?.box);
+  const target = element === "stoerer" ? scene.stern?.box : element === "headline" ? scene.headline.box : element === "subline" ? scene.subline.box : element === "cta" ? scene.cta.box : undefined;
+  if (!group || !target || target.w < 2 || group.w < 2 || group.h < 2) return undefined;
+  return { x: (target.x - group.x) / group.w, y: (target.y - group.y) / group.h, w: target.w / group.w, h: target.h / group.h };
+}
+
 export function buildScene(
   format: { id: string; w: number; h: number },
   name: VorlageName,
   copy: SceneCopy,
-  shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko" | "kachel" | "pfeile", Shift>> = {},
+  shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko" | "kachel" | "pfeile" | "stattpreis" | "altwert" | "zusatz" | "einmalig" | "geraetename", Shift>> = {},
   cutout?: Cutout,
+  follows?: readonly SquareFollow[],
 ): OteloScene {
-  if (name === "kachel_person" || name === "kachel_geraet" || name === "kachel_geraet_person") return buildKachel(format, name, copy, shifts, cutout);
+  if (name === "kachel_person" || name === "kachel_geraet" || name === "kachel_geraet_person") return buildKachel(format, name, copy, shifts, cutout, follows);
   const { w, h } = format;
   const portrait = h > w;
   const prefer = TEMPLATE_ANGLE[name][portrait ? "portrait" : "landscape"];

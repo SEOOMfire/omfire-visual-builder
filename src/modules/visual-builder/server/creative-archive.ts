@@ -43,6 +43,7 @@ export type CreativeDraft = {
   sternText?: string;
   deko?: string;
   geraetName?: string;
+  motivWinkel?: string;
   layoutBook?: AdjustBook;
   glance?: string;
   summary?: string;
@@ -132,6 +133,7 @@ export function fieldsForRender(draft: CreativeDraft) {
     sternText: draft.layoutBook?.snap.fields?.sternText ?? draft.sternText,
     deko: draft.layoutBook?.snap.fields?.deko ?? draft.deko,
     geraetName: draft.layoutBook?.snap.fields?.geraetName ?? draft.geraetName,
+    motivWinkel: draft.layoutBook?.snap.fields?.motivWinkel ?? draft.motivWinkel,
     kampagne: draft.kampagne,
     sublineColor: draft.layoutBook?.snap.fields?.sublineColor,
     sternColor: draft.layoutBook?.snap.fields?.sternColor,
@@ -233,6 +235,20 @@ function paintComparison(pairs: Array<{ left: Buffer; right: Buffer }>): Buffer 
   return Buffer.from(encodeJpeg({ data: sheet.data, width, height }, 80).data);
 }
 
+function rememberMotifChoice(draft: CreativeDraft, rendered: RenderedCreative) {
+  if (draft.motivWinkel || draft.layoutBook?.snap.fields?.motivWinkel || !rendered.motifNote) return;
+  const angle = rendered.deviceFile?.match(/(?:^|[^0-9])(45|90|180)(?:[^0-9]|$)/)?.[1] ?? "45";
+  draft.motivWinkel = angle;
+  if (!draft.layoutBook) return;
+  draft.layoutBook.snap.fields ??= {};
+  draft.layoutBook.snap.fields.motivWinkel = angle;
+  const entry = draft.layoutBook.history.find((item) => item.n === draft.layoutBook?.version);
+  if (entry) {
+    entry.snap.fields ??= {};
+    entry.snap.fields.motivWinkel = angle;
+  }
+}
+
 function applySnapFields(draft: CreativeDraft, fields: FieldPatch) {
   if (fields.headline !== undefined) draft.headline = fields.headline;
   if (fields.subline !== undefined) draft.subline = fields.subline;
@@ -247,6 +263,7 @@ function applySnapFields(draft: CreativeDraft, fields: FieldPatch) {
   if (fields.preisAlt !== undefined) draft.preisAlt = fields.preisAlt;
   if (fields.preisMonatAlt !== undefined) draft.preisMonatAlt = fields.preisMonatAlt;
   if (fields.geraetName !== undefined) draft.geraetName = fields.geraetName;
+  if (fields.motivWinkel !== undefined) draft.motivWinkel = fields.motivWinkel;
   if (fields.pflichttext !== undefined) draft.pflichttext = fields.pflichttext;
   if (fields.deko !== undefined) draft.deko = fields.deko;
   if (fields.vorlage !== undefined) draft.vorlage = normalizeVorlage(fields.vorlage);
@@ -293,6 +310,7 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
       draft.summary = result.summary || `nicht verstanden: ${result.question}`;
       const rendered = await renderTemplate(fieldsForRender(draft));
       draft.hints = rendered.hints;
+      rememberMotifChoice(draft, rendered);
       await writeDraft(draft);
       return { draft, rendered };
     }
@@ -319,6 +337,7 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
     if (result.book.version === versionBefore) {
       const rendered = await renderTemplate(fieldsForRender(draft));
       draft.hints = rendered.hints;
+      rememberMotifChoice(draft, rendered);
       await writeDraft(draft);
       return { draft, rendered };
     }
@@ -326,6 +345,7 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
     draft.summary = "nicht verstanden: Welches Element soll ich ändern?";
     const rendered = await renderTemplate(fieldsForRender(draft));
     draft.hints = rendered.hints;
+    rememberMotifChoice(draft, rendered);
     await writeDraft(draft);
     return { draft, rendered };
   } else {
@@ -338,6 +358,7 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   if (rendered.personFile && draft.vorlage === "product_person") draft.person = rendered.personFile;
   draft.hints = rendered.hints;
   if (rendered.motifNote) draft.summary = `${draft.summary ?? ""} ${rendered.motifNote}`.trim();
+  rememberMotifChoice(draft, rendered);
   const notes = [...new Set(rendered.hints.filter((hint) => hint.includes("Maximum vergrößert")).map((hint) => hint.replace(/^Hinweis: /, "").replace(/\.$/, "")))];
   if (notes.length) {
     const base = (draft.summary ?? "").replace(/\.\s*$/, "");
@@ -398,6 +419,7 @@ export async function storeRenderedDraft(rendered: RenderedCreative, fields: Omi
       headlineVariante: fields.headlineVariante,
     }),
   };
+  rememberMotifChoice(draft, rendered);
   await writeDraft(draft);
   return draft;
 }

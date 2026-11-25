@@ -448,7 +448,7 @@ function drawDeviceOffer(ctx: CanvasRenderingContext2D, scene: OteloScene) {
   ctx.fillStyle = BLACK;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = face(600, box.h * 0.13, "Geist");
+  ctx.font = face(600, box.h * 0.13 * (scene.textScale?.einmalig ?? 1), "Geist");
   ctx.fillText("Einmalig", box.x + box.w / 2, box.y + box.h * 0.18);
   const priceSize = Math.min(box.h * 0.34, sizeForWidth(ctx, tile.einmal || "", 900, "Titillium Web", box.w * 0.82));
   ctx.font = face(900, priceSize, "Titillium Web");
@@ -459,7 +459,8 @@ function drawDeviceOffer(ctx: CanvasRenderingContext2D, scene: OteloScene) {
   }
   if (scene.preisAlt) {
     const text = `statt ${scene.preisAlt}`;
-    ctx.font = face(600, box.h * 0.11, "Geist");
+    const stattSize = Math.max(priceSize * 0.35, priceSize * 0.45 * (scene.textScale?.preisAlt ?? 1));
+    ctx.font = face(600, stattSize, "Geist");
     const width = ctx.measureText(text).width;
     const y = box.y + box.h * 0.86;
     ctx.fillText(text, box.x + box.w / 2, y);
@@ -480,7 +481,7 @@ function drawDeviceOffer(ctx: CanvasRenderingContext2D, scene: OteloScene) {
   ctx.font = face(800, Math.min(offer.h * 0.34, priceFit), "Geist");
   ctx.fillText(pill.preis, offer.x + offer.w / 2, offer.y + offer.h * 0.38);
   const extraFit = sizeForWidth(ctx, pill.zusatz, 500, "Geist", offer.w * 0.82);
-  ctx.font = face(500, Math.min(offer.h * 0.22, extraFit), "Geist");
+  ctx.font = face(500, Math.min(offer.h * 0.22, extraFit) * (scene.textScale?.zusatz ?? 1), "Geist");
   ctx.fillText(pill.zusatz, offer.x + offer.w / 2, offer.y + offer.h * (scene.preisMonatAlt ? 0.62 : 0.72));
   if (scene.preisMonatAlt) {
     const oldMonthly = `statt ${scene.preisMonatAlt}`;
@@ -524,7 +525,7 @@ function drawKachel(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Re
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   if (tile.einmal) {
-    ctx.font = face(700, top * 0.16, "Geist");
+    ctx.font = face(700, top * 0.16 * (scene.textScale?.einmalig ?? 1), "Geist");
     ctx.fillText("Einmalig", box.x + box.w * 0.5, box.y + top * 0.24);
     ctx.font = face(800, top * 0.4, "Geist");
     ctx.fillText(tile.einmal, box.x + box.w * 0.5, box.y + top * 0.58);
@@ -538,7 +539,7 @@ function drawKachel(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Re
     ctx.font = face(900, amountSize, "Titillium Web");
     ctx.fillText(tile.datenmenge, box.x + box.w * 0.5, box.y + top * (tile.alt ? 0.38 : 0.5));
     if (tile.alt) {
-      const altSize = amountSize * 0.45;
+      const altSize = amountSize * 0.45 * (scene.textScale?.alt ?? 1);
       ctx.font = face(900, altSize, "Titillium Web");
       const text = tile.alt;
       const width = ctx.measureText(text).width;
@@ -565,7 +566,7 @@ function drawKachel(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Re
   ctx.fillStyle = WHITE;
   ctx.font = face(700, bottomH * 0.36, "Geist");
   ctx.fillText(scene.stoerer.preis || "", box.x + box.w * 0.5, bottomY + bottomH * 0.4);
-  ctx.font = face(400, bottomH * 0.16, "Geist");
+  ctx.font = face(400, bottomH * 0.16 * (scene.textScale?.zusatz ?? 1), "Geist");
   ctx.fillText(scene.stoerer.zusatz || "pro Monat", box.x + box.w * 0.5, bottomY + bottomH * 0.72);
   if (scene.stern && scene.stern.box.w > 2) {
     const burst = scene.sternColor || ORANGE;
@@ -582,7 +583,7 @@ function drawKachel(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Re
   }
   if (scene.deviceLabel?.text && images) {
     ctx.fillStyle = WHITE;
-    ctx.font = face(700, scene.deviceLabel.box.h * 0.7, "Geist");
+    ctx.font = face(700, scene.deviceLabel.box.h * 0.7 * (scene.textScale?.geraetName ?? 1), "Geist");
     ctx.textAlign = "left";
     ctx.fillText(scene.deviceLabel.text, scene.deviceLabel.box.x, scene.deviceLabel.box.y);
   }
@@ -634,7 +635,6 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
         scene.subline.box,
         scene.kachel?.box ?? { x: 0, y: 0, w: 0, h: 0 },
         scene.cta.box,
-        scene.stern?.box ?? { x: 0, y: 0, w: 0, h: 0 },
       ]);
     }
     if (scene.deko?.name === "fruehling_blaetter" && scene.dekoKey && images[scene.dekoKey]) {
@@ -679,7 +679,7 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
       drawDeviceOffer(ctx, scene);
       if (scene.deviceLabel?.text) {
         const label = scene.deviceLabel;
-        let size = Math.min(label.box.h, scene.height * 0.03);
+        let size = Math.min(label.box.h, scene.height * 0.03) * (scene.textScale?.geraetName ?? 1);
         ctx.fillStyle = WHITE;
         ctx.textAlign = "right";
         ctx.textBaseline = "middle";
