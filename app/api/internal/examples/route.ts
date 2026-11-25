@@ -98,6 +98,8 @@ export async function POST(request: Request) {
   if (payload?.custom && typeof payload.custom.name === "string" && typeof payload.custom.motiv === "string") {
     try {
       const sheet = await renderTemplate(payload.custom as Parameters<typeof renderTemplate>[0]);
+      const deko = typeof payload.custom.deko === "string" ? payload.custom.deko : "";
+      const instructed = deko === "keine" ? "Deko ist auf Wunsch keine." : deko === "fruehling_blaetter" ? "Deko ist auf Wunsch Blätter." : "";
       const glance = payload.glance
         ? await (await import("../../../../src/modules/visual-builder/server/review")).glanceFormats(
           sheet.formats.map((format) => ({ label: format.label, jpeg: format.pngBase64 })),
@@ -108,6 +110,7 @@ export async function POST(request: Request) {
               ? "files/referenz/banner/Meta_Q4_1126_BW_Young_Classic_Woman_1x1.png"
               : "files/referenz/styleguide-seite-4.jpg",
           sheet.measureText,
+          instructed,
         )
         : "";
       return Response.json({

@@ -53,6 +53,7 @@ function instructedText(draft: { layoutBook?: { snap: { fields?: { sublineColor?
     hidden("stoerer") ? "Störer ist auf Wunsch ausgeblendet." : "",
     fields.datenmengeAlt === "" ? "Altwert ist auf Wunsch entfernt." : "",
     fields.deko === "fruehling_blaetter" ? "Deko ist auf Wunsch Blätter." : "",
+    fields.deko === "keine" ? "Deko ist auf Wunsch keine." : "",
     fields.button ? `CTA ist auf Wunsch „${fields.button}“.` : "",
     hidden("pfeile") ? "Pfeile sind auf Wunsch ausgeblendet." : "",
   ].filter(Boolean);

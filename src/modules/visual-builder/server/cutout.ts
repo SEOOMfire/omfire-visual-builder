@@ -70,7 +70,7 @@ export function measureCutout(bytes: Buffer): Cutout | undefined {
       top = y;
     }
     head = { x: left, y: top, w: right - left + 1, h: Math.max(8, skinMaxY - top + 1) };
-    if (head.w > opaque.w * 0.7) {
+    if (head.w > opaque.w * 0.5 || head.h > opaque.h * 0.32) {
       const faceW = opaque.w * 0.42;
       const center = head.x + head.w / 2;
       head = { x: center - faceW / 2, y: head.y, w: faceW, h: Math.min(head.h, opaque.h * 0.28) };

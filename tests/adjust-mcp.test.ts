@@ -5,7 +5,7 @@ import { PNG } from "pngjs";
 import { adjustRequest, applyToBook, mergedNudge, newBook, seedBook, type AdjustBook } from "../src/modules/visual-builder/server/adjust-commands";
 import { withoutInstructed } from "../src/modules/visual-builder/server/review";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
-import { buildScene, elementRelation, fitHeadlineForChevrons, starLines, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { arrowSpan, buildScene, chevronReach, elementRelation, fitHeadlineForChevrons, fitSublineText, starLines, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
 
 const route = readFileSync(new URL("../app/mcp/route.ts", import.meta.url), "utf8");
 
@@ -203,13 +203,45 @@ test("the image check drops changes the user asked for", () => {
   assert.doesNotMatch(kept, /Störer fehlt/);
   assert.doesNotMatch(kept, /Altwert fehlt/);
   assert.doesNotMatch(kept, /Referenztext/);
+  const quiet = withoutInstructed("Wellen fehlen im Vergleich zur Referenz. Der Aufbau passt.", "Deko ist auf Wunsch keine.");
+  assert.doesNotMatch(quiet, /Welle/);
+  assert.match(quiet, /Aufbau/);
 });
 
-test("a wide headline shrinks until two chevrons fit", () => {
+test("a wide headline shrinks until three chevrons fit", () => {
   const fitted = fitHeadlineForChevrons(900, 140, 1080);
-  const secondEnd = fitted.textWidth + fitted.fontSize * 0.06 + fitted.fontSize * (41.08 / 73.924) + fitted.fontSize * (58.568 / 73.924);
-  assert.ok(secondEnd <= 1080);
+  assert.ok(chevronReach(fitted.textWidth, fitted.fontSize, 3) <= 1080);
   assert.ok(fitted.fontSize < 140);
+  const span = arrowSpan(fitted.textWidth, fitted.fontSize, 1080);
+  assert.equal(span.count, 3);
+});
+
+test("three chevrons fit for headlines of 8, 11, 13 and 16 characters", () => {
+  for (const chars of [8, 11, 13, 16]) {
+    for (const format of OTELO_FORMATS) {
+      const scene = buildScene(format, "kachel_person", { ...base(), headline: "M".repeat(chars) });
+      const right = format.id === "tiktok-9x16" ? format.w * 0.84 : format.w * 0.96;
+      const fullWidth = chars * scene.headline.box.h * 0.72;
+      const textWidth = Math.min(scene.headline.box.w, fullWidth);
+      const font = scene.headline.box.h * (textWidth / fullWidth);
+      const fitted = fitHeadlineForChevrons(textWidth, font, right, scene.headline.box.x);
+      const span = arrowSpan(scene.headline.box.x + fitted.textWidth, fitted.fontSize, right);
+      assert.equal(span.count, 3, `${chars} ${format.id} ${span.count}`);
+      assert.ok(span.end <= right + 1, `${chars} ${format.id} ${span.end.toFixed(0)}`);
+    }
+  }
+});
+
+test("a long subline wraps before it drops below 35 percent of the headline", () => {
+  const text = "UNBEGRENZTES DATENVOLUMEN IM VODAFONE-NETZ";
+  const widthOf = (sample: string, size: number) => sample.length * size * 0.56;
+  const fitted = fitSublineText(text, 120, 700, widthOf);
+  assert.ok(fitted.size >= 120 * 0.35 - 0.2);
+  assert.equal(fitted.lines.length, 2);
+  assert.equal(fitted.shorten, false);
+  const short = fitSublineText("KURZER SATZ", 120, 700, widthOf);
+  assert.deepEqual(short.lines, ["KURZER SATZ"]);
+  assert.equal(short.shorten, false);
 });
 
 test("more air keeps the tile off the CTA", () => {

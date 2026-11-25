@@ -3,6 +3,7 @@ import test from "node:test";
 import { PNG } from "pngjs";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
 import { arrowSpan, buildScene, wavePaintShare, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { blockingHints } from "../src/modules/visual-builder/server/creative-archive";
 import { headInside, measureCutout, placeCutout, type Cutout } from "../src/modules/visual-builder/server/cutout";
 import { glanceContradictsMeasure } from "../src/modules/visual-builder/server/review";
 
@@ -153,6 +154,43 @@ test("a device tile keeps the price, the pill and the phone apart", () => {
         assert.ok(share <= 0.05, `${format.id} Stern über dem Gerät ${share.toFixed(2)}`);
       }
       assert.equal(scene.hints.some((hint) => hint.includes("Pillentext") || hint.includes("außerhalb der sicheren Zone") || hint.includes("überdeckt das Gerät")), false, scene.hints.join(" | "));
+    }
+  }
+});
+
+test("six person motifs stay clear of a failing check on both text sets", () => {
+  const motif = (head: Cutout["head"], body: Cutout["opaque"]): Cutout => ({ imageW: 400, imageH: 800, opaque: body, head });
+  const motifs = [
+    motif({ x: 180, y: 40, w: 120, h: 140 }, { x: 80, y: 20, w: 260, h: 760 }),
+    motif({ x: 40, y: 30, w: 150, h: 160 }, { x: 20, y: 10, w: 340, h: 740 }),
+    motif({ x: 200, y: 80, w: 110, h: 130 }, { x: 60, y: 40, w: 280, h: 700 }),
+    motif({ x: 140, y: 20, w: 100, h: 120 }, { x: 40, y: 10, w: 300, h: 780 }),
+    motif({ x: 90, y: 50, w: 140, h: 150 }, { x: 30, y: 20, w: 320, h: 720 }),
+    motif({ x: 220, y: 60, w: 90, h: 110 }, { x: 100, y: 30, w: 240, h: 750 }),
+  ];
+  const summer = { ...copy(), headline: "SOMMER-DEAL", subline: "JETZT ZUSCHLAGEN", sternText: "1. MONAT GRATIS", deko: "fruehling_blaetter" as const };
+  const endless = { ...copy(), headline: "ENDLOS SURFEN", subline: "UNBEGRENZTES DATENVOLUMEN IM VODAFONE-NETZ", sternText: "", deko: "keine" as const };
+  for (const [index, cutout] of motifs.entries()) {
+    for (const fields of [summer, endless]) {
+      for (const format of OTELO_FORMATS) {
+        const scene = buildScene(format, "kachel_person", fields, {}, cutout);
+        const blocking = blockingHints(scene.hints).filter((hint) => !/Gesicht/.test(hint));
+        assert.deepEqual(blocking, [], `${index} ${fields.headline} ${format.id} ${scene.hints.join(" | ")}`);
+        if (scene.stern && scene.headBox) {
+          const star = scene.stern.box;
+          const face = scene.headBox;
+          const hits = star.x < face.x + face.w && face.x < star.x + star.w && star.y < face.y + face.h && face.y < star.y + star.h;
+          assert.equal(hits, false, `${index} ${format.id} Stern auf dem Gesicht`);
+        }
+        if (scene.headBox && scene.kachel && scene.kachel.box.w > 2 && !scene.hints.some((hint) => hint.includes("Gesicht"))) {
+          const face = scene.headBox;
+          const tile = scene.kachel.box;
+          const dx = face.x > tile.x + tile.w ? face.x - (tile.x + tile.w) : tile.x > face.x + face.w ? tile.x - (face.x + face.w) : 0;
+          const dy = face.y > tile.y + tile.h ? face.y - (tile.y + tile.h) : tile.y > face.y + face.h ? tile.y - (face.y + face.h) : 0;
+          const gap = dx === 0 && dy === 0 ? 0 : dx > 0 && dy > 0 ? Math.hypot(dx, dy) : dx + dy;
+          assert.ok(gap + 1 >= format.w * 0.05, `${index} ${format.id} Abstand ${gap.toFixed(0)}`);
+        }
+      }
     }
   }
 });

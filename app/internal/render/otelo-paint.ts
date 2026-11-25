@@ -1,4 +1,4 @@
-import { BLACK, LIME, ORANGE, WAVE_STROKE, WHITE, arrowSpan, fitHeadlineForChevrons, starLines, wavePaths, type OteloScene } from "../../../src/modules/visual-builder/otelo-scene";
+import { BLACK, LIME, ORANGE, WAVE_STROKE, WHITE, arrowSpan, fitHeadlineForChevrons, fitSublineText, starLines, wavePaths, type OteloScene } from "../../../src/modules/visual-builder/otelo-scene";
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   const radius = Math.max(0, Math.min(r, w / 2, h / 2));
@@ -589,36 +589,24 @@ function drawKachel(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Re
   }
 }
 
-function drawKachelSubline(ctx: CanvasRenderingContext2D, scene: OteloScene, headSize: number, headlineEnd: number): string {
-  const text = scene.subline.lines[0]?.text ?? "";
+function drawKachelSubline(ctx: CanvasRenderingContext2D, scene: OteloScene, headSize: number): string {
+  const text = scene.subline.lines.map((line) => line.text).filter(Boolean).join(" ");
   if (!text) return "";
   const right = scene.id === "tiktok-9x16" ? scene.width * 0.84 : scene.width * 0.96;
-  const maxW = Math.max(8, Math.min(headlineEnd - scene.subline.box.x, scene.subline.box.w, right - scene.subline.box.x));
-  const minSize = Math.max(11, scene.height * 0.018);
-  let size = Math.min(headSize * 0.45, scene.subline.box.h);
+  const maxW = Math.max(8, Math.min(scene.subline.box.w, right - scene.subline.box.x));
   const widthOf = (sample: string, sampleSize: number) => {
     ctx.font = face(900, sampleSize, "Titillium Web");
     return ctx.measureText(sample).width;
   };
-  while (size > minSize && widthOf(text, size) > maxW) size *= 0.94;
+  const fitted = fitSublineText(text, headSize, maxW, widthOf);
   ctx.fillStyle = scene.subline.lines[0]?.color || ORANGE;
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  if (widthOf(text, size) <= maxW + 1) {
-    ctx.fillText(text, scene.subline.box.x, scene.subline.box.y);
-    return "";
-  }
-  const words = text.split(/\s+/);
-  const splitAt = Math.max(1, Math.ceil(words.length / 2));
-  const lineA = words.slice(0, splitAt).join(" ");
-  const lineB = words.slice(splitAt).join(" ") || lineA;
-  size = Math.min(size, scene.subline.box.h / 2.2);
-  while (size > minSize && (widthOf(lineA, size) > maxW || widthOf(lineB, size) > maxW)) size *= 0.94;
-  ctx.font = face(900, size, "Titillium Web");
-  ctx.fillText(lineA, scene.subline.box.x, scene.subline.box.y);
-  ctx.fillText(lineB, scene.subline.box.x, scene.subline.box.y + size * 1.08);
-  const overflow = widthOf(lineA, size) > maxW + 1 || widthOf(lineB, size) > maxW + 1;
-  return overflow ? `Die Unterzeile liegt außerhalb der Ränder im ${scene.width}x${scene.height}.` : "";
+  ctx.font = face(900, fitted.size, "Titillium Web");
+  fitted.lines.forEach((line, index) => {
+    ctx.fillText(line, scene.subline.box.x, scene.subline.box.y + index * fitted.size * 1.08);
+  });
+  return fitted.shorten ? `Hinweis: Die Unterzeile sollte gekürzt werden im ${scene.width}x${scene.height}.` : "";
 }
 
 export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Record<string, HTMLImageElement | null>): string[] {
@@ -659,21 +647,20 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     const headText = scene.headline.lines[0] ?? "";
+    const arrowRight = scene.id === "tiktok-9x16" ? scene.width * 0.84 : scene.width * 0.96;
     let headSize = sizeForWidth(ctx, headText, 900, "Titillium Web", scene.headline.box.w);
     ctx.font = face(900, headSize, "Titillium Web");
-    const fitted = fitHeadlineForChevrons(ctx.measureText(headText).width, headSize, scene.width);
+    const measured = ctx.measureText(headText).width;
+    const fitted = scene.headlinePfeile ? fitHeadlineForChevrons(measured, headSize, arrowRight, scene.headline.box.x) : { textWidth: measured, fontSize: headSize };
     headSize = fitted.fontSize;
     ctx.font = face(900, headSize, "Titillium Web");
     ctx.fillText(headText, scene.headline.box.x, scene.headline.box.y);
     const headlineEnd = scene.headline.box.x + ctx.measureText(headText).width;
     if (scene.headlinePfeile) {
-      const headInTheLine = scene.headBox && scene.headBox.y < scene.headline.box.y + headSize;
-      const edge = scene.width + headSize;
-      const maxX = headInTheLine && scene.headBox ? Math.min(scene.headBox.x - scene.width * 0.02, edge) : edge;
-      const span = arrowSpan(headlineEnd, headSize, maxX);
+      const span = arrowSpan(headlineEnd, headSize, arrowRight);
       if (span.count > 0) drawArrows(ctx, headlineEnd, scene.headline.box.y, headSize, span.count);
     }
-    const subOverflow = drawKachelSubline(ctx, scene, headSize, headlineEnd);
+    const subOverflow = drawKachelSubline(ctx, scene, headSize);
     if (subOverflow) hints.push(subOverflow);
     if (scene.pill) {
       drawDeviceOffer(ctx, scene);

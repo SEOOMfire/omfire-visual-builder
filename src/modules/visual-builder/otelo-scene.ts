@@ -370,6 +370,15 @@ function overlaps(left: Box, right: Box): boolean {
   return left.x < right.x + right.w && right.x < left.x + left.w && left.y < right.y + right.h && right.y < left.y + left.h;
 }
 
+/** Clear space between two boxes. Zero when they overlap. */
+function boxGap(left: Box, right: Box): number {
+  const dx = left.x > right.x + right.w ? left.x - (right.x + right.w) : right.x > left.x + left.w ? right.x - (left.x + left.w) : 0;
+  const dy = left.y > right.y + right.h ? left.y - (right.y + right.h) : right.y > left.y + left.h ? right.y - (left.y + left.h) : 0;
+  if (dx === 0 && dy === 0) return 0;
+  if (dx > 0 && dy > 0) return Math.hypot(dx, dy);
+  return dx + dy;
+}
+
 export const WAVE_STROKE = 0.024;
 
 /**
@@ -434,16 +443,70 @@ export function wavePaintShare(width: number, height: number): number {
   return total ? hit / total : 0;
 }
 
-/** Shrinks the headline until two chevrons fit on the canvas. The third may run off the edge. */
-export function fitHeadlineForChevrons(textWidth: number, fontSize: number, canvasRight: number): { textWidth: number; fontSize: number } {
-  const secondEnd = (width: number, size: number) => width + size * 0.06 + size * (41.08 / 73.924) + size * (58.568 / 73.924);
+/** Right edge of `count` chevrons that start just after `textEnd`. */
+export function chevronReach(textEnd: number, fontSize: number, count = 3): number {
+  const tip = fontSize * (58.568 / 73.924);
+  const step = fontSize * (41.08 / 73.924);
+  return textEnd + fontSize * 0.06 + Math.max(0, count - 1) * step + tip;
+}
+
+/** Shrinks the headline until three chevrons fit before `canvasRight`. `origin` is the text's left edge. */
+export function fitHeadlineForChevrons(textWidth: number, fontSize: number, canvasRight: number, origin = 0): { textWidth: number; fontSize: number } {
   let width = textWidth;
   let size = fontSize;
-  while (size > 10 && secondEnd(width, size) > canvasRight) {
+  while (size > 8 && chevronReach(origin + width, size, 3) > canvasRight) {
     size *= 0.97;
     width *= 0.97;
   }
   return { textWidth: width, fontSize: size };
+}
+
+/** Two lines of similar width. A single word stays on one line. */
+export function splitBalanced(text: string, widthOf: (line: string) => number): [string, string] {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length < 2) return [words[0] ?? "", ""];
+  let best = 1;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < words.length; index += 1) {
+    const score = Math.abs(widthOf(words.slice(0, index).join(" ")) - widthOf(words.slice(index).join(" ")));
+    if (score < bestScore) {
+      bestScore = score;
+      best = index;
+    }
+  }
+  return [words.slice(0, best).join(" "), words.slice(best).join(" ")];
+}
+
+/**
+ * The subline stays at least 35 percent of the headline height.
+ * Below that it wraps onto two balanced lines. `shorten` means even those two lines do not fit.
+ */
+export function fitSublineText(
+  text: string,
+  headlineSize: number,
+  maxWidth: number,
+  widthOf: (sample: string, size: number) => number,
+): { lines: string[]; size: number; shorten: boolean } {
+  const minSize = Math.max(1, headlineSize * 0.35);
+  const preferred = Math.max(minSize, headlineSize * 0.45);
+  const fits = (sample: string, size: number) => widthOf(sample, size) <= maxWidth + 1;
+  if (fits(text, minSize)) {
+    let size = preferred;
+    while (size > minSize + 0.2 && !fits(text, size)) size *= 0.96;
+    return { lines: [text], size: Math.max(minSize, size), shorten: false };
+  }
+  let size = preferred;
+  const pair = (sampleSize: number) => {
+    const [left, right] = splitBalanced(text, (line) => widthOf(line, sampleSize));
+    return { left, right, ok: Boolean(right) && fits(left, sampleSize) && fits(right, sampleSize) };
+  };
+  while (size > minSize + 0.2 && !pair(size).ok) size *= 0.96;
+  const chosen = pair(Math.max(minSize, size));
+  return {
+    lines: [chosen.left, chosen.right].filter(Boolean),
+    size: Math.max(minSize, size),
+    shorten: !chosen.ok,
+  };
 }
 
 /** At most two lines. Three words become “NUR BIS” / “SONNTAG”. */
@@ -755,6 +818,74 @@ function buildKachel(
       h: headBox.h * (figure.h ? placed.figure.h / figure.h : 1),
     };
   }
+  if (placed.figure && headBox && headBox.w > 2) {
+    const faceTexts = [placed.headline, placed.subline, placed.cta, ...(deviceMode ? [] : tileInk(fittedTile))].filter((item) => item.w > 2 && item.h > 2);
+    const faceScore = () => {
+      if (!headBox) return 0;
+      let score = 0;
+      for (const item of faceTexts) if (overlaps(headBox, item)) score += 5000;
+      if (fittedTile.w > 2) {
+        const gap = boxGap(headBox, fittedTile);
+        const overlapY = Math.min(headBox.y + headBox.h, fittedTile.y + fittedTile.h) - Math.max(headBox.y, fittedTile.y);
+        if (gap < w * 0.05 - 1) score += w * 0.05 - gap + (overlaps(headBox, fittedTile) ? 1000 : 0) + Math.max(0, overlapY);
+      }
+      return score;
+    };
+    const nudge = (dx: number, dy: number) => {
+      if (!placed.figure || !headBox) return false;
+      const before = faceScore();
+      placed.figure.x += dx;
+      placed.figure.y += dy;
+      headBox.x += dx;
+      headBox.y += dy;
+      if (!headInside(headBox, w, h) || faceScore() >= before - 0.5) {
+        placed.figure.x -= dx;
+        placed.figure.y -= dy;
+        headBox.x -= dx;
+        headBox.y -= dy;
+        return false;
+      }
+      return true;
+    };
+    const stepAside = () => {
+      for (let step = 0; step < 80 && faceScore() > 0; step += 1) {
+        if (!nudge(w * 0.02, 0) && !nudge(Math.max(2, w * 0.004), 0) && !nudge(0, h * 0.02) && !nudge(0, Math.max(2, h * 0.004))) break;
+      }
+    };
+    stepAside();
+    if (faceScore() > 0 && placed.figure && headBox) {
+      const previousFigure = { ...placed.figure };
+      const previousHead = { ...headBox };
+      const bottom = placed.figure.y + placed.figure.h;
+      const centerX = placed.figure.x + placed.figure.w / 2;
+      const relX = (headBox.x - placed.figure.x) / Math.max(1, placed.figure.w);
+      const relY = (headBox.y - placed.figure.y) / Math.max(1, placed.figure.h);
+      const relW = headBox.w / Math.max(1, placed.figure.w);
+      const relH = headBox.h / Math.max(1, placed.figure.h);
+      placed.figure.w *= 0.9;
+      placed.figure.h *= 0.9;
+      placed.figure.x = centerX - placed.figure.w / 2;
+      placed.figure.y = bottom - placed.figure.h;
+      if (tall) {
+        const pin = h - (placed.figure.y + placed.figure.h);
+        if (pin > 1) placed.figure.y += pin;
+      }
+      headBox = {
+        x: placed.figure.x + relX * placed.figure.w,
+        y: placed.figure.y + relY * placed.figure.h,
+        w: relW * placed.figure.w,
+        h: relH * placed.figure.h,
+      };
+      if (!headInside(headBox, w, h)) {
+        placed.figure.x = previousFigure.x;
+        placed.figure.y = previousFigure.y;
+        placed.figure.w = previousFigure.w;
+        placed.figure.h = previousFigure.h;
+        headBox = previousHead;
+      }
+    }
+    stepAside();
+  }
   const settleStar = () => {
     if (!placed.stern || placed.stern.w < 2) return;
     const anchor = deviceMode ? (priceGroupBox(fittedTile, placed.pill) ?? fittedTile) : fittedTile;
@@ -778,8 +909,12 @@ function buildKachel(
       || spot.y < h * (tall ? 0.1 : 0.04) - 1
       || spot.x + spot.w > bounds.right + 1
       || spot.y + spot.h > bounds.bottom + 1;
+    const faceGuard = headBox && headBox.w > 2
+      ? { x: headBox.x - w * 0.05, y: headBox.y - w * 0.05, w: headBox.w + w * 0.1, h: headBox.h + w * 0.1 }
+      : undefined;
     const hitsCopy = (spot: Box) => texts.some((item) => item.w > 2 && item.h > 2 && overlaps(spot, item))
       || Boolean(headBox && headBox.w > 2 && overlaps(spot, headBox));
+    let aside: Box | undefined;
     const deviceShare = (spot: Box) => placed.product ? overlapShare(spot, placed.product) : 0;
     const start = placed.stern.w;
     const minSize = start * 0.8;
@@ -802,6 +937,10 @@ function buildKachel(
             h: size,
           };
           if (offCanvas(spot) || hitsCopy(spot)) continue;
+          if (faceGuard && overlaps(spot, faceGuard)) {
+            if (!aside) aside = spot;
+            continue;
+          }
           const share = deviceShare(spot);
           if (share <= 0.05) return spot;
           if (!closest || share < closest.share) closest = { spot, share };
@@ -832,12 +971,12 @@ function buildKachel(
         if (size <= minSize + 0.01) break;
       }
     }
-    if (closest) {
-      placed.stern.x = closest.spot.x;
-      placed.stern.y = closest.spot.y;
-      placed.stern.w = closest.spot.w;
-      placed.stern.h = closest.spot.h;
-      return;
+    const reserve = aside ?? closest?.spot;
+    if (reserve) {
+      placed.stern.x = reserve.x;
+      placed.stern.y = reserve.y;
+      placed.stern.w = reserve.w;
+      placed.stern.h = reserve.h;
     }
   };
   if (!deviceMode) settleStar();
@@ -919,9 +1058,11 @@ function buildKachel(
     }
   }
   if (!deviceMode && format.id === "pmax-960x1200" && placed.stern && fittedTile.w > 2) {
+    const beforePin = { x: placed.stern.x, y: placed.stern.y, w: placed.stern.w, h: placed.stern.h };
     const ceiling = placed.subline.y + placed.subline.h;
     const ink = tileInk(fittedTile);
-    const blocked = () => Boolean(headBox && headBox.w > 2 && overlaps(placed.stern!, headBox)) || ink.some((item) => item.w > 2 && overlaps(placed.stern!, item)) || overlaps(placed.stern!, placed.headline) || overlaps(placed.stern!, placed.subline);
+    const faceNear = headBox && headBox.w > 2 ? { x: headBox.x - w * 0.05, y: headBox.y - w * 0.05, w: headBox.w + w * 0.1, h: headBox.h + w * 0.1 } : undefined;
+    const blocked = () => Boolean(faceNear && overlaps(placed.stern!, faceNear)) || ink.some((item) => item.w > 2 && overlaps(placed.stern!, item)) || overlaps(placed.stern!, placed.headline) || overlaps(placed.stern!, placed.subline);
     let size = fittedTile.w * 0.2125 / 0.48;
     const minSize = Math.max(fittedTile.w * 0.22, size * 0.8);
     const seat = (next: number) => {
@@ -935,7 +1076,7 @@ function buildKachel(
       size = Math.max(minSize, size * 0.94);
       seat(size);
       const star = placed.stern;
-      for (let step = 0; step < 16 && headBox && star && overlaps(star, headBox); step += 1) {
+      for (let step = 0; step < 16 && faceNear && star && overlaps(star, faceNear); step += 1) {
         const previous = star.x;
         star.x -= Math.max(3, size * 0.03);
         if (ink.some((item) => item.w > 2 && overlaps(star, item))) {
@@ -943,6 +1084,12 @@ function buildKachel(
           break;
         }
       }
+    }
+    if (headBox && headBox.w > 2 && placed.stern && overlaps(placed.stern, headBox)) {
+      placed.stern.x = beforePin.x;
+      placed.stern.y = beforePin.y;
+      placed.stern.w = beforePin.w;
+      placed.stern.h = beforePin.h;
     }
   }
   const gap = h * 0.015;
@@ -976,8 +1123,16 @@ function buildKachel(
     const bottom = (placed.figure.y + placed.figure.h) / h;
     if (tall && (motifShort || bottom < 0.995)) hints.push(`nicht bestanden: Motiv für 9x16 zu kurz.`);
   }
-  for (const [title, item] of [["Headline", placed.headline], ["Subline", placed.subline], ["Kachel", fittedTile]] as Array<[string, Box | undefined]>) {
-    if (placed.figure && item && item.w > 2 && overlaps(placed.figure, item)) hints.push(`Figur überlappt ${title} im ${label}.`);
+  if (placed.figure && headBox && headBox.w > 2) {
+    const faceTexts = [
+      ["Headline", placed.headline],
+      ["Unterzeile", placed.subline],
+      ["CTA", placed.cta],
+      ["Kachel", fittedTile],
+      ...(deviceMode ? [] : [["Datenmenge", tileInk(fittedTile)[0] ?? box(0, 0, 0, 0)], ["Preis", tileInk(fittedTile)[2] ?? box(0, 0, 0, 0)]] as Array<[string, Box]>),
+    ] as Array<[string, Box]>;
+    const hit = faceTexts.filter((item) => item[1].w > 2 && (item[0] === "Kachel" ? boxGap(headBox, item[1]) < w * 0.05 - 1 : overlaps(headBox, item[1])));
+    if (hit.length) hints.push(`nicht bestanden: Das Gesicht überlappt ${[...new Set(hit.map((item) => item[0]))].join(" und ")} im ${label}.`);
   }
   const ink = deviceMode ? [] : tileInk(fittedTile);
   const texts: Array<[string, Box]> = [
