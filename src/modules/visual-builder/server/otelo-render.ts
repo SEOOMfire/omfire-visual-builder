@@ -97,6 +97,7 @@ export type RenderRequest = {
   datenmengeAlt?: string;
   einmalpreisZusatz?: string;
   preisAlt?: string;
+  preisMonatAlt?: string;
   energielabel?: string;
   sternText?: string;
   deko?: string;
@@ -182,6 +183,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     datenmengeAlt: input.datenmengeAlt,
     einmalpreisZusatz: input.einmalpreisZusatz,
     preisAlt: input.preisAlt,
+    preisMonatAlt: input.preisMonatAlt,
     sternText: input.sternText,
     deko: input.deko === "bw_wellen" || input.deko === "fruehling_blaetter" || input.deko === "keine" ? input.deko : undefined,
     geraetName: input.geraetName,

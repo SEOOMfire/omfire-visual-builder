@@ -47,6 +47,7 @@ export type SceneCopy = {
   datenmengeAlt?: string;
   einmalpreisZusatz?: string;
   preisAlt?: string;
+  preisMonatAlt?: string;
   sternText?: string;
   deko?: DekoName;
   geraetName?: string;
@@ -88,6 +89,7 @@ export type OteloScene = {
   kachel?: { box: Box; datenmenge: string; alt: string; einmal: string; einmalZusatz: string };
   pill?: { box: Box; preis: string; zusatz: string };
   preisAlt?: string;
+  preisMonatAlt?: string;
   stern?: { box: Box; text: string };
   sternColor?: string;
   deko?: { name: DekoName; box: Box; strength?: number };
@@ -248,6 +250,26 @@ function headlineLines(raw: string): string[] {
 
 function corners(target: Box): Pt[] {
   return [[target.x, target.y], [target.x + target.w, target.y], [target.x, target.y + target.h], [target.x + target.w, target.y + target.h]];
+}
+
+function insetBox(rect: Box, pad = 0.2): Box {
+  return { x: rect.x + rect.w * pad, y: rect.y + rect.h * pad, w: rect.w * (1 - pad * 2), h: rect.h * (1 - pad * 2) };
+}
+
+function freeStarCorner(anchor: Box, size: number, blocked: Box[], canvas: { w: number; h: number }): Box {
+  const spots = [
+    box(anchor.x + anchor.w - size * 0.25, anchor.y - size * 0.7, size, size),
+    box(anchor.x + anchor.w - size * 0.2, anchor.y + anchor.h * 0.35 - size * 0.5, size, size),
+    box(anchor.x - size * 0.7, anchor.y - size * 0.25, size, size),
+    box(anchor.x + anchor.w - size * 0.25, anchor.y + anchor.h - size * 0.3, size, size),
+    box(anchor.x - size * 0.7, anchor.y + anchor.h - size * 0.3, size, size),
+  ].map((spot) => ({
+    x: Math.max(canvas.w * 0.03, Math.min(spot.x, canvas.w * 0.96 - size)),
+    y: Math.max(canvas.h * 0.04, Math.min(spot.y, canvas.h * 0.94 - size)),
+    w: size,
+    h: size,
+  }));
+  return spots.find((spot) => !blocked.some((item) => item.w > 2 && item.h > 2 && overlaps(spot, item))) ?? spots[1] ?? box(anchor.x, anchor.y, size, size);
 }
 
 function overlaps(left: Box, right: Box): boolean {
@@ -534,7 +556,8 @@ function buildKachel(
     ctaRaw = box(left, logoTop - ctaH - h * 0.016, w * 0.42, ctaH);
   } else if (deviceMode && tall) {
     ctaH = Math.max(h * 0.05, h * (0.022 / 0.48));
-    ctaRaw = box(left, h * 0.5 - ctaH - h * 0.012, w * 0.55, ctaH);
+    const stack = tileRaw.y + tileRaw.h + h * 0.012;
+    ctaRaw = box(left, stack, w * 0.55, ctaH);
   }
   const cta = {
     box: mirrorBox(ctaRaw, w, flip),
@@ -552,17 +575,17 @@ function buildKachel(
       : mid
         ? box(w * 0.34, h * 0.35, w * 0.7, h * 0.7)
         : box(w * 0.4, h * 0.3, w * 0.64, h * 0.74), w, flip);
-  const deviceH = h * (deviceMode ? (tall ? 0.46 : 0.6) : tall ? 0.42 : wide ? 0.72 : 0.58);
+  const deviceH = h * (deviceMode ? (tall ? 0.5 : 0.6) : tall ? 0.42 : wide ? 0.72 : 0.58);
+  const deviceTop = deviceMode && tall ? ctaRaw.y + ctaRaw.h + h * 0.006 : h * 0.18;
   const device = name === "kachel_person" ? undefined : mirrorBox(deviceMode
-    ? tall ? box(w * 0.16, h * 0.52, w * 0.98, deviceH) : box(w * 0.46, h * 0.18, w * 0.62, deviceH)
+    ? tall ? box(w * 0.08, deviceTop, w * 1.05, Math.max(deviceH, h * 1.05 - deviceTop)) : box(w * 0.5, Math.max(h * 0.28, subline.box.y + subline.box.h + h * 0.02), w * 0.58, deviceH)
     : box(w * 0.52, h * 0.22, Math.min(w * 0.42, deviceH * 0.7), deviceH), w, flip);
   const sternRadius = tileRaw.w * (wide ? 0.22 : 0.2125);
-  const deviceStarLines = [copy.datenmenge?.trim(), copy.datenmengeAlt?.trim() ? `statt ${copy.datenmengeAlt.trim()}` : ""].filter(Boolean).slice(0, 2);
-  const deviceStar = deviceStarLines.join("\n") || copy.sternText?.trim() || "";
+  const deviceStar = copy.sternText?.trim() || copy.datenmenge?.trim() || "";
   const starWords = (deviceStar || copy.sternText || "").trim().split(/\s+/).filter(Boolean).length;
   const starSize = Math.min(w * 0.24, h * 0.22) * (starWords >= 3 ? 1.15 : 1);
   const stern = deviceMode
-    ? (deviceStar ? { box: mirrorBox(box((pillRaw ?? tileRaw).x - starSize * 0.84, (pillRaw ?? tileRaw).y + (pillRaw ?? tileRaw).h - starSize * 0.32, starSize, starSize), w, flip), text: deviceStar } : undefined)
+    ? (deviceStar ? { box: mirrorBox(freeStarCorner(pillRaw ?? tileRaw, starSize, [insetBox(tileRaw, 0.22), ...(pillRaw ? [insetBox(pillRaw, 0.2)] : []), headline.box, subline.box, cta.box, logo.box], { w, h }), w, flip), text: deviceStar } : undefined)
     : copy.sternText?.trim()
       ? { box: mirrorBox(starBox(tileRaw, sternRadius, [headline.box, subline.box]), w, flip), text: copy.sternText.trim() }
       : undefined;
@@ -622,6 +645,32 @@ function buildKachel(
     fittedPill.y += fittedTile.y - tile.y;
   }
   if (placed.stern) placed.stern.y += fittedTile.y - tile.y;
+  if (deviceMode && placed.product) {
+    const clear = (text: Box) => {
+      const vertical = text.y < placed.product!.y + placed.product!.h && placed.product!.y < text.y + text.h;
+      if (!vertical || text.x >= placed.product!.x) return;
+      const limit = placed.product!.x - w * 0.02;
+      if (text.x + text.w > limit) text.w = Math.max(w * 0.18, limit - text.x);
+    };
+    clear(placed.headline);
+    clear(placed.subline);
+  }
+  if (placed.stern && placed.stern.w > 2) {
+    const blocked = [placed.headline, placed.subline, placed.cta, placed.logo ?? box(0, 0, 0, 0), insetBox(fittedTile, 0.22), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.2)] : [])].filter((item) => item.w > 2);
+    const host = placed.pill && placed.pill.w > 2
+      ? { x: Math.min(fittedTile.x, placed.pill.x), y: Math.min(fittedTile.y, placed.pill.y), w: Math.max(fittedTile.x + fittedTile.w, placed.pill.x + placed.pill.w) - Math.min(fittedTile.x, placed.pill.x), h: Math.max(fittedTile.y + fittedTile.h, placed.pill.y + placed.pill.h) - Math.min(fittedTile.y, placed.pill.y) }
+      : fittedTile;
+    let size = placed.stern.w;
+    while (size > placed.stern.w * 0.55 && blocked.some((item) => overlaps(placed.stern!, item))) {
+      const moved = freeStarCorner(host, size, blocked, { w, h });
+      placed.stern.x = moved.x;
+      placed.stern.y = moved.y;
+      placed.stern.w = size;
+      placed.stern.h = size;
+      if (!blocked.some((item) => overlaps(placed.stern!, item))) break;
+      size *= 0.88;
+    }
+  }
   const gap = h * 0.015;
   const floor = h * (tiktok ? 0.78 : 0.955);
   if (fittedTile.w > 2 && placed.cta.w > 2 && fittedTile.y + fittedTile.h + gap > placed.cta.y && overlaps(fittedTile, { ...placed.cta, y: placed.cta.y - gap, h: placed.cta.h + gap })) {
@@ -699,10 +748,22 @@ function buildKachel(
   if (deviceMode && placed.product && placed.product.h < h * (tall ? 0.42 : 0.55)) hints.push(`Das Gerät ist zu klein im ${label}.`);
   if (placed.stern && placed.logo && placed.logo.w > 2 && overlaps(placed.stern, placed.logo)) hints.push(`Der Stern überdeckt das Logo im ${label}.`);
   if (fittedTile.w > 2 && placed.cta.w > 2 && overlaps(fittedTile, placed.cta)) hints.push(`Die Kachel überlappt die CTA im ${label}.`);
+  if (placed.stern && placed.stern.w > 2) {
+    const covered = [placed.headline, placed.subline, placed.cta, insetBox(fittedTile, 0.22), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.2)] : [])].filter((item) => item.w > 2 && overlaps(placed.stern!, item));
+    if (covered.length) hints.push(`Der Stern überdeckt Text im ${label}.`);
+  }
+  if (deviceMode && placed.product) {
+    for (const [nameOf, text] of [["Unterzeile", placed.subline], ["Headline", placed.headline]] as Array<[string, Box]>) {
+      const vertical = text.y < placed.product.y + placed.product.h && placed.product.y < text.y + text.h;
+      if (!vertical) continue;
+      const gap = text.x + text.w <= placed.product.x ? placed.product.x - (text.x + text.w) : placed.product.x + placed.product.w <= text.x ? text.x - (placed.product.x + placed.product.w) : 0;
+      if (gap < w * 0.02) hints.push(`Der Abstand zwischen Gerät und ${nameOf} ist zu klein im ${label}.`);
+    }
+  }
   if (placed.logo && placed.logo.w > 2 && placed.cta.w > 2 && overlaps(placed.cta, placed.logo)) hints.push(`Das Logo überlappt die CTA im ${label}.`);
   if (tall && deviceMode && placed.product && placed.cta.w > 2 && overlaps(placed.product, placed.cta)) hints.push(`Das Gerät überlappt die CTA im ${label}.`);
   if (deviceMode && placed.pill && placed.stern) {
-    const text = { x: placed.pill.x + placed.pill.w * 0.16, y: placed.pill.y + placed.pill.h * 0.16, w: placed.pill.w * 0.68, h: placed.pill.h * 0.68 };
+    const text = insetBox(placed.pill, 0.2);
     if (overlaps(placed.stern, text)) hints.push(`Der Stern überdeckt den Pillentext im ${label}.`);
   }
   if (!deviceMode && placed.stern && placed.stern.w > 2) {
@@ -754,6 +815,7 @@ function buildKachel(
     },
     pill: placed.pill ? { box: placed.pill, preis: `+ ${copy.preis}`, zusatz: copy.preisZusatz || "pro Monat" } : undefined,
     preisAlt: copy.preisAlt?.trim() || "",
+    preisMonatAlt: copy.preisMonatAlt?.trim() || "",
     stern: placed.stern && stern ? { box: placed.stern, text: stern.text } : undefined,
     deko,
     headlinePfeile: !shifts.pfeile?.hidden,

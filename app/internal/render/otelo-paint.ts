@@ -462,7 +462,21 @@ function drawDeviceOffer(ctx: CanvasRenderingContext2D, scene: OteloScene) {
   ctx.fillText(pill.preis, offer.x + offer.w / 2, offer.y + offer.h * 0.38);
   const extraFit = sizeForWidth(ctx, pill.zusatz, 500, "Geist", offer.w * 0.82);
   ctx.font = face(500, Math.min(offer.h * 0.22, extraFit), "Geist");
-  ctx.fillText(pill.zusatz, offer.x + offer.w / 2, offer.y + offer.h * 0.72);
+  ctx.fillText(pill.zusatz, offer.x + offer.w / 2, offer.y + offer.h * (scene.preisMonatAlt ? 0.62 : 0.72));
+  if (scene.preisMonatAlt) {
+    const oldMonthly = `statt ${scene.preisMonatAlt}`;
+    ctx.font = face(500, Math.min(offer.h * 0.16, sizeForWidth(ctx, oldMonthly, 500, "Geist", offer.w * 0.8)), "Geist");
+    const oldWidth = ctx.measureText(oldMonthly).width;
+    const oldY = offer.y + offer.h * 0.84;
+    ctx.fillText(oldMonthly, offer.x + offer.w / 2, oldY);
+    ctx.strokeStyle = WHITE;
+    ctx.lineWidth = Math.max(1.5, offer.h * 0.03);
+    ctx.beginPath();
+    ctx.moveTo(offer.x + offer.w / 2 - oldWidth / 2, oldY);
+    ctx.lineTo(offer.x + offer.w / 2 + oldWidth / 2, oldY);
+    ctx.stroke();
+    ctx.fillStyle = WHITE;
+  }
   if (scene.stern && scene.stern.box.w > 2) {
     const burst = scene.sternColor || ORANGE;
     drawBurst(ctx, scene.stern.box.x + scene.stern.box.w / 2, scene.stern.box.y + scene.stern.box.h / 2, scene.stern.box.w * 0.48, burst);

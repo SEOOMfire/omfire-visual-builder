@@ -16,6 +16,7 @@ export type FieldPatch = {
   einmalpreis?: string;
   einmalpreisZusatz?: string;
   preisAlt?: string;
+  preisMonatAlt?: string;
   geraetName?: string;
   pflichttext?: string;
   deko?: "bw_wellen" | "fruehling_blaetter" | "keine";
@@ -48,8 +49,8 @@ export type AdjustCommand =
   | { op: "text"; element: ElementId; text: string; formate?: string[] }
   | { op: "farbe"; element: ElementId; farbe: string; hinweis?: string; formate?: string[] }
   | { op: "deko_setzen"; name: "bw_wellen" | "fruehling_blaetter" | "keine" }
-  | { op: "vorlage_setzen"; vorlage: string; motiv?: string }
-  | { op: "feld"; key: keyof FieldPatch; value: string }
+  | { op: "vorlage_setzen"; vorlage: string; motiv?: string; hinweis?: string }
+  | { op: "feld"; key: keyof FieldPatch; value: string; hinweis?: string }
   | { op: "wie_format"; quelle: string }
   | { op: "rueckgaengig" }
   | { op: "version"; nummer: number }
@@ -166,7 +167,8 @@ function windowAmount(text: string, verb: RegExp, kind: "move" | "size"): number
 
 function splitClauses(text: string): string[] {
   const out: string[] = [];
-  for (const chunk of text.split(/\s*,\s*/)) {
+  const chunks = text.replace(/(\d),(\d)/g, "$1\u0001$2").split(/\s*,\s*/).map((chunk) => chunk.replace(/\u0001/g, ","));
+  for (const chunk of chunks) {
     const held = chunk.replace(/zwischen\s+.+?\s+und\s+[^\s,]+/gi, (match) => match.replace(/\s+und\s+/i, " \u0000und\u0000 "));
     const bits = held.split(/\s+und\s+/i).map((bit) => bit.replace(/\u0000und\u0000/g, "und").replace(/\s+/g, " ").trim());
     let current = bits[0] ?? "";
@@ -198,6 +200,20 @@ function formatsIn(text: string): string[] | undefined {
   if (/\b1\s*x\s*1\b/i.test(text)) return ["1x1"];
   const found = [...text.matchAll(/(\d{3,4})\s*x\s*(\d{3,4})/gi)].map((match) => `${match[1]}x${match[2]}`);
   return found.length ? found : undefined;
+}
+
+function money(value: string): number | undefined {
+  const match = value.match(/\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:[.,]\d+)?/);
+  if (!match) return undefined;
+  const raw = match[0].includes(",") ? match[0].replace(/\./g, "").replace(",", ".") : match[0];
+  const number = Number(raw);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function splitStatt(value: string): { neu: string; alt?: string } {
+  const match = value.trim().match(/^(.*?)\s+statt\s+(.+)$/i);
+  if (!match?.[1] || !match[2]) return { neu: value.trim() };
+  return { neu: match[1].trim(), alt: match[2].trim() };
 }
 
 function fieldKey(label: string): keyof FieldPatch | undefined {
@@ -252,7 +268,27 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
   }
   const once = clause.match(/^(?:einmalig|einmalpreis|zuzahlung)\s+(.+)$/i);
   if (once?.[1]) {
-    commands.push({ op: "feld", key: "einmalpreis", value: once[1].trim() });
+    const parts = splitStatt(once[1]);
+    const alt = parts.alt;
+    const higher = alt ? (money(alt) ?? 0) > (money(parts.neu) ?? 0) : false;
+    commands.push({ op: "feld", key: "einmalpreis", value: parts.neu, hinweis: alt && !higher ? `${alt} ist nicht höher, kein statt.` : undefined });
+    if (alt && higher) commands.push({ op: "feld", key: "preisAlt", value: alt });
+    return { commands, element: "geraet" };
+  }
+  const data = clause.match(/^(?:datenmenge\s+)?(\d+(?:[.,]\d+)?\s*gb(?:\s+statt\s+\d+(?:[.,]\d+)?\s*gb)?)$/i);
+  if (data?.[1]) {
+    const parts = splitStatt(data[1]);
+    commands.push({ op: "feld", key: "datenmenge", value: parts.neu });
+    if (parts.alt) commands.push({ op: "feld", key: "datenmengeAlt", value: parts.alt });
+    return { commands, element: "datenmenge" };
+  }
+  const monthly = clause.match(/^(?:preis|monatlich|monatspreis)\s+(.+)$/i);
+  if (monthly?.[1]) {
+    const parts = splitStatt(monthly[1]);
+    const alt = parts.alt;
+    const higher = alt ? (money(alt) ?? 0) > (money(parts.neu) ?? 0) : false;
+    commands.push({ op: "feld", key: "preis", value: parts.neu, hinweis: alt && !higher ? `${alt} ist nicht höher, kein statt.` : undefined });
+    if (alt && higher) commands.push({ op: "feld", key: "preisMonatAlt", value: alt });
     return { commands, element: "geraet" };
   }
   const oldPrice = clause.match(/^statt\s+(.+)$/i);
@@ -384,8 +420,10 @@ export function describeAdjust(commands: readonly AdjustCommand[]): string {
     else if (command.op === "text") add(LABEL[command.element], `ist jetzt „${command.text}“`);
     else if (command.op === "farbe") add(LABEL[command.element], command.hinweis ? command.hinweis : "neu gefärbt");
     else if (command.op === "deko_setzen") add("Deko", command.name === "fruehling_blaetter" ? "Blätter" : command.name === "bw_wellen" ? "Wellen" : "keine");
-    else if (command.op === "vorlage_setzen") add("", command.vorlage === "kachel_geraet" ? `Gerät statt Person${command.motiv ? `: ${command.motiv}` : ""}` : `Person statt Gerät${command.motiv ? `: ${command.motiv}` : ""}`);
-    else if (command.op === "feld") add(String(command.key), `ist jetzt ${command.value}`);
+    else if (command.op === "vorlage_setzen") {
+      add("", command.vorlage === "kachel_geraet" ? `Gerät statt Person${command.motiv ? `: ${command.motiv}` : ""}` : `Person statt Gerät${command.motiv ? `: ${command.motiv}` : ""}`);
+      if (command.hinweis) add("", command.hinweis);
+    } else if (command.op === "feld") add(command.key === "preisAlt" ? "statt-Preis" : command.key === "preisMonatAlt" ? "alter Monatspreis" : command.key === "datenmengeAlt" ? "Altwert" : command.key === "geraetName" ? "Gerätename" : command.key === "einmalpreis" ? "Einmalpreis" : String(command.key), `ist jetzt ${command.value}${command.hinweis ? `. ${command.hinweis}` : ""}`);
     else if (command.op === "wie_format") add("", "Lage wie im Quadrat");
     else if (command.op === "vergleichen") add("", `Version ${command.links} und ${command.rechts}`);
   }
@@ -495,11 +533,29 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
         snap.fields.motiv = command.motiv;
         if (!snap.fields.geraetName && command.vorlage === "kachel_geraet") snap.fields.geraetName = command.motiv;
       }
+      const notes: string[] = [];
+      if (command.vorlage === "kachel_geraet" && snap.fields.datenmengeAlt) {
+        snap.fields.datenmengeAlt = "";
+        notes.push("Datenmenge-Altwert verworfen, er gehört nicht in den Geräte-Stern");
+      }
+      if (command.vorlage === "kachel_person") {
+        const dropped = [
+          snap.fields.einmalpreis ? "Einmalpreis" : "",
+          snap.fields.geraetName ? "Gerätename" : "",
+          snap.fields.energielabel ? "Energielabel" : "",
+          snap.fields.preisAlt ? "statt-Preis" : "",
+        ].filter(Boolean);
+        snap.fields.einmalpreis = snap.fields.einmalpreis ? "" : snap.fields.einmalpreis;
+        snap.fields.geraetName = snap.fields.geraetName ? "" : snap.fields.geraetName;
+        snap.fields.energielabel = snap.fields.energielabel ? "" : snap.fields.energielabel;
+        snap.fields.preisAlt = snap.fields.preisAlt ? "" : snap.fields.preisAlt;
+        if (dropped.length) notes.push(`${dropped.join(", ")} verworfen, das gehört zur Geräte-Vorlage`);
+      }
       const drop = command.vorlage === "kachel_geraet" ? ["person", "kachel"] : command.vorlage === "kachel_person" ? ["geraet", "kachel"] : [];
       for (const bucket of Object.values(snap.nudges)) {
         for (const key of drop) delete bucket[key as ElementId];
       }
-      bits.push(command);
+      bits.push({ ...command, hinweis: notes.join(". ") || undefined });
       continue;
     }
     if (command.op === "feld") {

@@ -197,11 +197,12 @@ test("spacing stays in the answer and a format limit stays in its clause", () =>
 
 test("the image check drops changes the user asked for", () => {
   const glance = "Die Subline ist Lime statt Orange. Der Störer fehlt. Der Altwert fehlt. Die Farbe Rot auf der Leiste ist unzulässig.";
-  const kept = withoutInstructed(glance, "Unterzeile ist auf Wunsch Lime. Störer ist auf Wunsch ausgeblendet. Altwert ist auf Wunsch entfernt.");
+  const kept = withoutInstructed(`${glance} Der Sterntext NUR BIS SONNTAG weicht vom Referenztext ab.`, "Unterzeile ist auf Wunsch Lime. Störer ist auf Wunsch ausgeblendet. Altwert ist auf Wunsch entfernt.");
   assert.match(kept, /Rot/);
   assert.doesNotMatch(kept, /Lime statt Orange/);
   assert.doesNotMatch(kept, /Störer fehlt/);
   assert.doesNotMatch(kept, /Altwert fehlt/);
+  assert.doesNotMatch(kept, /Referenztext/);
 });
 
 test("a wide headline shrinks until two chevrons fit", () => {
@@ -257,6 +258,66 @@ test("device fields can be spoken without a colon", () => {
   assert.equal(step.book.snap.fields.einmalpreis, "1 €");
   assert.equal(step.book.snap.fields.preisAlt, "229 €");
   assert.match(step.summary, /umgesetzt:/);
+});
+
+test("statt splits the one-time price, the data amount and the monthly price", () => {
+  const once = applyToBook(newBook(), "einmalig 1 € statt 229 €");
+  assert.equal(once.book.snap.fields.einmalpreis, "1 €");
+  assert.equal(once.book.snap.fields.preisAlt, "229 €");
+  const lower = applyToBook(newBook(), "einmalig 229 € statt 1 €");
+  assert.equal(lower.book.snap.fields.einmalpreis, "229 €");
+  assert.equal(lower.book.snap.fields.preisAlt, undefined);
+  assert.match(lower.summary, /kein statt/);
+  const data = applyToBook(newBook(), "150 GB statt 50 GB");
+  assert.equal(data.book.snap.fields.datenmenge, "150 GB");
+  assert.equal(data.book.snap.fields.datenmengeAlt, "50 GB");
+  const month = applyToBook(newBook(), "Preis 19,99 € statt 29,99 €");
+  assert.equal(month.book.snap.fields.preis, "19,99 €");
+  assert.equal(month.book.snap.fields.preisMonatAlt, "29,99 €");
+});
+
+test("the live device sentence matches a direct device compose", () => {
+  const sentence = "Gerät statt Person: Galaxy A56, Gerätename Galaxy A56 5G, Energielabel B, einmalig 1 € statt 229 €";
+  let book = seedBook("rechts", {
+    headline: "BLACK WEEK",
+    subline: "3-FACH DATEN. GLEICHER PREIS.",
+    button: "Jetzt sichern",
+    sternText: "NUR BIS SONNTAG",
+    datenmenge: "150 GB",
+    datenmengeAlt: "50 GB",
+    preis: "19,99 €",
+    preisZusatz: "pro Monat",
+    deko: "bw_wellen",
+  });
+  book = applyToBook(book, "Frau deutlich größer").book;
+  const switched = applyToBook(book, sentence).book;
+  assert.equal(switched.snap.fields.vorlage, "kachel_geraet");
+  assert.equal(switched.snap.fields.motiv, "Galaxy A56");
+  assert.equal(switched.snap.fields.geraetName, "Galaxy A56 5G");
+  assert.equal(switched.snap.fields.energielabel, "B");
+  assert.equal(switched.snap.fields.einmalpreis, "1 €");
+  assert.equal(switched.snap.fields.preisAlt, "229 €");
+  assert.equal(switched.snap.fields.sternText, "NUR BIS SONNTAG");
+  assert.equal(switched.snap.fields.datenmengeAlt, "");
+  assert.match(applyToBook(book, sentence).summary, /verworfen/);
+  const format = OTELO_FORMATS[3];
+  const copy = base();
+  copy.subline = "3-FACH DATEN. GLEICHER PREIS.";
+  copy.sternText = "NUR BIS SONNTAG";
+  copy.datenmenge = "150 GB";
+  copy.datenmengeAlt = "";
+  copy.einmalpreis = "1 €";
+  copy.preisAlt = "229 €";
+  copy.geraetName = "Galaxy A56 5G";
+  const direct = buildScene(format, "kachel_geraet", copy);
+  const via = buildScene(format, "kachel_geraet", copy, shiftsFor(switched, format));
+  const round = (box: { x: number; y: number; w: number; h: number } | undefined) => box && [box.x, box.y, box.w, box.h].map((value) => Math.round(value));
+  assert.deepEqual(round(via.product), round(direct.product));
+  assert.deepEqual(round(via.cta.box), round(direct.cta.box));
+  assert.equal(via.stern?.text, "NUR BIS SONNTAG");
+  assert.equal(direct.stern?.text, "NUR BIS SONNTAG");
+  assert.equal(via.hints.some((hint) => hint.includes("Stern überdeckt Text")), false, via.hints.join(" | "));
+  assert.equal(via.hints.some((hint) => hint.includes("Abstand zwischen Gerät")), false, via.hints.join(" | "));
 });
 
 test("a long star stays on two lines", () => {

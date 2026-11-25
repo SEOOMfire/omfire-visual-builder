@@ -38,6 +38,7 @@ export type CreativeDraft = {
   datenmengeAlt?: string;
   einmalpreisZusatz?: string;
   preisAlt?: string;
+  preisMonatAlt?: string;
   energielabel?: string;
   sternText?: string;
   deko?: string;
@@ -125,7 +126,8 @@ export function fieldsForRender(draft: CreativeDraft) {
     datenmenge: draft.layoutBook?.snap.fields?.datenmenge ?? draft.datenmenge,
     datenmengeAlt: draft.layoutBook?.snap.fields?.datenmengeAlt !== undefined ? draft.layoutBook.snap.fields.datenmengeAlt : draft.datenmengeAlt,
     einmalpreisZusatz: draft.einmalpreisZusatz,
-    preisAlt: draft.preisAlt,
+    preisAlt: draft.layoutBook?.snap.fields?.preisAlt ?? draft.preisAlt,
+    preisMonatAlt: draft.layoutBook?.snap.fields?.preisMonatAlt ?? draft.preisMonatAlt,
     energielabel: draft.layoutBook?.snap.fields?.energielabel ?? draft.energielabel,
     sternText: draft.layoutBook?.snap.fields?.sternText ?? draft.sternText,
     deko: draft.layoutBook?.snap.fields?.deko ?? draft.deko,
@@ -243,6 +245,7 @@ function applySnapFields(draft: CreativeDraft, fields: FieldPatch) {
   if (fields.einmalpreis !== undefined) draft.einmalpreis = fields.einmalpreis;
   if (fields.einmalpreisZusatz !== undefined) draft.einmalpreisZusatz = fields.einmalpreisZusatz;
   if (fields.preisAlt !== undefined) draft.preisAlt = fields.preisAlt;
+  if (fields.preisMonatAlt !== undefined) draft.preisMonatAlt = fields.preisMonatAlt;
   if (fields.geraetName !== undefined) draft.geraetName = fields.geraetName;
   if (fields.pflichttext !== undefined) draft.pflichttext = fields.pflichttext;
   if (fields.deko !== undefined) draft.deko = fields.deko;
@@ -368,6 +371,7 @@ export async function storeRenderedDraft(rendered: RenderedCreative, fields: Omi
     datenmengeAlt: fields.datenmengeAlt,
     einmalpreisZusatz: fields.einmalpreisZusatz,
     preisAlt: fields.preisAlt,
+    preisMonatAlt: fields.preisMonatAlt,
     energielabel: fields.energielabel,
     sternText: fields.sternText,
     deko: fields.deko,
@@ -383,6 +387,8 @@ export async function storeRenderedDraft(rendered: RenderedCreative, fields: Omi
       preisZusatz: fields.preisZusatz,
       einmalpreis: fields.einmalpreis,
       einmalpreisZusatz: fields.einmalpreisZusatz,
+      preisAlt: fields.preisAlt ?? "",
+      preisMonatAlt: fields.preisMonatAlt ?? "",
       geraetName: fields.geraetName ?? "",
       pflichttext: fields.pflichttext,
       deko: fields.deko === "bw_wellen" || fields.deko === "fruehling_blaetter" || fields.deko === "keine" ? fields.deko : undefined,
