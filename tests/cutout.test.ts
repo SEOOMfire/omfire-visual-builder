@@ -119,7 +119,8 @@ test("a device tile keeps the price, the pill and the phone apart", () => {
       const cta = scene.cta.box;
       const hits = product.x < cta.x + cta.w && cta.x < product.x + product.w && product.y < cta.y + cta.h && cta.y < product.y + product.h;
       assert.equal(hits, false, `${format.id} Gerät überlappt CTA`);
-      assert.equal(scene.hints.some((hint) => hint.includes("Pillentext")), false, scene.hints.join(" | "));
+      assert.ok(product.y <= cta.y + cta.h + format.h * 0.02, `${format.id} Gerät sitzt nicht unter der CTA`);
+      assert.equal(scene.hints.some((hint) => hint.includes("Pillentext") || hint.includes("außerhalb der sicheren Zone")), false, scene.hints.join(" | "));
     }
   }
 });

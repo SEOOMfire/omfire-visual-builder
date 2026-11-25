@@ -256,7 +256,7 @@ function insetBox(rect: Box, pad = 0.2): Box {
   return { x: rect.x + rect.w * pad, y: rect.y + rect.h * pad, w: rect.w * (1 - pad * 2), h: rect.h * (1 - pad * 2) };
 }
 
-function freeStarCorner(anchor: Box, size: number, blocked: Box[], canvas: { w: number; h: number }): Box {
+function freeStarCorner(anchor: Box, size: number, blocked: Box[], bounds: { left: number; top: number; right: number; bottom: number }): Box {
   const spots = [
     box(anchor.x + anchor.w - size * 0.25, anchor.y - size * 0.7, size, size),
     box(anchor.x + anchor.w - size * 0.2, anchor.y + anchor.h * 0.35 - size * 0.5, size, size),
@@ -264,12 +264,12 @@ function freeStarCorner(anchor: Box, size: number, blocked: Box[], canvas: { w: 
     box(anchor.x + anchor.w - size * 0.25, anchor.y + anchor.h - size * 0.3, size, size),
     box(anchor.x - size * 0.7, anchor.y + anchor.h - size * 0.3, size, size),
   ].map((spot) => ({
-    x: Math.max(canvas.w * 0.03, Math.min(spot.x, canvas.w * 0.96 - size)),
-    y: Math.max(canvas.h * 0.04, Math.min(spot.y, canvas.h * 0.94 - size)),
+    x: Math.max(bounds.left, Math.min(spot.x, bounds.right - size)),
+    y: Math.max(bounds.top, Math.min(spot.y, bounds.bottom - size)),
     w: size,
     h: size,
   }));
-  return spots.find((spot) => !blocked.some((item) => item.w > 2 && item.h > 2 && overlaps(spot, item))) ?? spots[1] ?? box(anchor.x, anchor.y, size, size);
+  return spots.find((spot) => spot.x >= bounds.left - 1 && spot.y >= bounds.top - 1 && spot.x + spot.w <= bounds.right + 1 && spot.y + spot.h <= bounds.bottom + 1 && !blocked.some((item) => item.w > 2 && item.h > 2 && overlaps(spot, item))) ?? spots[1] ?? box(anchor.x, anchor.y, size, size);
 }
 
 function overlaps(left: Box, right: Box): boolean {
@@ -585,7 +585,7 @@ function buildKachel(
   const starWords = (deviceStar || copy.sternText || "").trim().split(/\s+/).filter(Boolean).length;
   const starSize = Math.min(w * 0.24, h * 0.22) * (starWords >= 3 ? 1.15 : 1);
   const stern = deviceMode
-    ? (deviceStar ? { box: mirrorBox(freeStarCorner(pillRaw ?? tileRaw, starSize, [insetBox(tileRaw, 0.22), ...(pillRaw ? [insetBox(pillRaw, 0.2)] : []), headline.box, subline.box, cta.box, logo.box], { w, h }), w, flip), text: deviceStar } : undefined)
+    ? (deviceStar ? { box: mirrorBox(freeStarCorner(pillRaw ?? tileRaw, starSize, [insetBox(tileRaw, 0.22), ...(pillRaw ? [insetBox(pillRaw, 0.2)] : []), headline.box, subline.box, cta.box, logo.box], { left: w * 0.04, top: h * (tall ? 0.1 : 0.04), right: w * (tiktok ? 0.85 : 0.96), bottom: h * (tiktok ? 0.8 : 0.96) }), w, flip), text: deviceStar } : undefined)
     : copy.sternText?.trim()
       ? { box: mirrorBox(starBox(tileRaw, sternRadius, [headline.box, subline.box]), w, flip), text: copy.sternText.trim() }
       : undefined;
@@ -660,14 +660,16 @@ function buildKachel(
     const host = placed.pill && placed.pill.w > 2
       ? { x: Math.min(fittedTile.x, placed.pill.x), y: Math.min(fittedTile.y, placed.pill.y), w: Math.max(fittedTile.x + fittedTile.w, placed.pill.x + placed.pill.w) - Math.min(fittedTile.x, placed.pill.x), h: Math.max(fittedTile.y + fittedTile.h, placed.pill.y + placed.pill.h) - Math.min(fittedTile.y, placed.pill.y) }
       : fittedTile;
+    const bounds = { left: w * 0.04, top: h * (tall ? 0.1 : 0.04), right: w * (tiktok ? 0.85 : 0.96), bottom: h * (tiktok ? 0.8 : 0.96) };
+    const outside = () => placed.stern!.x < bounds.left - 1 || placed.stern!.y < bounds.top - 1 || placed.stern!.x + placed.stern!.w > bounds.right + 1 || placed.stern!.y + placed.stern!.h > bounds.bottom + 1;
     let size = placed.stern.w;
-    while (size > placed.stern.w * 0.55 && blocked.some((item) => overlaps(placed.stern!, item))) {
-      const moved = freeStarCorner(host, size, blocked, { w, h });
+    while (size > placed.stern.w * 0.55 && (blocked.some((item) => overlaps(placed.stern!, item)) || outside())) {
+      const moved = freeStarCorner(host, size, blocked, bounds);
       placed.stern.x = moved.x;
       placed.stern.y = moved.y;
       placed.stern.w = size;
       placed.stern.h = size;
-      if (!blocked.some((item) => overlaps(placed.stern!, item))) break;
+      if (!blocked.some((item) => overlaps(placed.stern!, item)) && !outside()) break;
       size *= 0.88;
     }
   }

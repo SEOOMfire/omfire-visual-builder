@@ -36,7 +36,24 @@ export async function POST(request: Request) {
   if (typeof payload?.spoken === "string" && payload.custom && typeof payload.custom.name === "string") {
     try {
       const { applyToBook, newBook } = await import("../../../../src/modules/visual-builder/server/adjust-commands");
-      const step = applyToBook(newBook(), payload.spoken);
+      const custom = payload.custom as Record<string, unknown>;
+      const base = newBook();
+      const text = (key: string) => typeof custom[key] === "string" ? custom[key] as string : undefined;
+      base.snap.fields = {
+        headline: text("headline"),
+        subline: text("subline"),
+        button: text("button"),
+        sternText: text("sternText"),
+        datenmenge: text("datenmenge"),
+        datenmengeAlt: text("datenmengeAlt"),
+        preis: text("preis"),
+        preisZusatz: text("preisZusatz"),
+        einmalpreis: text("einmalpreis"),
+        deko: text("deko") === "bw_wellen" || text("deko") === "fruehling_blaetter" || text("deko") === "keine" ? text("deko") as "bw_wellen" | "fruehling_blaetter" | "keine" : undefined,
+        vorlage: text("name"),
+        motiv: text("motiv"),
+      };
+      const step = applyToBook(base, payload.spoken);
       const patch = step.book.snap.fields ?? {};
       const sheet = await renderTemplate({
         ...(payload.custom as Parameters<typeof renderTemplate>[0]),
