@@ -49,6 +49,7 @@ export function withoutInstructed(glance: string, instructed: string): string {
     if (/referenztext|referenz-text|statt des|wortlaut|textinhalt/i.test(sentence)) return false;
     if (/(kleidung|display|produktbild|foto)/i.test(sentence) && /farbe|farb|ci/i.test(sentence)) return false;
     if (/energie/i.test(sentence) && /farbe|farb|grün|gruen/i.test(sentence)) return false;
+    if (/titillium/i.test(notes) && /geist/i.test(sentence)) return false;
     if (!drop.some((pattern) => pattern.test(sentence))) return true;
     return !/fehlt|fehl|statt|abweich|orange|nicht (?:da|sichtbar|vorhanden)|entfernt|ohne/i.test(sentence);
   });
@@ -57,7 +58,7 @@ export function withoutInstructed(glance: string, instructed: string): string {
 }
 
 /** A look at one format. Never a reason to block saving. */
-export async function glanceAt(jpegBase64: string, rules: string, referencePath = "files/referenz/styleguide-seite-4.jpg", measured = "", formatLabel = "", instructed = ""): Promise<string> {
+export async function glanceAt(jpegBase64: string, rules: string, referencePath = "files/referenz/styleguide-seite-4.jpg", measured = "", formatLabel = "", instructed = "", fontRule = ""): Promise<string> {
   const config = openRouterConfig(MODEL_VARIABLE, "anthropic/claude-sonnet-5.5");
   if (!config.configured) return "nicht gelaufen, weil die Prüfung nicht erreichbar ist.";
   if (!jpegBase64) return "nicht gelaufen, weil kein Bild vorlag.";
@@ -72,7 +73,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
         {
           role: "user",
           content: [
-            { type: "text", text: `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nIm 9x16 ist kein Logo vorgesehen.\nAngewiesene Änderungen sind kein Fehler. Melde sie nicht. Deko „keine“ ist eine bewusste Wahl. Fehlende Wellen oder fehlende Blätter sind dann kein Fehler und werden nicht gemeldet. Melde nur CI-Verstöße an gesetzten Flächen und Texten (Headline, Unterzeile, Kachel, CTA, Stern, Logo). Farben im Foto oder Produktbild, also Kleidung und Display, sind kein Verstoß. Die Farben des Energielabels sind gesetzlich vorgegeben und nie ein CI-Fehler. Eine unzulässige Textfarbe außerhalb von Lime, Orange, Schwarz und Weiß bleibt ein Verstoß. Textinhalte des Nutzers, auch der Sterntext, nie mit dem Referenztext vergleichen und nie als Abweichung werten.\nAngewiesen: ${instructed || "keine"}\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"}.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens zwei Sätze zu diesem einen Format.` },
+            { type: "text", text: `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nIm 9x16 ist kein Logo vorgesehen.\nAngewiesene Änderungen sind kein Fehler. Melde sie nicht. Deko „keine“ ist eine bewusste Wahl. Fehlende Wellen oder fehlende Blätter sind dann kein Fehler und werden nicht gemeldet. ${fontRule} Melde nur CI-Verstöße an gesetzten Flächen und Texten (Headline, Unterzeile, Kachel, CTA, Stern, Logo). Farben im Foto oder Produktbild, also Kleidung und Display, sind kein Verstoß. Die Farben des Energielabels sind gesetzlich vorgegeben und nie ein CI-Fehler. Eine unzulässige Textfarbe außerhalb von Lime, Orange, Schwarz und Weiß bleibt ein Verstoß. Textinhalte des Nutzers, auch der Sterntext, nie mit dem Referenztext vergleichen und nie als Abweichung werten.\nAngewiesen: ${instructed || "keine"}\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"}.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens zwei Sätze zu diesem einen Format.` },
             ...images,
           ],
         },
@@ -106,10 +107,11 @@ export async function glanceFormats(
   referencePath: string,
   measured = "",
   instructed = "",
+  fontRule = "",
 ): Promise<string> {
   const picked = formats.filter((format) => format.jpeg);
   const notes = await Promise.all(picked.map(async (format) => {
-    const note = await glanceAt(format.jpeg, rules, referencePath, measured, format.label, instructed);
+    const note = await glanceAt(format.jpeg, rules, referencePath, measured, format.label, instructed, fontRule);
     return `${format.label}: ${note}`;
   }));
   return notes.join("\n");

@@ -443,22 +443,32 @@ export function wavePaintShare(width: number, height: number): number {
   return total ? hit / total : 0;
 }
 
-/** Right edge of `count` chevrons that start just after `textEnd`. */
-export function chevronReach(textEnd: number, fontSize: number, count = 3): number {
-  const tip = fontSize * (58.568 / 73.924);
-  const step = fontSize * (41.08 / 73.924);
+/** Right edge of `count` chevrons. `scale` narrows them before the headline gives way. */
+export function chevronReach(textEnd: number, fontSize: number, count = 3, scale = 1): number {
+  const tip = fontSize * (58.568 / 73.924) * scale;
+  const step = fontSize * (41.08 / 73.924) * scale;
   return textEnd + fontSize * 0.06 + Math.max(0, count - 1) * step + tip;
 }
 
-/** Shrinks the headline until three chevrons fit before `canvasRight`. `origin` is the text's left edge. */
-export function fitHeadlineForChevrons(textWidth: number, fontSize: number, canvasRight: number, origin = 0): { textWidth: number; fontSize: number } {
+/**
+ * Three chevrons have to fit. The arrows narrow first, down to about a third.
+ * The headline font shrinks only when even the narrow arrows do not fit.
+ */
+export function fitHeadlineForChevrons(textWidth: number, fontSize: number, canvasRight: number, origin = 0): { textWidth: number; fontSize: number; arrowScale: number } {
+  let scale = 1;
+  while (scale > 0.3 + 0.001 && chevronReach(origin + textWidth, fontSize, 3, scale) > canvasRight) scale = Math.max(0.3, scale - 0.02);
   let width = textWidth;
   let size = fontSize;
-  while (size > 8 && chevronReach(origin + width, size, 3) > canvasRight) {
+  const hold = fontSize * 0.9;
+  while (size > hold && chevronReach(origin + width, size, 3, scale) > canvasRight) {
     size *= 0.97;
     width *= 0.97;
   }
-  return { textWidth: width, fontSize: size };
+  while (size > 8 && chevronReach(origin + width, size, 3, scale) > canvasRight) {
+    size *= 0.97;
+    width *= 0.97;
+  }
+  return { textWidth: width, fontSize: size, arrowScale: scale };
 }
 
 /** Two lines of similar width. A single word stays on one line. */
@@ -488,13 +498,9 @@ export function fitSublineText(
   widthOf: (sample: string, size: number) => number,
 ): { lines: string[]; size: number; shorten: boolean } {
   const minSize = Math.max(1, headlineSize * 0.35);
-  const preferred = Math.max(minSize, headlineSize * 0.45);
+  const preferred = Math.max(minSize, headlineSize * 0.5);
   const fits = (sample: string, size: number) => widthOf(sample, size) <= maxWidth + 1;
-  if (fits(text, minSize)) {
-    let size = preferred;
-    while (size > minSize + 0.2 && !fits(text, size)) size *= 0.96;
-    return { lines: [text], size: Math.max(minSize, size), shorten: false };
-  }
+  if (fits(text, preferred)) return { lines: [text], size: preferred, shorten: false };
   let size = preferred;
   const pair = (sampleSize: number) => {
     const [left, right] = splitBalanced(text, (line) => widthOf(line, sampleSize));
@@ -519,10 +525,10 @@ export function starLines(text: string): string[] {
   return [words.slice(0, mid).join(" "), words.slice(mid).join(" ")];
 }
 
-export function arrowSpan(start: number, fontSize: number, maxX: number): { end: number; count: number } {
+export function arrowSpan(start: number, fontSize: number, maxX: number, scale = 1): { end: number; count: number } {
   const height = fontSize;
-  const tip = height * (58.568 / 73.924);
-  const step = height * (41.08 / 73.924);
+  const tip = height * (58.568 / 73.924) * scale;
+  const step = height * (41.08 / 73.924) * scale;
   let cursor = start + fontSize * 0.06;
   let count = 0;
   let end = start;
@@ -640,21 +646,24 @@ function applyShift(target: Box, shift: Shift | undefined, width: number, height
   return placed.box;
 }
 
-function energyFrame(width: number, height: number, tall: boolean, product: Box): Box {
+function energyFrame(width: number, height: number, tall: boolean, product: Box, visible?: Box): Box {
   const nameH = height * 0.03;
   const badgeH = nameH * 1.5;
   const badgeW = badgeH * (91.15 / 50.12);
+  if (tall && visible && visible.x > width * 0.24) {
+    return { x: visible.x - badgeW - width * 0.015, y: height - badgeH - height * 0.018, w: badgeW, h: badgeH };
+  }
   if (!tall) return { x: width - badgeW - width * 0.02, y: height * 0.955 - badgeH, w: badgeW, h: badgeH };
   const y = Math.min(product.y + product.h - badgeH * 0.15, height - badgeH - height * 0.012);
   const x = Math.min(width - badgeW - width * 0.02, Math.max(width * 0.62, product.x + product.w - badgeW - width * 0.02));
   return { x, y, w: badgeW, h: badgeH };
 }
 
-function deviceNameBox(width: number, height: number, tall: boolean, product: Box): Box {
-  const badge = energyFrame(width, height, tall, product);
+function deviceNameBox(width: number, height: number, tall: boolean, product: Box, visible?: Box): Box {
+  const badge = energyFrame(width, height, tall, product, visible);
   const nameH = height * 0.03;
   const right = badge.x - width * 0.012;
-  const left = tall ? Math.max(width * 0.28, right - width * 0.42) : width * 0.36;
+  const left = tall && visible && visible.x > width * 0.24 ? width * 0.06 : tall ? Math.max(width * 0.28, right - width * 0.42) : width * 0.36;
   return { x: left, y: badge.y + (badge.h - nameH) / 2, w: Math.max(8, right - left), h: nameH };
 }
 
@@ -915,12 +924,8 @@ function buildKachel(
       || spot.y < h * (tall ? 0.1 : 0.04) - 1
       || spot.x + spot.w > bounds.right + 1
       || spot.y + spot.h > bounds.bottom + 1;
-    const faceGuard = headBox && headBox.w > 2
-      ? { x: headBox.x - w * 0.05, y: headBox.y - w * 0.05, w: headBox.w + w * 0.1, h: headBox.h + w * 0.1 }
-      : undefined;
     const hitsCopy = (spot: Box) => texts.some((item) => item.w > 2 && item.h > 2 && overlaps(spot, item))
       || Boolean(headBox && headBox.w > 2 && overlaps(spot, headBox));
-    let aside: Box | undefined;
     const deviceShare = (spot: Box) => placed.product ? overlapShare(spot, placed.product) : 0;
     const start = placed.stern.w;
     const minSize = start * 0.8;
@@ -943,10 +948,6 @@ function buildKachel(
             h: size,
           };
           if (offCanvas(spot) || hitsCopy(spot)) continue;
-          if (faceGuard && overlaps(spot, faceGuard)) {
-            if (!aside) aside = spot;
-            continue;
-          }
           const share = deviceShare(spot);
           if (share <= 0.05) return spot;
           if (!closest || share < closest.share) closest = { spot, share };
@@ -977,7 +978,7 @@ function buildKachel(
         if (size <= minSize + 0.01) break;
       }
     }
-    const reserve = aside ?? closest?.spot;
+    const reserve = closest?.spot;
     if (reserve) {
       placed.stern.x = reserve.x;
       placed.stern.y = reserve.y;
@@ -1013,7 +1014,7 @@ function buildKachel(
     placed.stern.h = settledStar.h;
   }
   if (deviceMode && placed.stern && fittedPill && fittedPill.w > 2 && fittedTile.w > 2) {
-    const full = Math.max(fittedTile.w * 0.22, fittedTile.w * 0.2125 / 0.48, h * 0.105);
+    const full = Math.max(fittedTile.w * 0.22, fittedTile.w * 0.2125 / 0.48, h * 0.105, Math.min(w, h) * 0.15);
     const floor = Math.max(fittedTile.w * 0.22, h * 0.105);
     const junction = fittedTile.x + fittedTile.w;
     const shelf = Math.min(fittedPill.y + fittedPill.h, fittedTile.y + fittedTile.h);
@@ -1063,12 +1064,11 @@ function buildKachel(
       if (overlapShare(placed.stern, seen) > 0.05) placed.product.y += placed.stern.y + placed.stern.h + h * 0.008 - seen.y;
     }
   }
-  if (!deviceMode && format.id === "pmax-960x1200" && placed.stern && fittedTile.w > 2) {
+  if (!deviceMode && (format.id === "pmax-960x1200" || format.id.endsWith("9x16")) && placed.stern && fittedTile.w > 2) {
     const beforePin = { x: placed.stern.x, y: placed.stern.y, w: placed.stern.w, h: placed.stern.h };
     const ceiling = placed.subline.y + placed.subline.h;
     const ink = tileInk(fittedTile);
-    const faceNear = headBox && headBox.w > 2 ? { x: headBox.x - w * 0.05, y: headBox.y - w * 0.05, w: headBox.w + w * 0.1, h: headBox.h + w * 0.1 } : undefined;
-    const blocked = () => Boolean(faceNear && overlaps(placed.stern!, faceNear)) || ink.some((item) => item.w > 2 && overlaps(placed.stern!, item)) || overlaps(placed.stern!, placed.headline) || overlaps(placed.stern!, placed.subline);
+    const blocked = () => Boolean(headBox && headBox.w > 2 && overlaps(placed.stern!, headBox)) || ink.some((item) => item.w > 2 && overlaps(placed.stern!, item)) || overlaps(placed.stern!, placed.headline) || overlaps(placed.stern!, placed.subline);
     let size = fittedTile.w * 0.2125 / 0.48;
     const minSize = Math.max(fittedTile.w * 0.22, size * 0.8);
     const seat = (next: number) => {
@@ -1082,7 +1082,7 @@ function buildKachel(
       size = Math.max(minSize, size * 0.94);
       seat(size);
       const star = placed.stern;
-      for (let step = 0; step < 16 && faceNear && star && overlaps(star, faceNear); step += 1) {
+      for (let step = 0; step < 36 && headBox && headBox.w > 2 && star && overlaps(star, headBox); step += 1) {
         const previous = star.x;
         star.x -= Math.max(3, size * 0.03);
         if (ink.some((item) => item.w > 2 && overlaps(star, item))) {
@@ -1166,8 +1166,10 @@ function buildKachel(
   if (placed.stern && fittedTile.w > 2 && placed.stern.w * 0.96 < fittedTile.w * 0.2) {
     hints.push(`Der Stern ist zu klein im ${label}.`);
   }
-  if (placed.stern && starLines(stern?.text ?? "").length >= 2 && placed.stern.h * 0.2 < h * 0.02) {
-    hints.push(`Der Stern-Text ist zu klein im ${label}.`);
+  if (placed.stern && placed.stern.h > 2) {
+    const lines = starLines(stern?.text ?? "");
+    const textH = placed.stern.h * (lines.length >= 2 ? 0.2 : 0.34);
+    if (textH < h * 0.02) hints.push(`Der Stern-Text ist zu klein im ${label}.`);
   }
   if (!cta.text.trim() || placed.cta.h < 2 || placed.cta.w < 2) hints.push(`Der CTA fehlt im ${label}.`);
   if (placed.cta.h * 0.5 < h * (format.id.endsWith("9x16") ? 0.022 : format.id.startsWith("pmax") ? 0.03 : 0.025)) {
@@ -1178,7 +1180,13 @@ function buildKachel(
   const seenDevice = deviceMode && placed.product
     ? (productCutout ? visibleProductBox(placed.product, productCutout, tall, -0.1) : placed.product)
     : undefined;
+  const opaqueDevice = productCutout && placed.product ? visibleProductBox(placed.product, productCutout, tall, -0.1) : undefined;
   if (deviceMode && placed.stern && seenDevice && overlapShare(placed.stern, seenDevice) > 0.05) hints.push(`Der Stern überdeckt das Gerät im ${label}.`);
+  if (tall && deviceMode && opaqueDevice && copy.geraetName?.trim()) {
+    const name = deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice);
+    const badge = energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice);
+    if (overlaps(name, opaqueDevice) || overlaps(badge, opaqueDevice)) hints.push(`nicht bestanden: Der Gerätename überlappt das Gerät im ${label}.`);
+  }
   if (placed.stern && placed.logo && placed.logo.w > 2 && overlaps(placed.stern, placed.logo)) hints.push(`Der Stern überdeckt das Logo im ${label}.`);
   if (fittedTile.w > 2 && placed.cta.w > 2 && overlaps(fittedTile, placed.cta)) hints.push(`Die Kachel überlappt die CTA im ${label}.`);
   if (placed.stern && placed.stern.w > 2) {
@@ -1224,6 +1232,9 @@ function buildKachel(
   if (!deviceMode && (tile.w < w * tileBand[0] || tile.w > w * tileBand[1])) hints.push(`Hinweis: Die Kachel-Breite weicht vom Bestand ab im ${label}.`);
   const minCtaH = tall ? 0.038 : 0.07;
   if (placed.cta.h > 2 && placed.cta.h < h * minCtaH) hints.push(`Hinweis: Die CTA-Leiste ist niedriger als im Bestand im ${label}.`);
+  if (cutout?.orangeCloth && (deko?.name === "fruehling_blaetter" || deko?.name === "bw_wellen")) {
+    hints.push("Hinweis: Deko kaum sichtbar vor dem Motiv – Wellen oder keine Deko?");
+  }
   for (const note of [...new Set(caps)]) hints.push(`Hinweis: ${note}.`);
   return {
     id: format.id,
@@ -1240,7 +1251,7 @@ function buildKachel(
     headBox,
     product: placed.product,
     productTilt: deviceMode ? -0.1 : undefined,
-    energy: deviceMode ? energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4)) : undefined,
+    energy: deviceMode ? energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice) : undefined,
     headline: { ...headline, box: placed.headline },
     subline: { ...subline, box: placed.subline },
     stoerer: { typ: "stern", box: placed.stern ?? box(0, 0, 0, 0), preis: copy.preis, zusatz: copy.preisZusatz, einmal: copy.einmalpreis, aktion: copy.sternText ?? "" },
@@ -1258,7 +1269,7 @@ function buildKachel(
     deko,
     headlinePfeile: !shifts.pfeile?.hidden,
     sternColor: copy.sternColor,
-    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4)) } : undefined,
+    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice) } : undefined,
     textScale: {
       preisAlt: shifts.stattpreis?.scale && shifts.stattpreis.scale > 0 ? shifts.stattpreis.scale : 1,
       alt: shifts.altwert?.scale && shifts.altwert.scale > 0 ? shifts.altwert.scale : 1,

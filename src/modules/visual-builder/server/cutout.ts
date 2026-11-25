@@ -7,6 +7,8 @@ export type Cutout = {
   imageH: number;
   opaque: ImageBox;
   head: ImageBox;
+  /** The clothing below the face is mostly orange, so orange deco disappears. */
+  orangeCloth?: boolean;
 };
 
 function skin(r: number, g: number, b: number): boolean {
@@ -78,7 +80,21 @@ export function measureCutout(bytes: Buffer): Cutout | undefined {
   } else {
     head = { x: minX + opaque.w * 0.2, y: minY, w: opaque.w * 0.6, h: opaque.h * 0.22 };
   }
-  return { imageW: width, imageH: height, opaque, head };
+  let orange = 0;
+  let cloth = 0;
+  const bodyTop = Math.min(maxY, Math.round(head.y + head.h));
+  for (let y = bodyTop; y <= maxY; y += 3) {
+    for (let x = minX; x <= maxX; x += 3) {
+      const index = (y * width + x) * 4;
+      if ((data[index + 3] ?? 0) < 24) continue;
+      cloth += 1;
+      const red = data[index] ?? 0;
+      const green = data[index + 1] ?? 0;
+      const blue = data[index + 2] ?? 0;
+      if (red > 150 && red > green + 35 && red > blue + 40 && blue < 130) orange += 1;
+    }
+  }
+  return { imageW: width, imageH: height, opaque, head, orangeCloth: cloth > 20 && orange / cloth > 0.22 };
 }
 
 function layoutAt(spec: {

@@ -368,14 +368,14 @@ function drawWaves(ctx: CanvasRenderingContext2D, width: number, height: number,
   ctx.restore();
 }
 
-function drawArrows(ctx: CanvasRenderingContext2D, x: number, y: number, fontSize: number, count = 3) {
+function drawArrows(ctx: CanvasRenderingContext2D, x: number, y: number, fontSize: number, count = 3, scale = 1) {
   const colors = ["#D7EB00", "#818D00", "#414700"];
   const height = fontSize;
   const top = y;
-  const notch = height * (21.606 / 73.924);
-  const mid = height * (36.962 / 73.924);
-  const tip = height * (58.568 / 73.924);
-  const step = height * (41.08 / 73.924);
+  const notch = height * (21.606 / 73.924) * scale;
+  const mid = height * (36.962 / 73.924) * scale;
+  const tip = height * (58.568 / 73.924) * scale;
+  const step = height * (41.08 / 73.924) * scale;
   let cursor = x + fontSize * 0.06;
   for (let index = 0; index < count; index += 1) {
     ctx.fillStyle = colors[index] ?? "#414700";
@@ -648,17 +648,17 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
     ctx.textBaseline = "top";
     const headText = scene.headline.lines[0] ?? "";
     const arrowRight = scene.id === "tiktok-9x16" ? scene.width * 0.84 : scene.width * 0.96;
-    let headSize = sizeForWidth(ctx, headText, 900, "Titillium Web", scene.headline.box.w);
+    let headSize = Math.min(scene.headline.box.h, sizeForWidth(ctx, headText, 900, "Titillium Web", scene.headline.box.w));
     ctx.font = face(900, headSize, "Titillium Web");
     const measured = ctx.measureText(headText).width;
-    const fitted = scene.headlinePfeile ? fitHeadlineForChevrons(measured, headSize, arrowRight, scene.headline.box.x) : { textWidth: measured, fontSize: headSize };
+    const fitted = scene.headlinePfeile ? fitHeadlineForChevrons(measured, headSize, arrowRight, scene.headline.box.x) : { textWidth: measured, fontSize: headSize, arrowScale: 1 };
     headSize = fitted.fontSize;
     ctx.font = face(900, headSize, "Titillium Web");
     ctx.fillText(headText, scene.headline.box.x, scene.headline.box.y);
     const headlineEnd = scene.headline.box.x + ctx.measureText(headText).width;
     if (scene.headlinePfeile) {
-      const span = arrowSpan(headlineEnd, headSize, arrowRight);
-      if (span.count > 0) drawArrows(ctx, headlineEnd, scene.headline.box.y, headSize, span.count);
+      const span = arrowSpan(headlineEnd, headSize, arrowRight, fitted.arrowScale);
+      if (span.count > 0) drawArrows(ctx, headlineEnd, scene.headline.box.y, headSize, span.count, fitted.arrowScale);
     }
     if (scene.pill) {
       drawDeviceOffer(ctx, scene);

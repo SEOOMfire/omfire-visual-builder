@@ -90,6 +90,8 @@ function raster(book: AdjustBook, format = OTELO_FORMATS[3]): Buffer {
   fill(scene.subline.box, lime ? [215, 235, 0] : [250, 90, 20]);
   fill(scene.cta.box, [215, 235, 0]);
   fill(scene.stern?.box, [250, 90, 20]);
+  fill(scene.kachel?.box, [180, 200, 0]);
+  fill(scene.figure, [200, 120, 80]);
   const text = `${scene.cta.text}|${scene.stern?.text ?? ""}|${scene.kachel?.alt ?? ""}|${scene.deko?.name ?? ""}`;
   for (let index = 0; index < text.length && index < width; index += 1) {
     png.data[index * 4] = text.charCodeAt(index);
@@ -208,12 +210,29 @@ test("the image check drops changes the user asked for", () => {
   assert.match(quiet, /Aufbau/);
 });
 
-test("a wide headline shrinks until three chevrons fit", () => {
+test("a wide headline narrows the arrows before the type shrinks", () => {
   const fitted = fitHeadlineForChevrons(900, 140, 1080);
-  assert.ok(chevronReach(fitted.textWidth, fitted.fontSize, 3) <= 1080);
-  assert.ok(fitted.fontSize < 140);
-  const span = arrowSpan(fitted.textWidth, fitted.fontSize, 1080);
+  assert.ok(chevronReach(fitted.textWidth, fitted.fontSize, 3, fitted.arrowScale) <= 1080);
+  assert.ok(fitted.arrowScale < 1 || fitted.fontSize < 140);
+  assert.ok(fitted.arrowScale >= 0.3 - 0.001);
+  const span = arrowSpan(fitted.textWidth, fitted.fontSize, 1080, fitted.arrowScale);
   assert.equal(span.count, 3);
+});
+
+test("ENDLOS SURFEN keeps at least 90 percent of the BLACK WEEK headline", () => {
+    const widthOf = (chars: number, size: number) => chars * size * 0.5;
+  for (const format of OTELO_FORMATS) {
+    const scene = buildScene(format, "kachel_person", base());
+    const right = format.id === "tiktok-9x16" ? format.w * 0.84 : format.w * 0.96;
+    const fit = (chars: number) => {
+      const box = scene.headline.box;
+      const natural = Math.min(box.h, (box.w / Math.max(1, widthOf(chars, 100))) * 100);
+      return fitHeadlineForChevrons(widthOf(chars, natural), natural, right, box.x);
+    };
+    const week = fit(10);
+    const endless = fit(13);
+    assert.ok(endless.fontSize >= week.fontSize * 0.9 - 0.5, `${format.id} ${endless.fontSize.toFixed(1)} / ${week.fontSize.toFixed(1)}`);
+  }
 });
 
 test("three chevrons fit for headlines of 8, 11, 13 and 16 characters", () => {
@@ -225,23 +244,25 @@ test("three chevrons fit for headlines of 8, 11, 13 and 16 characters", () => {
       const textWidth = Math.min(scene.headline.box.w, fullWidth);
       const font = scene.headline.box.h * (textWidth / fullWidth);
       const fitted = fitHeadlineForChevrons(textWidth, font, right, scene.headline.box.x);
-      const span = arrowSpan(scene.headline.box.x + fitted.textWidth, fitted.fontSize, right);
+      const span = arrowSpan(scene.headline.box.x + fitted.textWidth, fitted.fontSize, right, fitted.arrowScale);
       assert.equal(span.count, 3, `${chars} ${format.id} ${span.count}`);
       assert.ok(span.end <= right + 1, `${chars} ${format.id} ${span.end.toFixed(0)}`);
     }
   }
 });
 
-test("a long subline wraps before it drops below 35 percent of the headline", () => {
+test("a long subline stays at least 35 percent of the headline in every format", () => {
   const text = "UNBEGRENZTES DATENVOLUMEN IM VODAFONE-NETZ";
-  const widthOf = (sample: string, size: number) => sample.length * size * 0.56;
-  const fitted = fitSublineText(text, 120, 700, widthOf);
-  assert.ok(fitted.size >= 120 * 0.35 - 0.2);
-  assert.equal(fitted.lines.length, 2);
-  assert.equal(fitted.shorten, false);
-  const short = fitSublineText("KURZER SATZ", 120, 700, widthOf);
-  assert.deepEqual(short.lines, ["KURZER SATZ"]);
-  assert.equal(short.shorten, false);
+  const widthOf = (sample: string, size: number) => sample.length * size * 0.62;
+  for (const format of OTELO_FORMATS) {
+    const scene = buildScene(format, "kachel_person", { ...base(), headline: "ENDLOS SURFEN", subline: text, deko: "keine" });
+    const right = format.id === "tiktok-9x16" ? format.w * 0.84 : format.w * 0.96;
+    const maxW = Math.min(scene.subline.box.w, right - scene.subline.box.x);
+    const fitted = fitSublineText(text, scene.headline.box.h, maxW, widthOf);
+    assert.ok(fitted.size >= scene.headline.box.h * 0.35 - 0.2, `${format.id} ${fitted.size.toFixed(1)}`);
+    assert.equal(fitted.lines.length, 2, format.id);
+    assert.equal(fitted.shorten, false, format.id);
+  }
 });
 
 test("more air keeps the tile off the CTA", () => {

@@ -99,18 +99,23 @@ export async function POST(request: Request) {
     try {
       const sheet = await renderTemplate(payload.custom as Parameters<typeof renderTemplate>[0]);
       const deko = typeof payload.custom.deko === "string" ? payload.custom.deko : "";
-      const instructed = deko === "keine" ? "Deko ist auf Wunsch keine." : deko === "fruehling_blaetter" ? "Deko ist auf Wunsch Blätter." : "";
+      const kachel = String(payload.custom.name).startsWith("kachel");
+      const fontRule = kachel
+        ? "Unterzeile ist Titillium Web. Geist gilt nur für tarif, young, product und product_person."
+        : "Unterzeile ist Geist.";
+      const instructed = [deko === "keine" ? "Deko ist auf Wunsch keine." : deko === "fruehling_blaetter" ? "Deko ist auf Wunsch Blätter." : "", fontRule].filter(Boolean).join(" ");
       const glance = payload.glance
         ? await (await import("../../../../src/modules/visual-builder/server/review")).glanceFormats(
           sheet.formats.map((format) => ({ label: format.label, jpeg: format.pngBase64 })),
           "",
           String(payload.custom.name).startsWith("kachel_geraet")
             ? "files/referenz/banner/Meta_Q4_1126_BW_i17_Young_1x1.png"
-            : String(payload.custom.name).startsWith("kachel")
+            : kachel
               ? "files/referenz/banner/Meta_Q4_1126_BW_Young_Classic_Woman_1x1.png"
               : "files/referenz/styleguide-seite-4.jpg",
           sheet.measureText,
           instructed,
+          fontRule,
         )
         : "";
       return Response.json({

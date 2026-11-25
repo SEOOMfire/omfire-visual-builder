@@ -195,6 +195,29 @@ test("six person motifs stay clear of a failing check on both text sets", () => 
   }
 });
 
+test("orange clothing only hints that the deco disappears", () => {
+  const cutout: Cutout = {
+    imageW: 400,
+    imageH: 800,
+    opaque: { x: 80, y: 20, w: 240, h: 760 },
+    head: { x: 140, y: 30, w: 120, h: 140 },
+    orangeCloth: true,
+  };
+  const scene = buildScene(OTELO_FORMATS[0], "kachel_person", { ...copy(), deko: "fruehling_blaetter" }, {}, cutout);
+  assert.ok(scene.hints.some((hint) => hint.startsWith("Hinweis:") && hint.includes("Deko kaum sichtbar")));
+  assert.equal(scene.hints.some((hint) => hint.includes("Deko kaum sichtbar") && !hint.startsWith("Hinweis:")), false);
+});
+
+test("the device name stays off the visible phone", () => {
+  const phone: Cutout = { imageW: 3000, imageH: 2000, opaque: { x: 1140, y: 96, w: 750, h: 1800 }, head: { x: 0, y: 0, w: 1, h: 1 } };
+  const fields = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57" };
+  for (const format of OTELO_FORMATS) {
+    const scene = buildScene(format, "kachel_geraet", fields, {}, undefined, undefined, phone);
+    assert.equal(scene.hints.some((hint) => hint.includes("Stern-Text ist zu klein")), false, `${format.id} ${scene.hints.join(" | ")}`);
+    if (format.id.endsWith("9x16")) assert.equal(scene.hints.some((hint) => hint.includes("Gerätename überlappt")), false, scene.hints.join(" | "));
+  }
+});
+
 test("chevrons stay when the deco is leaves", () => {
   const scene = buildScene(OTELO_FORMATS[3], "kachel_person", { ...copy(), deko: "fruehling_blaetter" });
   assert.equal(scene.headlinePfeile, true);
