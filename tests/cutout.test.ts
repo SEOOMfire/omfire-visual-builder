@@ -87,7 +87,34 @@ test("transparent margins are ignored and the head stays in the frame", () => {
     assert.equal(scene.hints.some((hint) => /überlappt/.test(hint)), false, scene.hints.join(" | "));
     if (scene.stern && scene.kachel) {
       assert.ok(scene.stern.box.w * 0.96 >= scene.kachel.box.w * 0.2, format.id);
+      if (format.id === "pmax-960x1200") {
+        const center = scene.stern.box.y + scene.stern.box.h / 2;
+        assert.ok(center < scene.kachel.box.y + scene.kachel.box.h * 0.4, `960 Stern sitzt bei ${center.toFixed(0)}`);
+      }
     }
+  }
+});
+
+test("the device star uses the visible phone and the pill follows its text", () => {
+  const phone: Cutout = { imageW: 3000, imageH: 2000, opaque: { x: 1140, y: 96, w: 750, h: 1800 }, head: { x: 0, y: 0, w: 1, h: 1 } };
+  const fields = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57" };
+  for (const format of OTELO_FORMATS) {
+    const scene = buildScene(format, "kachel_geraet", fields, {}, undefined, undefined, phone);
+    const pill = scene.pill?.box;
+    const tile = scene.kachel?.box;
+    const star = scene.stern?.box;
+    assert.ok(pill && tile && star, format.id);
+    const shared = Math.max(0, Math.min(pill.x + pill.w, tile.x + tile.w) - Math.max(pill.x, tile.x));
+    assert.ok(shared <= pill.w * 0.1 + 2, `${format.id} Pille ${shared.toFixed(0)}`);
+    assert.ok(pill.w > pill.h * 1.6, format.id);
+    assert.ok(star.w >= tile.w * 0.2, `${format.id} ${star.w.toFixed(0)} / ${tile.w.toFixed(0)}`);
+    const cx = star.x + star.w / 2;
+    const cy = star.y + star.h / 2;
+    assert.equal(cx > pill.x && cx < pill.x + pill.w && cy > pill.y && cy < pill.y + pill.h, false, format.id);
+    const meetsPill = star.x < pill.x + pill.w && pill.x < star.x + star.w && star.y < pill.y + pill.h && pill.y < star.y + star.h;
+    const meetsTile = star.x < tile.x + tile.w && tile.x < star.x + star.w && star.y < tile.y + tile.h && tile.y < star.y + star.h;
+    assert.equal(meetsPill || meetsTile, true, format.id);
+    assert.equal(scene.hints.some((hint) => hint.includes("nicht bestanden") || hint.includes("überdeckt das Gerät") || hint.includes("Pillentext")), false, `${format.id} ${scene.hints.join(" | ")}`);
   }
 });
 

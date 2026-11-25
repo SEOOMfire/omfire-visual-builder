@@ -196,6 +196,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
   const images: Record<string, string> = {};
   images[logo.path] = await asDataUrl(logo.path);
   const cutout = person ? measureCutout(await readClientFile("otelo", person.path)) : undefined;
+  const productCutout = device ? measureCutout(await readClientFile("otelo", device.path)) : undefined;
   if (person) images[person.path] = await asDataUrl(person.path);
   if (device) images[device.path] = await asDataUrl(device.path);
   if (energy && wantsProduct) images[energy.path] = await asDataUrl(energy.path);
@@ -229,7 +230,7 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
         hidden: parts.some((item) => item?.hidden),
       }];
     }));
-    const scene = buildScene(format, name, copy, shifts, cutout, input.layout?.follows);
+    const scene = buildScene(format, name, copy, shifts, cutout, input.layout?.follows, productCutout);
     scene.logoKey = logo.path;
     if (person) scene.figureKey = person.path;
     if (device) scene.productKey = device.path;

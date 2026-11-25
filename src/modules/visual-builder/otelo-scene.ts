@@ -264,6 +264,92 @@ function cornerStar(anchor: Box, size: number, which: "tr" | "tl", ceiling: numb
   return { x, y, w: size, h: size };
 }
 
+function rotatedAabb(rect: Box, cx: number, cy: number, radians: number): Box {
+  const points = [
+    [rect.x, rect.y],
+    [rect.x + rect.w, rect.y],
+    [rect.x, rect.y + rect.h],
+    [rect.x + rect.w, rect.y + rect.h],
+  ].map(([x, y]) => {
+    const dx = x - cx;
+    const dy = y - cy;
+    const c = Math.cos(radians);
+    const s = Math.sin(radians);
+    return [cx + dx * c - dy * s, cy + dx * s + dy * c] as const;
+  });
+  const xs = points.map((point) => point[0]);
+  const ys = points.map((point) => point[1]);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+/** The phone's opaque pixels inside the layout box, after the same fit and tilt as the paint. */
+export function visibleProductBox(box: Box, cutout: Cutout, tall: boolean, tilt = -0.1): Box {
+  const aspect = cutout.imageW / Math.max(1, cutout.imageH);
+  const height = box.h;
+  const width = height * aspect;
+  const centerX = box.x + box.w * 0.5;
+  const topFrac = cutout.opaque.y / Math.max(1, cutout.imageH);
+  const centerY = tall ? box.y + height * (0.5 - topFrac) : box.y + height * 0.5;
+  const left = centerX - width / 2;
+  const top = centerY - height / 2;
+  const opaque = {
+    x: left + (cutout.opaque.x / cutout.imageW) * width,
+    y: top + (cutout.opaque.y / cutout.imageH) * height,
+    w: (cutout.opaque.w / cutout.imageW) * width,
+    h: (cutout.opaque.h / cutout.imageH) * height,
+  };
+  return rotatedAabb(opaque, centerX, centerY, tilt);
+}
+
+function glyphWidth(text: string, fontSize: number): number {
+  return Math.max(1, text.length) * fontSize * 0.56;
+}
+
+function lineBox(centerX: number, centerY: number, text: string, fontSize: number): Box {
+  const width = glyphWidth(text, fontSize);
+  const height = fontSize * 1.2;
+  return { x: centerX - width / 2, y: centerY - height / 2, w: width, h: height };
+}
+
+function deviceGlyphs(tile: Box, pill: Box, copy: SceneCopy): Array<[string, Box]> {
+  const once = copy.einmalpreis || "1 €";
+  const priceSize = Math.min(tile.h * 0.34, (tile.w * 0.82) / Math.max(1, once.length * 0.56));
+  const items: Array<[string, Box]> = [
+    ["Einmalig", lineBox(tile.x + tile.w / 2, tile.y + tile.h * 0.18, "Einmalig", tile.h * 0.13)],
+    ["Einmalpreis", lineBox(tile.x + tile.w / 2, tile.y + tile.h * (copy.preisAlt ? 0.46 : 0.52), once, priceSize)],
+  ];
+  if (copy.einmalpreisZusatz) items.push(["Zusatz", lineBox(tile.x + tile.w / 2, tile.y + tile.h * 0.7, copy.einmalpreisZusatz, tile.h * 0.12)]);
+  if (copy.preisAlt) {
+    const stattSize = Math.max(priceSize * 0.35, priceSize * 0.45);
+    items.push(["statt-Preis", lineBox(tile.x + tile.w / 2, tile.y + tile.h * 0.86, `statt ${copy.preisAlt}`, stattSize)]);
+  }
+  const pillPrice = `+ ${copy.preis || "19,99 €"}`;
+  const pillExtra = copy.preisZusatz || "pro Monat";
+  items.push(["Pillentext", lineBox(pill.x + pill.w / 2, pill.y + pill.h * 0.38, pillPrice, Math.min(pill.h * 0.34, (pill.w * 0.82) / Math.max(1, pillPrice.length * 0.56)))]);
+  items.push(["Pillentext", lineBox(pill.x + pill.w / 2, pill.y + pill.h * 0.72, pillExtra, Math.min(pill.h * 0.22, (pill.w * 0.82) / Math.max(1, pillExtra.length * 0.56)))]);
+  return items;
+}
+
+function devicePill(tile: Box, price: string, extra: string): { box: Box; text: Box } {
+  const height = tile.h * 0.52;
+  const priceSize = height * 0.34;
+  const extraSize = height * 0.22;
+  const textW = Math.max(glyphWidth(`+ ${price || "19,99 €"}`, priceSize), glyphWidth(extra || "pro Monat", extraSize));
+  const pad = Math.max(height * 0.4, textW * 0.18);
+  const width = textW + pad * 2;
+  const box = {
+    x: tile.x + tile.w - width * 0.1,
+    y: tile.y + (tile.h - height) / 2,
+    w: width,
+    h: height,
+  };
+  return { box, text: { x: box.x + pad, y: box.y + height * 0.14, w: textW, h: height * 0.72 } };
+}
+
 function overlapShare(left: Box, right: Box): number {
   const w = Math.max(0, Math.min(left.x + left.w, right.x + right.w) - Math.max(left.x, right.x));
   const h = Math.max(0, Math.min(left.y + left.h, right.y + right.h) - Math.max(left.y, right.y));
@@ -516,6 +602,7 @@ function buildKachel(
   shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko" | "kachel" | "pfeile" | "stattpreis" | "altwert" | "zusatz" | "einmalig" | "geraetename", Shift>>,
   cutout?: Cutout,
   follows?: readonly SquareFollow[],
+  productCutout?: Cutout,
 ): OteloScene {
   const { w, h } = format;
   const wide = w / h > 1.5;
@@ -543,9 +630,9 @@ function buildKachel(
     : wide
       ? box(left, subline.box.y + subline.box.h + h * 0.035, w * 0.22, h * 0.42)
       : box(left, tall ? h * 0.28 : h * 0.3, w * (tall ? 0.5 : 0.45), tall ? h * 0.28 : h * 0.4);
-  const pillRaw = deviceMode
-    ? box(tileRaw.x + tileRaw.w - tileRaw.w * 0.16, tileRaw.y + tileRaw.h * 0.2, Math.min(tall ? w * 0.32 : w, Math.max(tileRaw.h * 1.7, w * 0.24)), tileRaw.h * 0.58)
-    : undefined;
+  const pillBuilt = deviceMode ? devicePill(tileRaw, copy.preis, copy.preisZusatz) : undefined;
+  const pillRaw = pillBuilt?.box;
+  const pillTextRaw = pillBuilt?.text;
   const tile = mirrorBox(tileRaw, w, flip);
   const logoW = w * 0.25;
   const logoTop = h * 0.94 - logoW / 5.58;
@@ -660,11 +747,6 @@ function buildKachel(
     clear(placed.headline);
     clear(placed.subline);
   }
-  if (deviceMode && placed.product && fittedPill && fittedPill.w > 2 && placed.product.x > fittedPill.x + fittedPill.w * 0.35 && fittedPill.x + fittedPill.w > placed.product.x - w * 0.012) {
-    const limit = placed.product.x - w * 0.012;
-    fittedPill.w = Math.max(w * 0.18, limit - fittedPill.x);
-    if (fittedPill.x + fittedPill.w > limit) fittedPill.x = Math.max(w * 0.05, limit - fittedPill.w);
-  }
   if (placed.figure && headBox && figure) {
     headBox = {
       x: headBox.x + (placed.figure.x - figure.x),
@@ -758,7 +840,7 @@ function buildKachel(
       return;
     }
   };
-  settleStar();
+  if (!deviceMode) settleStar();
   const settledStar = placed.stern ? { x: placed.stern.x, y: placed.stern.y, w: placed.stern.w, h: placed.stern.h } : undefined;
   for (const follow of follows ?? []) {
     const wanted = follow.targets.some((token) => token === format.id || token === `${w}x${h}` || format.id.endsWith(token) || (token === "9x16" && format.id.endsWith("9x16")) || (token === "1x1" && format.id.endsWith("1x1")));
@@ -778,12 +860,90 @@ function buildKachel(
     target.w = moved.w;
     target.h = moved.h;
   }
-  settleStar();
-  if (placed.stern && settledStar && (placed.stern.y < Math.max(placed.headline.y + placed.headline.h, placed.subline.y + placed.subline.h) - 1 || overlaps(placed.stern, placed.cta) || (placed.pill && overlaps(placed.stern, placed.pill)) || (placed.product && overlapShare(placed.stern, placed.product) > 0.05))) {
+  if (!deviceMode) settleStar();
+  if (!deviceMode && placed.stern && settledStar && (placed.stern.y < Math.max(placed.headline.y + placed.headline.h, placed.subline.y + placed.subline.h) - 1 || overlaps(placed.stern, placed.cta) || (placed.pill && overlaps(placed.stern, placed.pill)) || (placed.product && overlapShare(placed.stern, placed.product) > 0.05))) {
     placed.stern.x = settledStar.x;
     placed.stern.y = settledStar.y;
     placed.stern.w = settledStar.w;
     placed.stern.h = settledStar.h;
+  }
+  if (deviceMode && placed.stern && fittedPill && fittedPill.w > 2 && fittedTile.w > 2) {
+    const full = Math.max(fittedTile.w * 0.22, fittedTile.w * 0.2125 / 0.48, h * 0.105);
+    const floor = Math.max(fittedTile.w * 0.22, h * 0.105);
+    const junction = fittedTile.x + fittedTile.w;
+    const shelf = Math.min(fittedPill.y + fittedPill.h, fittedTile.y + fittedTile.h);
+    const glyphs = deviceGlyphs(fittedTile, fittedPill, copy);
+    const seen = productCutout && placed.product ? visibleProductBox(placed.product, productCutout, tall, -0.1) : undefined;
+    const safeRight = w * (tiktok ? 0.84 : 0.96);
+    let best: { x: number; y: number; size: number; score: number } | undefined;
+    for (let size = full; size >= floor - 0.5; size = Math.max(floor, size * 0.94)) {
+      const corner = { x: junction - size * 0.22, y: shelf - size * 0.18, w: size * 0.5, h: size * 0.28 };
+      for (let row = 0; row <= 18; row += 1) {
+        for (let col = 0; col <= 16; col += 1) {
+          const x = junction - size * 0.72 + col * size * 0.06;
+          const y = shelf - size * 0.28 + row * size * 0.045;
+          const candidate = { x, y, w: size, h: size };
+          if (x < w * 0.03 || x + size > safeRight) continue;
+          const cx = x + size / 2;
+          const cy = y + size / 2;
+          const inside = (shape: Box) => cx > shape.x && cx < shape.x + shape.w && cy > shape.y && cy < shape.y + shape.h;
+          if (inside(fittedPill) || inside(fittedTile)) continue;
+          if (!overlaps(candidate, fittedPill) && !overlaps(candidate, fittedTile)) continue;
+          if (!overlaps(candidate, corner)) continue;
+          if (glyphs.some((item) => overlaps(candidate, item[1]))) continue;
+          if (overlaps(candidate, placed.headline) || overlaps(candidate, placed.subline) || (placed.cta.w > 2 && overlaps(candidate, placed.cta))) continue;
+          if (seen && overlapShare(candidate, seen) > 0.05) continue;
+          const onPill = overlaps(candidate, fittedPill) ? 0 : 12;
+          const score = (full - size) * 4 + row + Math.abs(col - 8) * 0.5 + onPill;
+          if (!best || score < best.score) best = { x, y, size, score };
+        }
+      }
+      if (best || size <= floor + 0.5) break;
+    }
+    const size = best?.size ?? full;
+    placed.stern.w = size;
+    placed.stern.h = size;
+    placed.stern.x = best?.x ?? junction - size * 0.2;
+    placed.stern.y = best?.y ?? shelf + h * 0.01;
+    if (placed.cta.w > 2 && overlaps(placed.stern, placed.cta)) {
+      const logoTop = placed.logo && placed.logo.w > 2 ? placed.logo.y : h;
+      const need = placed.stern.y + placed.stern.h + h * 0.012;
+      const maxTop = logoTop - placed.cta.h - h * 0.016;
+      if (need <= maxTop) placed.cta.y = Math.max(placed.cta.y, need);
+    }
+    if (tall && placed.product && placed.cta.w > 2) {
+      const under = placed.cta.y + placed.cta.h + h * 0.006;
+      if (placed.product.y < under) placed.product.y = under;
+      const seen = productCutout ? visibleProductBox(placed.product, productCutout, true, -0.1) : placed.product;
+      if (overlapShare(placed.stern, seen) > 0.05) placed.product.y += placed.stern.y + placed.stern.h + h * 0.008 - seen.y;
+    }
+  }
+  if (!deviceMode && format.id === "pmax-960x1200" && placed.stern && fittedTile.w > 2) {
+    const ceiling = placed.subline.y + placed.subline.h;
+    const ink = tileInk(fittedTile);
+    const blocked = () => Boolean(headBox && headBox.w > 2 && overlaps(placed.stern!, headBox)) || ink.some((item) => item.w > 2 && overlaps(placed.stern!, item)) || overlaps(placed.stern!, placed.headline) || overlaps(placed.stern!, placed.subline);
+    let size = fittedTile.w * 0.2125 / 0.48;
+    const minSize = Math.max(fittedTile.w * 0.22, size * 0.8);
+    const seat = (next: number) => {
+      placed.stern!.w = next;
+      placed.stern!.h = next;
+      placed.stern!.y = Math.max(ceiling + 1, fittedTile.y - next * 0.12);
+      placed.stern!.x = fittedTile.x + fittedTile.w - next * 0.28;
+    };
+    seat(size);
+    while (blocked() && size > minSize + 0.5) {
+      size = Math.max(minSize, size * 0.94);
+      seat(size);
+      const star = placed.stern;
+      for (let step = 0; step < 16 && headBox && star && overlaps(star, headBox); step += 1) {
+        const previous = star.x;
+        star.x -= Math.max(3, size * 0.03);
+        if (ink.some((item) => item.w > 2 && overlaps(star, item))) {
+          star.x = previous;
+          break;
+        }
+      }
+    }
   }
   const gap = h * 0.015;
   const floor = h * (tiktok ? 0.78 : 0.955);
@@ -854,22 +1014,19 @@ function buildKachel(
   }
   if (deviceMode && placed.product && placed.product.h < h * (tall ? 0.42 : 0.55)) hints.push(`Das Gerät ist zu klein im ${label}.`);
   if (placed.stern && headBox && headBox.w > 2 && overlaps(placed.stern, headBox)) hints.push(`Der Stern überdeckt das Gesicht im ${label}.`);
-  if (deviceMode && placed.stern && placed.product && overlapShare(placed.stern, placed.product) > 0.05) hints.push(`Der Stern überdeckt das Gerät im ${label}.`);
+  const seenDevice = deviceMode && placed.product
+    ? (productCutout ? visibleProductBox(placed.product, productCutout, tall, -0.1) : placed.product)
+    : undefined;
+  if (deviceMode && placed.stern && seenDevice && overlapShare(placed.stern, seenDevice) > 0.05) hints.push(`Der Stern überdeckt das Gerät im ${label}.`);
   if (placed.stern && placed.logo && placed.logo.w > 2 && overlaps(placed.stern, placed.logo)) hints.push(`Der Stern überdeckt das Logo im ${label}.`);
   if (fittedTile.w > 2 && placed.cta.w > 2 && overlaps(fittedTile, placed.cta)) hints.push(`Die Kachel überlappt die CTA im ${label}.`);
   if (placed.stern && placed.stern.w > 2) {
-    const offerInk = [
-      ["Einmalpreis", { x: fittedTile.x + fittedTile.w * 0.14, y: fittedTile.y + fittedTile.h * 0.08, w: fittedTile.w * 0.72, h: fittedTile.h * 0.14 }],
-      ["Einmalpreis", { x: fittedTile.x + fittedTile.w * 0.2, y: fittedTile.y + fittedTile.h * 0.32, w: fittedTile.w * 0.6, h: fittedTile.h * 0.22 }],
-      ["statt-Preis", { x: fittedTile.x + fittedTile.w * 0.18, y: fittedTile.y + fittedTile.h * 0.76, w: fittedTile.w * 0.64, h: fittedTile.h * 0.14 }],
-    ] as Array<[string, Box]>;
     const ink = tileInk(fittedTile);
     const covered: Array<[string, Box]> = [
       ["Headline", placed.headline],
       ["Unterzeile", placed.subline],
       ["CTA", placed.cta],
-      ...(deviceMode ? offerInk : [["Datenmenge", ink[0] ?? box(0, 0, 0, 0)], ["Altwert", ink[1] ?? box(0, 0, 0, 0)], ["Preis", ink[2] ?? box(0, 0, 0, 0)]] as Array<[string, Box]>),
-      ...(placed.pill && placed.pill.w > 2 ? [["Pille", placed.pill] as [string, Box]] : []),
+      ...(deviceMode && placed.pill && placed.pill.w > 2 ? deviceGlyphs(fittedTile, placed.pill, copy) : [["Datenmenge", ink[0] ?? box(0, 0, 0, 0)], ["Altwert", ink[1] ?? box(0, 0, 0, 0)], ["Preis", ink[2] ?? box(0, 0, 0, 0)]] as Array<[string, Box]>),
     ];
     const hit = covered.filter((item) => item[1].w > 2 && item[1].h > 2 && overlaps(placed.stern!, item[1]));
     if (hit.length) hints.push(`nicht bestanden: Der Stern überdeckt ${[...new Set(hit.map((item) => item[0]))].join(" und ")} im ${label}.`);
@@ -884,9 +1041,15 @@ function buildKachel(
   }
   if (placed.logo && placed.logo.w > 2 && placed.cta.w > 2 && overlaps(placed.cta, placed.logo)) hints.push(`Das Logo überlappt die CTA im ${label}.`);
   if (tall && deviceMode && placed.product && placed.cta.w > 2 && overlaps(placed.product, placed.cta)) hints.push(`Das Gerät überlappt die CTA im ${label}.`);
-  if (deviceMode && placed.pill && placed.stern) {
-    const text = insetBox(placed.pill, 0.28);
-    if (overlaps(placed.stern, text)) hints.push(`Der Stern überdeckt den Pillentext im ${label}.`);
+  if (deviceMode && placed.pill && placed.pill.w > 2) {
+    const textW = Math.max(glyphWidth(`+ ${copy.preis || "19,99 €"}`, placed.pill.h * 0.34), glyphWidth(copy.preisZusatz || "pro Monat", placed.pill.h * 0.22));
+    const pad = Math.max(0, (placed.pill.w - textW) / 2);
+    const pillText = { x: placed.pill.x + pad, y: placed.pill.y + placed.pill.h * 0.14, w: textW, h: placed.pill.h * 0.72 };
+    const inside = pillText.x >= placed.pill.x - 1 && pillText.y >= placed.pill.y - 1 && pillText.x + pillText.w <= placed.pill.x + placed.pill.w + 1 && pillText.y + pillText.h <= placed.pill.y + placed.pill.h + 1;
+    if (!inside) hints.push(`nicht bestanden: Der Pillentext liegt nicht in der Pille im ${label}.`);
+    if (overlaps(pillText, fittedTile)) hints.push(`nicht bestanden: Die Lime-Box überdeckt den Pillentext im ${label}.`);
+    const shared = Math.max(0, Math.min(placed.pill.x + placed.pill.w, fittedTile.x + fittedTile.w) - Math.max(placed.pill.x, fittedTile.x));
+    if (shared > placed.pill.w * 0.1 + 2) hints.push(`nicht bestanden: Die Pille ragt zu weit in die Lime-Box im ${label}.`);
   }
   if (deko?.name === "bw_wellen") {
     const pad = w * 0.012;
@@ -962,8 +1125,9 @@ export function buildScene(
   shifts: Partial<Record<"headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko" | "kachel" | "pfeile" | "stattpreis" | "altwert" | "zusatz" | "einmalig" | "geraetename", Shift>> = {},
   cutout?: Cutout,
   follows?: readonly SquareFollow[],
+  productCutout?: Cutout,
 ): OteloScene {
-  if (name === "kachel_person" || name === "kachel_geraet" || name === "kachel_geraet_person") return buildKachel(format, name, copy, shifts, cutout, follows);
+  if (name === "kachel_person" || name === "kachel_geraet" || name === "kachel_geraet_person") return buildKachel(format, name, copy, shifts, cutout, follows, productCutout);
   const { w, h } = format;
   const portrait = h > w;
   const prefer = TEMPLATE_ANGLE[name][portrait ? "portrait" : "landscape"];
