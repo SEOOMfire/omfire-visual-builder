@@ -320,9 +320,9 @@ function drawWaves(ctx: CanvasRenderingContext2D, width: number, height: number,
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.lineWidth = stroke;
-  const gradient = ctx.createLinearGradient(width * 0.55, height * 0.2, width, height);
-  gradient.addColorStop(0, "rgba(12,6,0,0.05)");
-  gradient.addColorStop(0.4, `rgba(120,36,4,${0.55 * alpha})`);
+  const gradient = ctx.createLinearGradient(width * 0.45, height * 0.15, width, height);
+  gradient.addColorStop(0, `rgba(92,28,4,${0.9 * alpha})`);
+  gradient.addColorStop(0.45, `rgba(186,52,8,${alpha})`);
   gradient.addColorStop(1, `rgba(250,90,20,${alpha})`);
   ctx.strokeStyle = gradient;
   for (const path of wavePaths(width, height)) {
@@ -579,7 +579,8 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
     ctx.fillText(headText, scene.headline.box.x, scene.headline.box.y);
     if (scene.headlinePfeile) {
       const headInTheLine = scene.headBox && scene.headBox.y < scene.headline.box.y + headSize;
-      const maxX = headInTheLine && scene.headBox ? scene.headBox.x - scene.width * 0.02 : scene.width + headSize;
+      const edge = scene.id === "tiktok-9x16" ? scene.width * 0.84 : scene.width + headSize;
+      const maxX = headInTheLine && scene.headBox ? Math.min(scene.headBox.x - scene.width * 0.02, edge) : edge;
       const span = arrowSpan(scene.headline.box.x + ctx.measureText(headText).width, headSize, maxX);
       if (span.count > 0) drawArrows(ctx, scene.headline.box.x + ctx.measureText(headText).width, scene.headline.box.y, headSize, span.count);
     }
@@ -591,11 +592,18 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
     if (scene.pill) {
       drawDeviceOffer(ctx, scene);
       if (scene.deviceLabel?.text) {
+        const label = scene.deviceLabel;
+        let size = Math.min(label.box.h, scene.height * 0.03);
         ctx.fillStyle = WHITE;
-        ctx.textAlign = "left";
+        ctx.textAlign = "right";
         ctx.textBaseline = "middle";
-        ctx.font = face(700, scene.deviceLabel.box.h * 0.92, "Geist");
-        ctx.fillText(scene.deviceLabel.text, scene.deviceLabel.box.x, scene.deviceLabel.box.y + scene.deviceLabel.box.h / 2);
+        ctx.font = face(700, size, "Geist");
+        const measured = ctx.measureText(label.text).width;
+        if (measured > label.box.w && measured > 0) {
+          size *= label.box.w / measured;
+          ctx.font = face(700, size, "Geist");
+        }
+        ctx.fillText(label.text, label.box.x + label.box.w, label.box.y + label.box.h / 2);
       }
       drawImageBox(ctx, scene.energyKey ? images[scene.energyKey] : null, scene.energy, "center");
     } else drawKachel(ctx, scene, images);

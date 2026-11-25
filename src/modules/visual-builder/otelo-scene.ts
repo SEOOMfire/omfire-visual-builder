@@ -254,27 +254,27 @@ function overlaps(left: Box, right: Box): boolean {
   return left.x < right.x + right.w && right.x < left.x + left.w && left.y < right.y + right.h && right.y < left.y + left.h;
 }
 
-export const WAVE_STROKE = 0.036;
+export const WAVE_STROKE = 0.022;
 
-/** Twelve close, almost parallel waves. The strokes overlap, so the bundle reads as one surface. */
+/** One parallel sine bundle for person and device. Lines stay in the right column and keep a full stroke at the canvas edge. */
 export function wavePaths(width: number, height: number): Array<Array<{ x: number; y: number }>> {
   const count = 12;
+  const spacing = (width * 0.3) / (count - 1);
+  const amplitude = spacing * 0.48;
+  const leftmost = width * 0.69;
+  const rise = height * 0.74;
+  const run = width * 0.08;
   return Array.from({ length: count }, (_, index) => {
-    const t = index / (count - 1);
-    const x0 = width * (0.68 + t * 0.3);
-    const y0 = height * 0.99;
-    const x1 = width * (0.86 + t * 0.13);
-    const y1 = height * 0.26;
-    const dx = x1 - x0;
-    const dy = y1 - y0;
-    const length = Math.hypot(dx, dy) || 1;
-    const nx = -dy / length;
-    const ny = dx / length;
+    const x0 = leftmost + index * spacing;
+    const y0 = height * 1.03;
+    const length = Math.hypot(run, rise) || 1;
+    const nx = rise / length;
+    const ny = run / length;
     const points: Array<{ x: number; y: number }> = [];
-    for (let step = 0; step <= 24; step += 1) {
-      const u = step / 24;
-      const wave = Math.sin(u * Math.PI * 2.4 + index * 0.35) * width * 0.004;
-      points.push({ x: x0 + dx * u + nx * wave, y: y0 + dy * u + ny * wave });
+    for (let step = 0; step <= 72; step += 1) {
+      const u = step / 72;
+      const wave = Math.sin(u * Math.PI * 2 * 3.6) * amplitude;
+      points.push({ x: x0 + run * u + nx * wave, y: y0 - rise * u + ny * wave });
     }
     return points;
   });
@@ -439,6 +439,26 @@ function applyShift(target: Box, shift: Shift | undefined, width: number, height
   return placed.box;
 }
 
+function energyFrame(width: number, height: number, tall: boolean, deviceH: number): Box {
+  const nameH = height * 0.03;
+  const badgeH = nameH * 1.5;
+  const badgeW = badgeH * (91.15 / 50.12);
+  const y = tall ? Math.max(height * 0.2 + deviceH + height * 0.012, height * 0.725) : height * 0.955 - badgeH;
+  return { x: width - badgeW - width * 0.02, y, w: badgeW, h: badgeH };
+}
+
+function energyBox(width: number, height: number, tall: boolean, deviceH: number): Box {
+  return energyFrame(width, height, tall, deviceH);
+}
+
+function deviceNameBox(width: number, height: number, tall: boolean, deviceH: number): Box {
+  const badge = energyFrame(width, height, tall, deviceH);
+  const nameH = height * 0.03;
+  const right = badge.x - width * 0.012;
+  const left = tall ? width * 0.04 : width * 0.36;
+  return { x: left, y: badge.y + (badge.h - nameH) / 2, w: Math.max(8, right - left), h: nameH };
+}
+
 function buildKachel(
   format: { id: string; w: number; h: number },
   name: VorlageName,
@@ -454,7 +474,7 @@ function buildKachel(
   const flip = copy.orange === "links";
   const deviceMode = name === "kachel_geraet" || name === "kachel_geraet_person";
   const left = w * 0.06;
-  const headW = wide ? w * 0.55 : tall ? w * (tiktok ? 0.76 : 0.78) : w * 0.78;
+  const headW = wide ? w * 0.55 : tall ? w * (tiktok ? 0.78 : 0.83) : w * 0.83;
   const headH = tall ? h * 0.062 : wide ? h * 0.12 : h * 0.11;
   const headY = tall ? h * 0.134 : h * 0.055;
   const headline = {
@@ -658,7 +678,7 @@ function buildKachel(
     headBox,
     product: placed.product,
     productTilt: deviceMode ? -0.1 : undefined,
-    energy: deviceMode ? { x: w * 0.88, y: h * 0.925, w: h * 0.07, h: h * 0.045 } : undefined,
+    energy: deviceMode ? energyBox(w, h, tall, deviceH) : undefined,
     headline: { ...headline, box: placed.headline },
     subline: { ...subline, box: placed.subline },
     stoerer: { typ: "stern", box: placed.stern ?? box(0, 0, 0, 0), preis: copy.preis, zusatz: copy.preisZusatz, einmal: copy.einmalpreis, aktion: copy.sternText ?? "" },
@@ -675,7 +695,7 @@ function buildKachel(
     deko,
     headlinePfeile: dekoName === "bw_wellen" && !shifts.pfeile?.hidden,
     sternColor: copy.sternColor,
-    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: box(w * 0.52, h * 0.935, w * 0.34, h * 0.03) } : undefined,
+    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: deviceNameBox(w, h, tall, deviceH) } : undefined,
     cta: { ...cta, box: placed.cta },
     logo: placed.logo && placed.logo.w > 2 ? { ...logo, box: placed.logo } : { ...logo, box: { x: 0, y: 0, w: 0, h: 0 } },
     hints,
