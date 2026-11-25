@@ -260,7 +260,7 @@ function insetBox(rect: Box, pad = 0.2): Box {
 /** Top-right first, then top-left. The center stays outside the anchor, never on an edge middle. */
 function cornerStar(anchor: Box, size: number, which: "tr" | "tl"): Box {
   const cx = which === "tr" ? anchor.x + anchor.w + size * 0.12 : anchor.x - size * 0.12;
-  const cy = anchor.y - size * 0.2;
+  const cy = anchor.y - size * 0.42;
   return { x: cx - size / 2, y: cy - size / 2, w: size, h: size };
 }
 
@@ -672,8 +672,13 @@ function buildKachel(
     if (!placed.stern || placed.stern.w < 2) return;
     const anchor = priceGroupBox(fittedTile, placed.pill) ?? fittedTile;
     const bounds = { left: w * 0.04, top: h * (tall ? 0.1 : 0.04), right: w * (tiktok ? 0.85 : 0.96), bottom: h * (tiktok ? 0.8 : 0.96) };
+    const offerInk = [
+      { x: fittedTile.x + fittedTile.w * 0.14, y: fittedTile.y + fittedTile.h * 0.08, w: fittedTile.w * 0.72, h: fittedTile.h * 0.14 },
+      { x: fittedTile.x + fittedTile.w * 0.2, y: fittedTile.y + fittedTile.h * 0.32, w: fittedTile.w * 0.6, h: fittedTile.h * 0.22 },
+      { x: fittedTile.x + fittedTile.w * 0.18, y: fittedTile.y + fittedTile.h * 0.76, w: fittedTile.w * 0.64, h: fittedTile.h * 0.14 },
+    ];
     const texts = deviceMode
-      ? [placed.cta, ...(placed.logo && placed.logo.w > 2 ? [placed.logo] : []), insetBox(fittedTile, 0.3), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.28)] : [])]
+      ? [placed.cta, ...(placed.logo && placed.logo.w > 2 ? [placed.logo] : []), ...offerInk, ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.28)] : [])]
       : [placed.cta, ...(placed.logo && placed.logo.w > 2 ? [placed.logo] : []), ...tileInk(fittedTile)];
     const outside = (spot: Box) => spot.x < bounds.left - 1 || spot.y < bounds.top - 1 || spot.x + spot.w > bounds.right + 1 || spot.y + spot.h > bounds.bottom + 1;
     const bad = (spot: Box) => outside(spot)
@@ -796,7 +801,12 @@ function buildKachel(
   if (placed.stern && placed.logo && placed.logo.w > 2 && overlaps(placed.stern, placed.logo)) hints.push(`Der Stern überdeckt das Logo im ${label}.`);
   if (fittedTile.w > 2 && placed.cta.w > 2 && overlaps(fittedTile, placed.cta)) hints.push(`Die Kachel überlappt die CTA im ${label}.`);
   if (placed.stern && placed.stern.w > 2) {
-    const covered = [placed.cta, ...(deviceMode ? [insetBox(fittedTile, 0.3)] : tileInk(fittedTile)), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.28)] : [])].filter((item) => item.w > 2 && overlaps(placed.stern!, item));
+    const offerInk = [
+      { x: fittedTile.x + fittedTile.w * 0.14, y: fittedTile.y + fittedTile.h * 0.08, w: fittedTile.w * 0.72, h: fittedTile.h * 0.14 },
+      { x: fittedTile.x + fittedTile.w * 0.2, y: fittedTile.y + fittedTile.h * 0.32, w: fittedTile.w * 0.6, h: fittedTile.h * 0.22 },
+      { x: fittedTile.x + fittedTile.w * 0.18, y: fittedTile.y + fittedTile.h * 0.76, w: fittedTile.w * 0.64, h: fittedTile.h * 0.14 },
+    ];
+    const covered = [placed.cta, ...(deviceMode ? offerInk : tileInk(fittedTile)), ...(placed.pill && placed.pill.w > 2 ? [insetBox(placed.pill, 0.28)] : [])].filter((item) => item.w > 2 && overlaps(placed.stern!, item));
     if (covered.length) hints.push(`Der Stern überdeckt Text im ${label}.`);
   }
   if (deviceMode && placed.product) {
