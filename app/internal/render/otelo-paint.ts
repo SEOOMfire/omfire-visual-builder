@@ -46,24 +46,43 @@ function drawCover(ctx: CanvasRenderingContext2D, image: HTMLImageElement | null
   ctx.restore();
 }
 
+function clearTop(image: HTMLImageElement): number {
+  const sampleH = 48;
+  const sampleW = Math.max(1, Math.round((sampleH * image.width) / Math.max(1, image.height)));
+  const canvas = document.createElement("canvas");
+  canvas.width = sampleW;
+  canvas.height = sampleH;
+  const sample = canvas.getContext("2d");
+  if (!sample) return 0;
+  sample.drawImage(image, 0, 0, sampleW, sampleH);
+  const data = sample.getImageData(0, 0, sampleW, sampleH).data;
+  for (let y = 0; y < sampleH; y += 1) {
+    for (let x = 0; x < sampleW; x += 1) {
+      if ((data[(y * sampleW + x) * 4 + 3] ?? 0) > 24) return y / sampleH;
+    }
+  }
+  return 0;
+}
+
 function drawTiltedProduct(ctx: CanvasRenderingContext2D, image: HTMLImageElement, box: { x: number; y: number; w: number; h: number }, radians: number, canvasW: number, clampRight: boolean, avoid?: { x: number; y: number; w: number; h: number }) {
   const aspect = image.width / Math.max(1, image.height);
   let height = box.h;
   let width = height * aspect;
   let centerX = box.x + box.w * 0.5;
-  let centerY = box.y + box.h * 0.5;
+  const pad = clampRight ? clearTop(image) : 0;
+  let centerY = box.y + height * (0.5 - pad);
   for (let step = 0; step < 8; step += 1) {
     if (clampRight) {
       const limit = canvasW + width * 0.15;
       if (centerX + width * 0.5 > limit) centerX = limit - width * 0.5;
     }
     if (!avoid || avoid.w < 2) break;
-    const top = centerY - height * 0.5;
+    const top = centerY - height * 0.5 + height * pad;
     const hits = centerX - width * 0.5 < avoid.x + avoid.w && centerX + width * 0.5 > avoid.x && top < avoid.y + avoid.h && centerY + height * 0.5 > avoid.y;
     if (!hits) break;
     height *= 0.9;
     width = height * aspect;
-    centerY = box.y + box.h - height * 0.5;
+    centerY = box.y + height * (0.5 - pad);
   }
   ctx.save();
   ctx.translate(centerX, centerY);

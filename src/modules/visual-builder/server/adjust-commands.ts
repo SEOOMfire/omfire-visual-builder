@@ -423,7 +423,7 @@ export function describeAdjust(commands: readonly AdjustCommand[]): string {
     else if (command.op === "vorlage_setzen") {
       add("", command.vorlage === "kachel_geraet" ? `Gerät statt Person${command.motiv ? `: ${command.motiv}` : ""}` : `Person statt Gerät${command.motiv ? `: ${command.motiv}` : ""}`);
       if (command.hinweis) add("", command.hinweis);
-    } else if (command.op === "feld") add(command.key === "preisAlt" ? "statt-Preis" : command.key === "preisMonatAlt" ? "alter Monatspreis" : command.key === "datenmengeAlt" ? "Altwert" : command.key === "geraetName" ? "Gerätename" : command.key === "einmalpreis" ? "Einmalpreis" : String(command.key), `ist jetzt ${command.value}${command.hinweis ? `. ${command.hinweis}` : ""}`);
+    } else if (command.op === "feld") add(command.key === "preisAlt" ? "statt-Preis" : command.key === "preisMonatAlt" ? "alter Monatspreis" : command.key === "datenmengeAlt" ? "Altwert" : command.key === "geraetName" ? "Gerätename" : command.key === "einmalpreis" ? "Einmalpreis" : command.key === "energielabel" ? "Energielabel" : String(command.key), `ist jetzt ${command.value}${command.hinweis ? `. ${command.hinweis}` : ""}`);
     else if (command.op === "wie_format") add("", "Lage wie im Quadrat");
     else if (command.op === "vergleichen") add("", `Version ${command.links} und ${command.rechts}`);
   }
