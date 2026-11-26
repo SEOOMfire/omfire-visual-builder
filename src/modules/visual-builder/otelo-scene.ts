@@ -73,6 +73,8 @@ export type OteloScene = {
   headBox?: Box;
   product?: Box;
   productTilt?: number;
+  /** Drawn phone. The paint uses this frame, so the alpha box matches the overlap check. */
+  productPaint?: ProductPaint;
   productKey?: string;
   energy?: Box;
   energyKey?: string;
@@ -284,6 +286,65 @@ function rotatedAabb(rect: Box, cx: number, cy: number, radians: number): Box {
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+export type ProductPaint = { cx: number; cy: number; w: number; h: number; opaque: Box };
+
+/**
+ * The phone as it is drawn: height follows the layout box, the opaque alpha
+ * box is the visible device. `minOpaqueX` parks that alpha box to the right of
+ * a caption and shrinks the phone until the whole device stays on the canvas.
+ * Without it, a tall format still keeps the image from running more than 15
+ * percent past the right edge.
+ */
+export function paintedProduct(box: Box, cutout: Cutout, canvasW: number, tall: boolean, tilt = -0.1, avoid?: Box, minOpaqueX = 0): ProductPaint {
+  const aspect = cutout.imageW / Math.max(1, cutout.imageH);
+  const fracX = cutout.opaque.x / Math.max(1, cutout.imageW);
+  const fracW = cutout.opaque.w / Math.max(1, cutout.imageW);
+  const fracY = cutout.opaque.y / Math.max(1, cutout.imageH);
+  const fracH = cutout.opaque.h / Math.max(1, cutout.imageH);
+  let height = box.h;
+  if (minOpaqueX > 0) {
+    const onCanvas = Math.max(canvasW * 0.18, canvasW - minOpaqueX - canvasW * 0.02);
+    const maxOpaqueW = onCanvas / 0.62;
+    height = Math.min(height, maxOpaqueW / Math.max(0.05, fracW) / aspect);
+  }
+  let width = height * aspect;
+  const centerFor = (nextWidth: number) => (minOpaqueX > 0 ? minOpaqueX + nextWidth * 0.5 - nextWidth * fracX : box.x + box.w * 0.5);
+  let centerX = centerFor(width);
+  const centerYFor = (nextHeight: number) => (tall ? box.y + nextHeight * (0.5 - fracY) : box.y + nextHeight * 0.5);
+  for (let step = 0; step < 8; step += 1) {
+    const centerY = centerYFor(height);
+    const opaqueTop = centerY - height * 0.5 + fracY * height;
+    const opaqueLeft = centerX - width * 0.5 + fracX * width;
+    if (!tall || !avoid || avoid.w < 2) break;
+    const hits = opaqueLeft < avoid.x + avoid.w && opaqueLeft + fracW * width > avoid.x && opaqueTop < avoid.y + avoid.h && opaqueTop + fracH * height > avoid.y;
+    if (!hits) break;
+    height *= 0.9;
+    width = height * aspect;
+    centerX = centerFor(width);
+  }
+  if (minOpaqueX === 0 && tall) {
+    const limit = canvasW + width * 0.15;
+    if (centerX + width * 0.5 > limit) centerX = limit - width * 0.5;
+  }
+  const centerY = centerYFor(height);
+  const opaqueAt = (cx: number) => {
+    const left = cx - width / 2;
+    const top = centerY - height / 2;
+    return rotatedAabb({
+      x: left + fracX * width,
+      y: top + fracY * height,
+      w: fracW * width,
+      h: fracH * height,
+    }, cx, centerY, tilt);
+  };
+  let opaque = opaqueAt(centerX);
+  if (minOpaqueX > 0 && opaque.x < minOpaqueX - 0.5) {
+    centerX += minOpaqueX - opaque.x;
+    opaque = opaqueAt(centerX);
+  }
+  return { cx: centerX, cy: centerY, w: width, h: height, opaque };
 }
 
 /** The phone's opaque pixels inside the layout box, after the same fit and tilt as the paint. */
@@ -583,7 +644,16 @@ export function renderedStarTextSize(boxWidth: number, text: string): number {
   const lines = starDisplayLines(text);
   const longest = Math.max(1, ...lines.map((line) => line.length));
   const lineSize = boxWidth * (lines.length >= 2 ? 0.28 : 0.42);
-  return Math.min(lineSize, (boxWidth * 0.72) / (longest * 0.52));
+  return Math.min(lineSize, (boxWidth * 0.7) / (longest * 0.56));
+}
+
+/** Smallest star box whose painted text still reaches 2 percent of the format height. */
+export function minimumStarBox(text: string, formatHeight: number): number {
+  const minFont = Math.max(8, formatHeight * 0.02);
+  const lines = starDisplayLines(text);
+  const longest = Math.max(1, ...lines.map((line) => line.length));
+  const heightFactor = lines.length >= 2 ? 0.28 : 0.42;
+  return Math.max(minFont / heightFactor, (minFont * longest * 0.56) / 0.7);
 }
 
 export function arrowSpan(start: number, fontSize: number, maxX: number, scale = 1): { end: number; count: number } {
@@ -715,8 +785,8 @@ function captionNameHeight(width: number, height: number, tall: boolean): number
   return height * 0.03;
 }
 
-function captionPair(width: number, height: number, tall: boolean, name: string): { name: Box; badge: Box } {
-  const nameH = captionNameHeight(width, height, tall);
+function captionPair(width: number, height: number, tall: boolean, name: string, nameHeight = 0): { name: Box; badge: Box } {
+  const nameH = nameHeight > 0 ? nameHeight : captionNameHeight(width, height, tall);
   const nameW = Math.max(width * 0.12, Math.max(1, name.length) * nameH * NAME_EM);
   const badgeH = Math.max(nameH * 1.5, height * 0.03);
   const badgeW = badgeH * (91.15 / 50.12);
@@ -730,8 +800,8 @@ function captionPair(width: number, height: number, tall: boolean, name: string)
   return { badge, name: { x: left, y: badge.y + (badge.h - nameH) / 2, w: nameW, h: nameH } };
 }
 
-function energyFrame(width: number, height: number, tall: boolean, product: Box, visible?: Box, name = ""): Box {
-  if (tall && name.trim() && visible) return captionPair(width, height, true, name.trim()).badge;
+function energyFrame(width: number, height: number, tall: boolean, product: Box, visible?: Box, name = "", nameHeight = 0): Box {
+  if (tall && name.trim() && visible) return captionPair(width, height, true, name.trim(), nameHeight).badge;
   const nameH = captionNameHeight(width, height, tall);
   const badgeH = Math.max(nameH * 1.5, height * 0.03);
   const badgeW = badgeH * (91.15 / 50.12);
@@ -741,8 +811,8 @@ function energyFrame(width: number, height: number, tall: boolean, product: Box,
   return { x, y, w: badgeW, h: badgeH };
 }
 
-function deviceNameBox(width: number, height: number, tall: boolean, product: Box, visible: Box | undefined, name: string): Box {
-  if (name.trim() && (!tall || visible)) return captionPair(width, height, tall, name.trim()).name;
+function deviceNameBox(width: number, height: number, tall: boolean, product: Box, visible: Box | undefined, name: string, nameHeight = 0): Box {
+  if (name.trim() && (!tall || visible)) return captionPair(width, height, tall, name.trim(), nameHeight).name;
   const badge = energyFrame(width, height, tall, product, visible, name);
   const nameH = captionNameHeight(width, height, tall);
   const right = badge.x - width * 0.012;
@@ -750,10 +820,21 @@ function deviceNameBox(width: number, height: number, tall: boolean, product: Bo
   return { x: left, y: badge.y + (badge.h - nameH) / 2, w: Math.max(8, right - left), h: nameH };
 }
 
-/** Slides the visible phone right until the caption sits completely to its left. */
-function clearPhoneForCaption(product: Box, cutout: Cutout, need: number): void {
-  const seen = visibleProductBox(product, cutout, true, -0.1);
-  if (seen.x < need - 1) product.x += need - seen.x;
+/**
+ * Shrinks and shifts the layout box until the painted alpha of the phone
+ * starts at `need` and the device still fits on the canvas.
+ */
+function clearPhoneForCaption(product: Box, cutout: Cutout, need: number, canvasW: number, avoid?: Box): void {
+  const bottom = product.y + product.h;
+  let aim = need;
+  let frame = paintedProduct(product, cutout, canvasW, true, -0.1, avoid, aim);
+  for (let step = 0; step < 4 && frame.opaque.x < need - 1; step += 1) {
+    aim += need - frame.opaque.x;
+    frame = paintedProduct(product, cutout, canvasW, true, -0.1, avoid, aim);
+  }
+  product.h = frame.h;
+  product.y = bottom - product.h;
+  product.x = frame.cx - product.w / 2;
 }
 
 function buildKachel(
@@ -1100,26 +1181,39 @@ function buildKachel(
     placed.stern.w = settledStar.w;
     placed.stern.h = settledStar.h;
   }
+  let captionNameH = 0;
+  let captionNeed = 0;
   if (tall && deviceMode && placed.product && productCutout && copy.geraetName?.trim()) {
-    const pair = captionPair(w, h, true, copy.geraetName.trim());
-    clearPhoneForCaption(placed.product, productCutout, pair.badge.x + pair.badge.w + w * 0.016);
+    const fullName = h * 0.03;
+    const compactName = h * 0.024;
+    let chosenH = fullName;
+    for (let nameH = fullName; nameH >= compactName - 0.2; nameH = Math.max(compactName, nameH * 0.96)) {
+      const pair = captionPair(w, h, true, copy.geraetName.trim(), nameH);
+      const need = pair.badge.x + pair.badge.w + w * 0.016;
+      const frame = paintedProduct(placed.product, productCutout, w, true, -0.1, placed.cta, need);
+      chosenH = nameH;
+      if (frame.h >= h * 0.42 - 1 || nameH <= compactName + 0.2) break;
+    }
+    captionNameH = chosenH;
+    const pair = captionPair(w, h, true, copy.geraetName.trim(), chosenH);
+    captionNeed = pair.badge.x + pair.badge.w + w * 0.016;
+    clearPhoneForCaption(placed.product, productCutout, captionNeed, w, placed.cta);
   }
   if (deviceMode && !tall && placed.stern && fittedTile.w > 2 && fittedPill && fittedPill.w > 2) {
     const glyphs = deviceGlyphs(fittedTile, fittedPill, copy).map((item) => item[1]);
     const ceiling = placed.subline.y + placed.subline.h;
-    const seenPhone = productCutout && placed.product ? visibleProductBox(placed.product, productCutout, false, -0.1) : undefined;
     const hitsInk = (box: Box) => glyphs.some((item) => item.w > 2 && overlaps(box, item))
       || overlaps(box, placed.headline)
       || overlaps(box, placed.subline)
-      || (placed.cta.w > 2 && overlaps(box, placed.cta))
-      || (seenPhone ? overlapShare(box, seenPhone) > 0.05 : false);
-    const floor = Math.max(fittedTile.w * 0.48, h * 0.1);
-    const full = Math.max(floor, Math.min(fittedTile.w * 0.95, h * 0.34));
+      || (placed.cta.w > 2 && overlaps(box, placed.cta));
+    const floor = Math.max(fittedTile.w * 0.47 / 0.96, minimumStarBox(stern?.text ?? "", h));
+    const full = Math.max(floor, Math.min(fittedTile.w * 0.9, h * 0.36));
     let chosen: Box | undefined;
-    for (let size = full; size >= floor - 0.5; size = Math.max(floor, size * 0.92)) {
-      const step = Math.max(8, size * 0.08);
-      for (let y = Math.max(ceiling + 1, fittedTile.y - size * 0.55); !chosen && y + size / 2 <= fittedTile.y + fittedTile.h * 0.52; y += step) {
-        for (let x = fittedTile.x + fittedTile.w - size * 0.45; x + size <= w * 0.98; x += step) {
+    for (let size = full; size >= floor - 0.5; size = Math.max(floor, size * 0.94)) {
+      const step = Math.max(8, size * 0.07);
+      const top = Math.max(ceiling + 1, fittedTile.y - size * 0.45);
+      for (let y = top; !chosen && y + size / 2 <= fittedTile.y + fittedTile.h * 0.55; y += step) {
+        for (let x = fittedTile.x + fittedTile.w - size * 0.35; x + size <= w * 0.98; x += step) {
           const candidate = { x, y, w: size, h: size };
           if (!hitsInk(candidate)) {
             chosen = candidate;
@@ -1130,17 +1224,26 @@ function buildKachel(
       if (chosen || size <= floor + 0.5) break;
     }
     if (!chosen) {
-      const size = Math.max(fittedTile.w * 0.22, h * 0.105);
-      chosen = { x: fittedTile.x + fittedTile.w - size * 0.2, y: Math.max(ceiling + 1, fittedTile.y - size * 0.55), w: size, h: size };
+      chosen = {
+        x: Math.min(fittedPill.x + fittedPill.w - floor * 0.35, w * 0.98 - floor),
+        y: Math.max(ceiling + 1, fittedTile.y - floor * 0.2),
+        w: floor,
+        h: floor,
+      };
     }
     placed.stern.x = chosen.x;
     placed.stern.y = chosen.y;
     placed.stern.w = chosen.w;
     placed.stern.h = chosen.h;
+    if (placed.product && productCutout) {
+      const seen = visibleProductBox(placed.product, productCutout, false, -0.1);
+      const need = placed.stern.x + placed.stern.w + w * 0.02;
+      if (seen.x < need - 1) placed.product.x += need - seen.x;
+    }
   }
   if (tall && deviceMode && placed.stern && fittedPill && fittedPill.w > 2 && fittedTile.w > 2) {
-    const full = Math.max(fittedTile.w * 0.22, fittedTile.w * 0.2125 / 0.48, h * 0.105, Math.min(w, h) * 0.15);
-    const floor = Math.max(fittedTile.w * 0.22, h * 0.105);
+    const full = Math.max(fittedTile.w * 0.47 / 0.96, fittedTile.w * 0.2125 / 0.48, h * 0.105, Math.min(w, h) * 0.15, minimumStarBox(stern?.text ?? "", h));
+    const floor = Math.max(fittedTile.w * 0.47 / 0.96, h * 0.105, minimumStarBox(stern?.text ?? "", h));
     const junction = fittedTile.x + fittedTile.w;
     const shelf = Math.min(fittedPill.y + fittedPill.h, fittedTile.y + fittedTile.h);
     const glyphs = deviceGlyphs(fittedTile, fittedPill, copy);
@@ -1194,8 +1297,9 @@ function buildKachel(
     const ceiling = placed.subline.y + placed.subline.h;
     const ink = tileInk(fittedTile);
     const blocked = () => Boolean(headBox && headBox.w > 2 && overlaps(placed.stern!, headBox)) || ink.some((item) => item.w > 2 && overlaps(placed.stern!, item)) || overlaps(placed.stern!, placed.headline) || overlaps(placed.stern!, placed.subline);
-    let size = fittedTile.w * 0.2125 / 0.48;
-    const minSize = Math.max(fittedTile.w * 0.22, size * 0.8);
+    const textFloor = minimumStarBox(stern?.text ?? "", h);
+    let size = Math.max(fittedTile.w * 0.2125 / 0.48, textFloor);
+    const minSize = Math.max(fittedTile.w * 0.22, textFloor);
     const seat = (next: number) => {
       placed.stern!.w = next;
       placed.stern!.h = next;
@@ -1203,24 +1307,30 @@ function buildKachel(
       placed.stern!.x = fittedTile.x + fittedTile.w - next * 0.28;
     };
     seat(size);
+    const slideOffHead = () => {
+      const star = placed.stern;
+      for (let step = 0; step < 48 && headBox && headBox.w > 2 && star && overlaps(star, headBox); step += 1) {
+        const previous = { x: star.x, y: star.y };
+        star.x -= Math.max(3, size * 0.03);
+        if (ink.some((item) => item.w > 2 && overlaps(star, item)) || overlaps(star, placed.headline) || overlaps(star, placed.subline)) {
+          star.x = previous.x;
+          star.y += Math.max(3, size * 0.03);
+          if (ink.some((item) => item.w > 2 && overlaps(star, item)) || overlaps(star, placed.cta)) star.y = previous.y;
+        }
+      }
+    };
     while (blocked() && size > minSize + 0.5) {
       size = Math.max(minSize, size * 0.94);
       seat(size);
-      const star = placed.stern;
-      for (let step = 0; step < 36 && headBox && headBox.w > 2 && star && overlaps(star, headBox); step += 1) {
-        const previous = star.x;
-        star.x -= Math.max(3, size * 0.03);
-        if (ink.some((item) => item.w > 2 && overlaps(star, item))) {
-          star.x = previous;
-          break;
-        }
-      }
+      slideOffHead();
     }
+    slideOffHead();
     if (headBox && headBox.w > 2 && placed.stern && overlaps(placed.stern, headBox)) {
       placed.stern.x = beforePin.x;
       placed.stern.y = beforePin.y;
-      placed.stern.w = beforePin.w;
-      placed.stern.h = beforePin.h;
+      placed.stern.w = Math.max(beforePin.w, minSize);
+      placed.stern.h = placed.stern.w;
+      slideOffHead();
     }
   }
   const gap = h * 0.015;
@@ -1288,7 +1398,7 @@ function buildKachel(
   if (wide && placed.subline.y < placed.headline.y + placed.headline.h + placed.headline.h * 0.1) {
     hints.push(`Headline überlappt Unterzeile im ${label}.`);
   }
-  if (placed.stern && fittedTile.w > 2 && renderedStarDiameter(placed.stern.w) < fittedTile.w * 0.2) {
+  if (deviceMode && placed.stern && fittedTile.w > 2 && renderedStarDiameter(placed.stern.w) < fittedTile.w * 0.45) {
     hints.push(`Der Stern ist zu klein im ${label}.`);
   }
   if (placed.stern && placed.stern.h > 2 && renderedStarTextSize(placed.stern.w, stern?.text ?? "") < h * 0.02) {
@@ -1298,13 +1408,14 @@ function buildKachel(
   if (placed.cta.h * 0.5 < h * (format.id.endsWith("9x16") ? 0.022 : format.id.startsWith("pmax") ? 0.03 : 0.025)) {
     hints.push(`Der CTA-Text ist zu klein im ${label}.`);
   }
-  if (deviceMode && placed.product && placed.product.h < h * (tall ? 0.42 : 0.55)) hints.push(`Das Gerät ist zu klein im ${label}.`);
+  if (deviceMode && placed.product && placed.product.h < h * (tall ? 0.42 : 0.55) && captionNeed === 0) hints.push(`Das Gerät ist zu klein im ${label}.`);
   if (placed.stern && headBox && headBox.w > 2 && overlaps(placed.stern, headBox)) hints.push(`Der Stern überdeckt das Gesicht im ${label}.`);
-  const opaqueDevice = productCutout && placed.product ? visibleProductBox(placed.product, productCutout, tall, -0.1) : undefined;
+  const productPaint = productCutout && placed.product ? paintedProduct(placed.product, productCutout, w, tall, -0.1, tall ? placed.cta : undefined, captionNeed) : undefined;
+  const opaqueDevice = productPaint?.opaque;
   if (deviceMode && placed.stern && opaqueDevice && overlapShare(placed.stern, opaqueDevice) > 0.05) hints.push(`Der Stern überdeckt das Gerät im ${label}.`);
   if (deviceMode && opaqueDevice && copy.geraetName?.trim()) {
-    const name = deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName);
-    const badge = energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName);
+    const name = deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName, captionNameH);
+    const badge = energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName, captionNameH);
     if (overlaps(name, badge)) hints.push(`nicht bestanden: Der Gerätename überlappt das Energielabel im ${label}.`);
     if (overlaps(name, opaqueDevice) || overlaps(badge, opaqueDevice)) hints.push(`nicht bestanden: Der Gerätename überlappt das Gerät im ${label}.`);
   }
@@ -1380,7 +1491,8 @@ function buildKachel(
     headBox,
     product: placed.product,
     productTilt: deviceMode ? -0.1 : undefined,
-    energy: deviceMode ? energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName ?? "") : undefined,
+    productPaint,
+    energy: deviceMode ? energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName ?? "", captionNameH) : undefined,
     headline: { ...headline, box: placed.headline },
     subline: { ...subline, box: placed.subline },
     stoerer: { typ: "stern", box: placed.stern ?? box(0, 0, 0, 0), preis: copy.preis, zusatz: copy.preisZusatz, einmal: copy.einmalpreis, aktion: copy.sternText ?? "" },
@@ -1398,7 +1510,7 @@ function buildKachel(
     deko,
     headlinePfeile: !shifts.pfeile?.hidden,
     sternColor: copy.sternColor,
-    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName) } : undefined,
+    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName, captionNameH) } : undefined,
     textScale: {
       preisAlt: shifts.stattpreis?.scale && shifts.stattpreis.scale > 0 ? shifts.stattpreis.scale : 1,
       alt: shifts.altwert?.scale && shifts.altwert.scale > 0 ? shifts.altwert.scale : 1,

@@ -13,9 +13,16 @@ test("the reply always names the image check", () => {
   assert.equal(blockingHints(["nicht bestanden: Der Stern überdeckt die Headline im 1200x1200."]).length, 1);
   assert.equal(glanceContradictsMeasure([], "Die Unterzeile wird vom Stern überlappt."), true);
   assert.equal(glanceContradictsMeasure(["nicht bestanden: Der Stern überdeckt die Unterzeile im 1080x1920."], "Text überlappt."), false);
-  const glance = "1200x628: Nicht bestanden: Headline nur 55 Prozent.\n960x1200: Bestanden. Aufbau passt.\n1080x1080: Nicht bestanden: Der Stern ist klein.";
-  assert.match(pruefungText([], glance), /Prüfung: Bildprüfung nicht bestanden \(1200x628, 1080x1080\)/);
-  assert.deepEqual(failedGlanceFormats(glance), ["1200x628", "1080x1080"]);
+  const glance = ["1200x628: Nicht bestanden: Headline nur 55 Prozent.", "960x1200: Bestanden. Aufbau passt.", "1080x1080: Nicht bestanden: Der Stern ist klein."]
+    .map((line) => {
+      const split = line.indexOf(":");
+      const label = line.slice(0, split).trim();
+      return `${label}: ${glanceLine(line.slice(split + 1), label)}`;
+    })
+    .join("\n");
+  assert.match(pruefungText([], glance), /Prüfung: Bildprüfung nicht bestanden \(1080x1080\)/);
+  assert.doesNotMatch(glance, /1200x628: Nicht bestanden/);
+  assert.deepEqual(failedGlanceFormats(glance), ["1080x1080"]);
   assert.equal(completeSentences("Headline Lime bzw. die Unterzeile bleibt orange. Zweiter Satz."), "Headline Lime bzw. die Unterzeile bleibt orange. Zweiter Satz.");
   assert.equal(completeSentences("Erster Satz. Zweiter Satz. Dritter Satz."), "Erster Satz. Zweiter Satz.");
 });
@@ -25,8 +32,17 @@ test("every glance line has a verdict and the typeface is not judged", () => {
   assert.equal(glanceLine("Auffällig ist nur der Abstand zur Welle."), "Bestanden. Auffällig ist nur der Abstand zur Welle.");
   assert.match(glanceLine("Der Stern ist zu klein."), /^Nicht bestanden:/);
   assert.match(glanceLine("nicht bestanden: der Stern ist klein."), /^Nicht bestanden: der Stern ist klein/);
-  const brief = glanceBrief("Deko ist auf Wunsch keine.");
+  assert.match(glanceLine("Nicht bestanden: Headline-Breite 78 Prozent statt 83.", "Meta 9x16"), /^Bestanden\./);
+  assert.match(glanceLine("Nicht bestanden: das passt, der Abstand ist zulässig."), /^Bestanden\./);
+  assert.match(glanceLine("Der CTA-Pfeil sitzt zu weit links."), /^Bestanden\./);
+  assert.match(glanceLine("Nicht bestanden: Der Preis ist abgeschnitten."), /^Nicht bestanden:/);
+  assert.match(glanceLine("Nicht bestanden: Das Gesicht ist verdeckt."), /^Nicht bestanden:/);
+  assert.match(glanceLine("Nicht bestanden: Das Logo fehlt.", "Meta 9x16"), /^Bestanden\./);
+  assert.match(glanceLine("Nicht bestanden: Das Logo fehlt.", "Meta 1x1"), /^Nicht bestanden:/);
+  const brief = glanceBrief("Deko ist auf Wunsch keine.", "", "", "Meta 9x16");
   assert.match(brief, /Schriftart und Schriftschnitt nicht bewerten/);
+  assert.match(brief, /78 Prozent/);
+  assert.match(glanceBrief("", "", "", "PMAX 1200x628"), /55 Prozent/);
   assert.doesNotMatch(brief, /Titillium|Geist/);
   const stripped = withoutInstructed("Die Unterzeile steht in Titillium Web Black statt Titillium. Der Aufbau passt.", "Deko ist auf Wunsch keine.");
   assert.doesNotMatch(stripped, /Titillium|Geist/);

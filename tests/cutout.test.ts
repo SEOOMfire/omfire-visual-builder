@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PNG } from "pngjs";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
-import { arrowSpan, buildScene, fitHeadlineForChevrons, fitSublineText, renderedStarDiameter, renderedStarTextSize, visibleProductBox, wavePaintShare, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { arrowSpan, buildScene, fitHeadlineForChevrons, fitSublineText, renderedStarDiameter, renderedStarTextSize, wavePaintShare, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
 import { blockingHints } from "../src/modules/visual-builder/server/creative-archive";
 import { headInside, measureCutout, placeCutout, type Cutout } from "../src/modules/visual-builder/server/cutout";
 import { glanceContradictsMeasure } from "../src/modules/visual-builder/server/review";
@@ -208,20 +208,58 @@ test("orange clothing only hints that the deco disappears", () => {
   assert.equal(scene.hints.some((hint) => hint.includes("Deko kaum sichtbar") && !hint.startsWith("Hinweis:")), false);
 });
 
-test("the device name stays one line left of the label and the phone", () => {
-  const phone: Cutout = { imageW: 900, imageH: 2000, opaque: { x: 40, y: 30, w: 820, h: 1920 }, head: { x: 0, y: 0, w: 1, h: 1 } };
+test("the A57 name and energy label stay off the visible phone on 9x16", () => {
+  const phone: Cutout = { imageW: 2400, imageH: 1600, opaque: { x: 904, y: 80, w: 595, h: 1440 }, head: { x: 0, y: 0, w: 1, h: 1 } };
   const fields = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57 5G" };
   for (const format of OTELO_FORMATS.filter((item) => item.id.endsWith("9x16"))) {
     const scene = buildScene(format, "kachel_geraet", fields, {}, undefined, undefined, phone);
     const name = scene.deviceLabel?.box;
     const badge = scene.energy;
-    assert.ok(name && badge && scene.product, format.id);
+    const seen = scene.productPaint?.opaque;
+    assert.ok(name && badge && seen, format.id);
     assert.ok(name.w + 1 >= fields.geraetName.length * name.h * 0.55, `${format.id} name ${name.w.toFixed(0)}`);
-    assert.ok(badge.x >= name.x + name.w - 1, `${format.id} label ${badge.x.toFixed(0)}`);
-    const seen = visibleProductBox(scene.product, phone, true, -0.1);
-    assert.ok(seen.x + 1 >= badge.x + badge.w, `${format.id} phone ${seen.x.toFixed(0)} after ${ (badge.x + badge.w).toFixed(0) }`);
+    assert.ok(badge.x >= name.x + name.w + format.w * 0.01, `${format.id} label ${badge.x.toFixed(0)}`);
+    assert.ok(seen.x >= badge.x + badge.w + format.w * 0.01, `${format.id} phone ${seen.x.toFixed(0)} badge ${(badge.x + badge.w).toFixed(0)}`);
+    const hits = (box: { x: number; y: number; w: number; h: number }) => box.x < seen.x + seen.w && seen.x < box.x + box.w && box.y < seen.y + seen.h && seen.y < box.y + box.h;
+    assert.equal(hits(name), false, format.id);
+    assert.equal(hits(badge), false, format.id);
     assert.equal(scene.hints.some((hint) => hint.includes("Gerätename überlappt")), false, scene.hints.join(" | "));
+  }
+});
+
+test("the rendered device star is at least 45 percent of the lime tile", () => {
+  const phone: Cutout = { imageW: 2400, imageH: 1600, opaque: { x: 904, y: 80, w: 595, h: 1440 }, head: { x: 0, y: 0, w: 1, h: 1 } };
+  const fields = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57 5G" };
+  for (const format of OTELO_FORMATS) {
+    const scene = buildScene(format, "kachel_geraet", fields, {}, undefined, undefined, phone);
+    const star = scene.stern?.box;
+    const tile = scene.kachel?.box;
+    assert.ok(star && tile, format.id);
+    const ratio = renderedStarDiameter(star.w) / tile.w;
+    assert.ok(ratio >= 0.45, `${format.id} ${ratio.toFixed(2)}`);
+    assert.ok(renderedStarTextSize(star.w, "50 GB") >= format.h * 0.02 - 0.2, `${format.id} text ${renderedStarTextSize(star.w, "50 GB").toFixed(1)}`);
+  }
+});
+
+test("a 9x16 star grows until the offer text reaches the minimum", () => {
+  const cutout: Cutout = {
+    imageW: 800,
+    imageH: 1400,
+    opaque: { x: 180, y: 40, w: 440, h: 1280 },
+    head: { x: 360, y: 80, w: 220, h: 280 },
+  };
+  const fields = { ...copy(), sternText: "1. MONAT GRATIS", deko: "fruehling_blaetter" as const };
+  for (const format of OTELO_FORMATS.filter((item) => item.id.endsWith("9x16"))) {
+    const scene = buildScene(format, "kachel_person", fields, {}, cutout);
+    const star = scene.stern?.box;
+    assert.ok(star, format.id);
+    assert.ok(renderedStarTextSize(star.w, "1. MONAT GRATIS") >= format.h * 0.02 - 0.2, `${format.id} ${renderedStarTextSize(star.w, "1. MONAT GRATIS").toFixed(1)}`);
     assert.equal(scene.hints.some((hint) => hint.includes("Stern-Text ist zu klein")), false, scene.hints.join(" | "));
+    if (scene.headBox && scene.headBox.w > 2) {
+      const face = scene.headBox;
+      const hits = star.x < face.x + face.w && face.x < star.x + star.w && star.y < face.y + face.h && face.y < star.y + star.h;
+      assert.equal(hits, false, `${format.id} Stern auf dem Gesicht`);
+    }
   }
 });
 

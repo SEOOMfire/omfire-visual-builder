@@ -64,7 +64,15 @@ function clearTop(image: HTMLImageElement): number {
   return 0;
 }
 
-function drawTiltedProduct(ctx: CanvasRenderingContext2D, image: HTMLImageElement, box: { x: number; y: number; w: number; h: number }, radians: number, canvasW: number, clampRight: boolean, avoid?: { x: number; y: number; w: number; h: number }) {
+function drawTiltedProduct(ctx: CanvasRenderingContext2D, image: HTMLImageElement, box: { x: number; y: number; w: number; h: number }, radians: number, canvasW: number, clampRight: boolean, avoid?: { x: number; y: number; w: number; h: number }, frame?: { cx: number; cy: number; w: number; h: number }) {
+  if (frame) {
+    ctx.save();
+    ctx.translate(frame.cx, frame.cy);
+    ctx.rotate(radians);
+    ctx.drawImage(image, -frame.w / 2, -frame.h / 2, frame.w, frame.h);
+    ctx.restore();
+    return;
+  }
   const aspect = image.width / Math.max(1, image.height);
   let height = box.h;
   let width = height * aspect;
@@ -638,7 +646,7 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
     }
     const productImage = scene.productKey ? images[scene.productKey] : null;
     const tallFormat = scene.height > scene.width * 1.4;
-    if (productImage && scene.product && scene.productTilt) drawTiltedProduct(ctx, productImage, scene.product, scene.productTilt, scene.width, tallFormat, tallFormat ? scene.cta.box : undefined);
+    if (productImage && scene.product && scene.productTilt) drawTiltedProduct(ctx, productImage, scene.product, scene.productTilt, scene.width, tallFormat, tallFormat ? scene.cta.box : undefined, scene.productPaint);
     else drawImageBox(ctx, productImage, scene.product, "center");
     const figureImage = scene.figureKey ? images[scene.figureKey] : null;
     if (figureImage && scene.figure && scene.figureSource) drawCutout(ctx, figureImage, scene.figure, scene.figureSource, Boolean(scene.figureFlip));

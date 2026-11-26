@@ -37,26 +37,47 @@ export function pruefungText(measured: readonly string[], glance: string): strin
   return [`Prüfung: ${status}`, ...blocking, image].join("\n");
 }
 
+/** Headline width that is normal for this format. 9x16 is 78 percent, not 83. */
+export function headlineTarget(formatLabel: string): string {
+  if (/9x16|1920/.test(formatLabel)) return "78";
+  if (/628/.test(formatLabel)) return "55";
+  return "83";
+}
+
+/** A concrete violation from the fixed list. Percentages, arrows and tile position are not on it. */
+export function glanceViolation(note: string, formatLabel = ""): string | undefined {
+  const text = note.replace(/\s+/g, " ").trim();
+  const story = /9x16|1920/.test(formatLabel);
+  const covered = /überdeckt|überlappt|verdeckt|abgeschnitten|angeschnitten/i.test(text);
+  const aboutText = /text|headline|unterzeile|schrift|preis|cta|logo|buchstabe|zeile|stern/i.test(text);
+  if (covered && aboutText && !/referenz/i.test(text)) return text;
+  if (/gesicht/i.test(text) && /verdeckt|überdeckt|abgeschnitten|nicht (?:sichtbar|frei)/i.test(text)) return text;
+  if (/unleserlich|nicht lesbar/i.test(text)) return text;
+  if (/(stern|text|schrift)[^.]{0,24}zu klein|zu klein[^.]{0,24}(stern|text|schrift)/i.test(text)) return text;
+  if (/(stern|text|schrift)[^.]{0,16}ist klein/i.test(text)) return text;
+  if (/(falsche|unzulässige)[^.]{0,20}farbe|farbe[^.]{0,30}(nicht|außerhalb)[^.]{0,24}(lime|orange|schwarz|weiß|weiss|ci)/i.test(text)) return text;
+  if (/(logo|cta|preis)[^.]{0,24}fehlt/i.test(text)) {
+    if (story && /logo/i.test(text) && !/cta|preis/i.test(text)) return undefined;
+    return text;
+  }
+  return undefined;
+}
+
 /** Every format line starts with one of the two verdicts. A bare „Bestanden.“ is enough. */
-export function glanceLine(note: string): string {
+export function glanceLine(note: string, formatLabel = ""): string {
   const text = note.replace(/\s+/g, " ").trim();
   if (!text || /^nicht gelaufen\b/i.test(text)) return text;
   if (/^keine anmerkungen\b/i.test(text)) return "Bestanden.";
-  if (/^bestanden\b/i.test(text)) {
-    const rest = text.replace(/^bestanden\b[.:]?\s*/i, "").trim();
-    return rest ? `Bestanden. ${rest}` : "Bestanden.";
-  }
-  if (/^nicht bestanden\b/i.test(text)) {
-    const rest = text.replace(/^nicht bestanden\b:?\s*/i, "").trim();
-    return rest ? `Nicht bestanden: ${rest}` : "Nicht bestanden: die Bildprüfung hat einen Verstoß gemeldet.";
-  }
-  const problem = /zu klein|zu groß|zu weit|fehlt|überlappt|überdeckt|verdeckt|falsch|abweich|nicht lesbar|außerhalb/i.test(text);
-  return problem ? `Nicht bestanden: ${text}` : `Bestanden. ${text}`;
+  const body = text.replace(/^(?:nicht bestanden|bestanden)\b[.:]?\s*/i, "").trim();
+  const violation = glanceViolation(body.replace(/das passt|ist zulässig|kein fehler/gi, ""), formatLabel);
+  if (!violation) return body ? `Bestanden. ${body}` : "Bestanden.";
+  return `Nicht bestanden: ${body}`;
 }
 
 /** The image check judges layout and CI colours. The typeface is set in code. */
 export function glanceBrief(instructed = "", measured = "", rules = "", formatLabel = ""): string {
-  return `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nIm 9x16 ist kein Logo vorgesehen.\nIm Format 1200x628 ist eine Headline-Breite um 55 Prozent der Normalfall, bei der Personen-Kachel und beim Gerät. Das ist kein Fehler.\nAngewiesene Änderungen sind kein Fehler. Melde sie nicht. Deko „keine“ ist eine bewusste Wahl. Fehlende Wellen oder fehlende Blätter sind dann kein Fehler und werden nicht gemeldet. Schriftart und Schriftschnitt nicht bewerten, die Schrift wird fest gesetzt. Melde nur CI-Verstöße an gesetzten Flächen und Texten (Headline, Unterzeile, Kachel, CTA, Stern, Logo). Farben im Foto oder Produktbild, also Kleidung und Display, sind kein Verstoß. Die Farben des Energielabels sind gesetzlich vorgegeben und nie ein CI-Fehler. Eine unzulässige Textfarbe außerhalb von Lime, Orange, Schwarz und Weiß bleibt ein Verstoß. Textinhalte des Nutzers, auch der Sterntext, nie mit dem Referenztext vergleichen und nie als Abweichung werten.\nAngewiesen: ${instructed || "keine"}\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"}.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens zwei Sätze zu diesem einen Format. Beginne mit „Bestanden.“ oder „Nicht bestanden:“.`;
+  const share = headlineTarget(formatLabel);
+  return `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nSoll für ${formatLabel || "dieses Format"}: die Headline-Breite liegt etwa bei ${share} Prozent. Das ist der Normalfall und kein Fehler. Prozent-Abweichungen, die Position des CTA-Pfeils, „anders als die Referenz“ und die Größe oder Position der Kachel sind kein Verstoß.\nNicht bestanden nur bei einem dieser Verstöße: Text überdeckt oder abgeschnitten, Gesicht verdeckt, Text unleserlich klein, falsche CI-Farbe bei Text oder Fläche, fehlendes Pflichtelement (Logo, außer im 9x16, CTA oder Preis). Sonst beginne mit „Bestanden.“.\nIm 9x16 ist kein Logo vorgesehen.\nAngewiesene Änderungen sind kein Fehler. Melde sie nicht. Deko „keine“ ist eine bewusste Wahl. Fehlende Wellen oder fehlende Blätter sind dann kein Fehler und werden nicht gemeldet. Schriftart und Schriftschnitt nicht bewerten, die Schrift wird fest gesetzt. Farben im Foto oder Produktbild, also Kleidung und Display, sind kein Verstoß. Die Farben des Energielabels sind gesetzlich vorgegeben und nie ein CI-Fehler. Eine unzulässige Textfarbe außerhalb von Lime, Orange, Schwarz und Weiß bleibt ein Verstoß. Textinhalte des Nutzers, auch der Sterntext, nie mit dem Referenztext vergleichen und nie als Abweichung werten.\nAngewiesen: ${instructed || "keine"}\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"}.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens zwei Sätze zu diesem einen Format. Beginne mit „Bestanden.“ oder „Nicht bestanden:“.`;
 }
 
 /** Keeps whole sentences. A period inside „bzw.“ does not end a sentence. */
@@ -109,7 +130,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
   if (reference && images.length < 2) images.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${reviewJpeg(reference).toString("base64")}` } });
   const ask = (reasoning?: { effort: "low" | "none"; exclude?: boolean }) => openRouterComplete({
       messages: [
-        { role: "system", content: "Du vergleichst ein Werbemotiv mit der CI und, falls vorhanden, mit dem zweiten Bild als Referenz. Höchstens fünf kurze deutsche Sätze. Beginne mit „Bestanden.“ oder „Nicht bestanden:“. Schriftart und Schriftschnitt nicht bewerten. Kein Modellname." },
+        { role: "system", content: "Du vergleichst ein Werbemotiv mit der CI und, falls vorhanden, mit dem zweiten Bild als Referenz. Höchstens fünf kurze deutsche Sätze. Beginne mit „Bestanden.“ oder „Nicht bestanden:“. Nicht bestanden nur bei überdecktem oder abgeschnittenem Text, verdecktem Gesicht, unleserlich kleinem Text, falscher CI-Farbe oder einem fehlenden Pflichtelement. Schriftart und Schriftschnitt nicht bewerten. Kein Modellname." },
         {
           role: "user",
           content: [
@@ -151,7 +172,7 @@ export async function glanceFormats(
 ): Promise<string> {
   const picked = formats.filter((format) => format.jpeg);
   const notes = await Promise.all(picked.map(async (format) => {
-    const note = glanceLine(await glanceAt(format.jpeg, rules, referencePath, measured, format.label, instructed, fontRule));
+    const note = glanceLine(await glanceAt(format.jpeg, rules, referencePath, measured, format.label, instructed, fontRule), format.label);
     return `${format.label}: ${note}`;
   }));
   return notes.join("\n");
