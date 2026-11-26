@@ -57,11 +57,15 @@ export type FieldPatch = {
   kampagne?: string;
 };
 
+export type MeasuredSizes = Partial<Record<"stern" | "geraet" | "figur", number>>;
+
 export type AdjustSnap = {
   orange: OrangeSide;
   nudges: Record<string, Partial<Record<ElementId, Nudge>>>;
   fields: FieldPatch;
   follows?: SquareFollow[];
+  /** Groesse as it was reported in the JSON of that version. */
+  gemessen?: Record<string, MeasuredSizes>;
 };
 
 export type VersionEntry = { n: number; summary: string; snap: AdjustSnap };
@@ -633,11 +637,19 @@ function formatsOf(command: { formate?: string[] }): string[] {
   return command.formate?.length ? command.formate : ["*"];
 }
 
-export function mergedNudge(snap: AdjustSnap | undefined, formatId: string, element: ElementId): Nudge {
+/** The shift the renderer applies: the shared nudge plus one format nudge, never the token and the id together. */
+export function renderNudge(snap: AdjustSnap | undefined, format: { id: string; token?: string; w: number; h: number }, element: ElementId): Nudge {
   const base = emptyNudge();
   const star = snap?.nudges["*"]?.[element];
-  const own = snap?.nudges[formatId]?.[element];
+  const keys = [format.id, format.token, `${format.w}x${format.h}`].filter((key): key is string => Boolean(key) && key !== "*");
+  const specific = keys.find((key) => snap?.nudges[key]?.[element]);
+  const own = specific ? snap?.nudges[specific]?.[element] : undefined;
   return { ...base, ...star, ...own, scale: (star?.scale ?? 1) * (own?.scale ?? 1), dx: (star?.dx ?? 0) + (own?.dx ?? 0), dy: (star?.dy ?? 0) + (own?.dy ?? 0), flip: Boolean(own?.flip ?? star?.flip), hidden: Boolean(own?.hidden ?? star?.hidden), z: (star?.z ?? 0) + (own?.z ?? 0), color: own?.color ?? star?.color };
+}
+
+export function mergedNudge(snap: AdjustSnap | undefined, formatId: string, element: ElementId): Nudge {
+  const format = OTELO_FORMATS.find((item) => item.id === formatId) ?? { id: formatId, token: formatId, w: 0, h: 0 };
+  return renderNudge(snap, format, element);
 }
 
 function copyOf(snap: AdjustSnap): SceneCopy {
@@ -676,19 +688,8 @@ function vorlageOf(name: string | undefined): VorlageName {
 }
 
 function shiftsOf(snap: AdjustSnap, format: { id: string; token: string; w: number; h: number }) {
-  const keys = ["*", format.id, format.token, `${format.w}x${format.h}`];
   const elements: ElementId[] = ["headline", "subline", "stoerer", "person", "geraet", "cta", "logo", "deko", "kachel", "pfeile", "stattpreis", "altwert", "zusatz", "einmalig", "geraetename"];
-  return Object.fromEntries(elements.map((element) => {
-    const parts = keys.map((key) => snap.nudges[key]?.[element]).filter((item) => item);
-    return [element, {
-      dx: parts.reduce((sum, item) => sum + (item?.dx ?? 0), 0),
-      dy: parts.reduce((sum, item) => sum + (item?.dy ?? 0), 0),
-      scale: parts.reduce((product, item) => product * (item?.scale ?? 1), 1),
-      flip: parts.some((item) => item?.flip),
-      hidden: parts.some((item) => item?.hidden),
-      color: parts.reduce<string | undefined>((picked, item) => item?.color ?? picked, undefined),
-    }];
-  }));
+  return Object.fromEntries(elements.map((element) => [element, renderNudge(snap, format, element)]));
 }
 
 function targetsOf(formate: string[] | undefined) {
@@ -732,8 +733,8 @@ export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ 
   }
   if (parsed.question && !parsed.commands.length) return { book, summary: `nicht verstanden: ${parsed.question}`, question: parsed.question };
   const history = book.history.some((entry) => entry.n === book.version)
-    ? book.history
-    : [...book.history, { n: book.version, summary: "", snap: clone(book.snap) }];
+    ? book.history.map((entry) => ({ n: entry.n, summary: entry.summary, snap: entry.snap }))
+    : [...book.history.map((entry) => ({ n: entry.n, summary: entry.summary, snap: entry.snap })), { n: book.version, summary: "", snap: clone(book.snap) }];
   const snap = clone(book.snap);
   snap.fields ??= {};
   const bits: AdjustCommand[] = [];
@@ -756,7 +757,11 @@ export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ 
     }
     if (command.op === "version") {
       const found = history.find((entry) => entry.n === command.nummer);
-      if (!found) return { book, summary: "", question: `Version ${command.nummer} kenne ich nicht.` };
+      if (!found) {
+        const have = [...new Set(history.map((entry) => entry.n))].sort((left, right) => left - right);
+        noop.push(`nicht möglich: Version ${command.nummer} nicht vorhanden (vorhanden: ${have.join(", ") || "keine"})`);
+        continue;
+      }
       snap.orange = found.snap.orange;
       snap.nudges = clone(found.snap.nudges);
       snap.fields = clone(found.snap.fields ?? {});

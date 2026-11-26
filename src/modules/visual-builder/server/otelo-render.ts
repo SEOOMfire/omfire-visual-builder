@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { OTELO_FORMATS } from "../otelo-formats";
-import { type AdjustSnap, type ElementId } from "./adjust-commands";
+import { renderNudge, type AdjustSnap, type ElementId } from "./adjust-commands";
 import { problemsFromScenes, standFromScenes, type LayoutProblem, type LayoutStand } from "./edit-creative";
 import { buildScene, dedupeHints, defaultHeadline, defaultOrange, defaultStoerer, normalizeDeko, normalizeVorlage, renderedStarDiameter, sceneFormatLabel, type HeadlineVariant, type OrangeSide, type OteloScene, type SceneCopy, type StoererTyp, type VorlageName } from "../otelo-scene";
 import type { StarSample } from "./adjust-commands";
@@ -239,17 +239,7 @@ async function loadOtelo(input: RenderRequest): Promise<{ name: VorlageName; ote
   const otelo: Record<string, OteloScene> = {};
   for (const format of OTELO_FORMATS) {
     const elements: ElementId[] = ["headline", "subline", "stoerer", "person", "geraet", "cta", "logo", "pflichttext", "energielabel", "schraege", "deko", "kachel", "pfeile", "altwert", "datenmenge", "stattpreis", "zusatz", "einmalig", "geraetename"];
-    const shifts = Object.fromEntries(elements.map((element) => {
-      const parts = ["*", format.id, format.token, `${format.w}x${format.h}`].map((key) => input.layout?.nudges[key]?.[element]).filter((item) => item);
-      return [element, {
-        dx: parts.reduce((sum, item) => sum + (item?.dx ?? 0), 0),
-        dy: parts.reduce((sum, item) => sum + (item?.dy ?? 0), 0),
-        scale: parts.reduce((product, item) => product * (item?.scale ?? 1), 1),
-        flip: parts.some((item) => item?.flip),
-        hidden: parts.some((item) => item?.hidden),
-        color: parts.reduce<string | undefined>((picked, item) => item?.color ?? picked, undefined),
-      }];
-    }));
+    const shifts = Object.fromEntries(elements.map((element) => [element, renderNudge(input.layout, format, element)]));
     const scene = buildScene(format, name, copy, shifts, cutout, input.layout?.follows, productCutout);
     scene.logoKey = logo.path;
     if (person) scene.figureKey = person.path;

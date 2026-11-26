@@ -1803,8 +1803,16 @@ function buildKachel(
     }
     return reached;
   };
-  const geraetReached = reachedOf(device, placed.product, shifts.geraet?.scale && shifts.geraet.scale > 0 ? shifts.geraet.scale : 1, "geraet", deviceScaledH);
+  const geraetAsked = shifts.geraet?.scale && shifts.geraet.scale > 0 ? shifts.geraet.scale : 1;
+  const geraetReached = reachedOf(device, placed.product, geraetAsked, "geraet", deviceScaledH);
   const figurReached = reachedOf(figure, placed.figure, shifts.person?.scale && shifts.person.scale > 0 ? shifts.person.scale : 1, "figur");
+  let geraetMeasured = deviceMode ? 100 : geraetReached;
+  if (deviceMode && Math.abs(geraetAsked - 1) > 0.001) {
+    const resting = buildScene(format, name, copy, { ...shifts, geraet: { ...shifts.geraet, scale: 1 } }, cutout, follows, productCutout);
+    const now = productPaint?.opaque.h ?? placed.product?.h ?? 0;
+    const rest = resting.productPaint?.opaque.h ?? resting.product?.h ?? 0;
+    geraetMeasured = rest > 2 ? Math.round((now / rest) * 1000) / 10 : 100;
+  }
   return {
     id: format.id,
     width: w,
@@ -1843,7 +1851,7 @@ function buildKachel(
     ctaColor: shifts.cta?.color || copy.ctaColor,
     renderedGroesse: {
       ...(placed.stern && starBeforeScale && starBeforeScale.w > 2 ? { stern: Math.round((placed.stern.w / starBeforeScale.w) * 1000) / 10 } : {}),
-      ...(geraetReached !== undefined ? { geraet: geraetReached } : {}),
+      ...(geraetMeasured !== undefined ? { geraet: geraetMeasured } : {}),
       ...(figurReached !== undefined ? { figur: figurReached } : {}),
     },
     sizeGrund,

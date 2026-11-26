@@ -15,6 +15,7 @@ import {
   editsFromArgs,
   hintsForEdit,
   judgeEdits,
+  planCreativeEdits,
   problemsFromScenes,
   settleMoves,
   standFromScenes,
@@ -252,17 +253,15 @@ test("a bigger star that the picture cannot grow is not stored as grown", () => 
   else assert.match(line, /^(umgesetzt|teilweise)/);
 });
 
-test("an unknown target is named and a device alias changes the version", () => {
+test("an unknown target is named and a device alias changes the version", async () => {
   const parsed = editsFromArgs({ aenderungen: [{ ziel: "quarks", aktion: "setzen", wert: "x" }] });
   assert.match(parsed.errors[0] ?? "", /nicht möglich \(unbekanntes Ziel quarks, gültig:/);
   const book = seedBook("rechts", { vorlage: "kachel_geraet", geraetName: "Samsung Galaxy A57 5G", einmalpreis: "1 €" });
   const edit = [{ ziel: "motiv" as const, aktion: "setzen" as const, wert: { groesse: 110 }, formate: ["1200x1200", "1080x1080"] }];
-  const step = applyEdits(book, edit);
-  const line = step.errors[0] || judgeEdits(edit, standOf(book, "kachel_geraet", phone), standOf(step.book, "kachel_geraet", phone))[0] || "";
-  assert.ok(line, "jede Änderung braucht eine Zeile");
-  assert.equal(step.errors.length + 1, 1);
-  if (line.startsWith("umgesetzt") || line.startsWith("teilweise")) assert.ok(step.book.version > book.version);
-  else assert.equal(step.book.version, book.version);
+  const planned = await planCreativeEdits(book, edit, (current) => ({ problems: [], stand: standOf(current, "kachel_geraet", phone), heights: {} }));
+  const line = planned.lines[0] ?? "";
+  assert.match(line, /^nicht möglich: Gerät 110 % \(Rand rechts\)$/);
+  assert.equal(planned.book.version, book.version);
 });
 
 test("short deco names stay aliases", () => {
@@ -302,7 +301,7 @@ test("a Sommer star that would cover the data amount is reduced or refused", asy
   assert.ok(afterHits.length <= beforeHits.length, afterHits.map((problem) => problem.format).join(", "));
   assert.ok(settled.notes.length, "5 Prozent nach links verdecken die Datenmenge");
   assert.match(settled.notes[0] ?? "", /Datenmenge/);
-  assert.match(settled.notes[0] ?? "", /teilweise: Stern \d+ % nach |nicht möglich \(würde Datenmenge verdecken\)/);
+  assert.match(settled.notes[0] ?? "", /teilweise: Stern \d+ % nach |nicht möglich: Stern \(würde Datenmenge verdecken\)/);
 });
 
 test("a device size that barely changes is not reported as done", () => {

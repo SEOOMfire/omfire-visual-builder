@@ -8,7 +8,7 @@ import { namePart, nextVersion, oteloFileName, oteloFolder, type OteloName } fro
 import { PNG } from "pngjs";
 import { encode as encodeJpeg } from "jpeg-js";
 import { applyToBook, correctStarStep, finishAdjustSummary, holdStarScale, interpretCommands, newBook, parseAdjustText, seedBook, type AdjustBook, type AdjustCommand, type AdjustSnap, type FieldPatch } from "./adjust-commands";
-import { applyEdits, applyMeasuredSizes, editsFromArgs, freshProblems, hintsForEdit, judgeEdits, planCreativeEdits, proposeLayoutFixes, type LayoutProblem, type LayoutStand } from "./edit-creative";
+import { applyEdits, applyMeasuredSizes, editsFromArgs, freshProblems, hintsForEdit, judgeEdits, planCreativeEdits, proposeLayoutFixes, reconcileLines, rememberMeasured, type LayoutProblem, type LayoutStand } from "./edit-creative";
 import { normalizeDeko, normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
 import { layoutFrames, layoutStars, renderTemplate, type RenderedCreative } from "./otelo-render";
 import { signPreview, storePreview } from "./previews";
@@ -483,16 +483,17 @@ export async function editCreative(
   if (draft.layoutBook && JSON.stringify(draft.layoutBook.snap) === JSON.stringify(beforeSnap)) draft.layoutBook = book;
   afterStand.version = draft.layoutBook?.version ?? book.version;
   afterStand.felder.version = String(afterStand.version);
-  const lines = [...errors, ...planned.lines, ...planned.hints.filter((hint) => !draft.hints.includes(hint))];
+  const lines = [...errors, ...reconcileLines(edits, book, draft.layoutBook ?? book, planned.lines), ...planned.hints.filter((hint) => !draft.hints.includes(hint))];
   const starSized = edits.some((edit) => edit.ziel === "stern" && (edit.aktion === "groesser" || edit.aktion === "kleiner" || (edit.aktion === "setzen" && typeof edit.wert === "object" && edit.wert.groesse !== undefined)));
   if (starSized) corrections.push(...(rendered.clampNotes ?? []).filter((note) => !corrections.includes(note)));
   else if ((rendered.clampNotes ?? []).length && !draft.hints.some((hint) => /kleiner machen/.test(hint))) lines.push("Hinweis: Stern überlappt Kachel, kleiner machen?");
   rendered.hints = hintsForEdit(rendered.hints ?? [], edits);
-  if ((draft.layoutBook?.version ?? book.version) === book.version) lines.push(`Die Version bleibt ${book.version}, keine Änderung wurde umgesetzt.`);
+  if ((draft.layoutBook?.version ?? book.version) === book.version && !lines.some((line) => /^umgesetzt:|^teilweise:|^nicht möglich:|^unverändert:/.test(line))) lines.push(`Die Version bleibt ${book.version}, keine Änderung wurde umgesetzt.`);
+  if (draft.layoutBook && rendered.stand) rememberMeasured(draft.layoutBook.snap, rendered.stand);
   const entry = draft.layoutBook?.history.find((item) => item.n === draft.layoutBook?.version);
-  if (entry) {
+  if (entry && draft.layoutBook) {
     entry.summary = [...lines, ...corrections].filter(Boolean).join("\n");
-    entry.snap = structuredClone(draft.layoutBook?.snap);
+    entry.snap = structuredClone(draft.layoutBook.snap);
   }
   draft.summary = [...lines, ...corrections].filter(Boolean).join("\n");
   draft.hints = (rendered.hints ?? []).filter((hint) => !/schon maximal groß|schon minimal klein/.test(hint));

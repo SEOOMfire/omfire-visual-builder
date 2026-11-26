@@ -318,12 +318,15 @@ function round1(value: number): number {
 function paramOf(scene: OteloScene, box: { x: number; y: number; w: number; h: number } | undefined, element: ElementId, snap: AdjustSnap | undefined, hidden: boolean, farbe = "", grund = ""): LayoutParam {
   const frame = box && box.w > 2 ? box : { x: 0, y: 0, w: 0, h: 0 };
   const nudge = mergedNudge(snap, scene.id, element);
+  const measuredKey = element === "stoerer" ? "stern" : element === "geraet" ? "geraet" : element === "person" ? "figur" : "";
+  const saved = measuredKey ? snap?.gemessen?.[scene.id]?.[measuredKey] : undefined;
+  const live = measuredKey === "stern" ? scene.renderedGroesse?.stern : measuredKey === "geraet" ? scene.renderedGroesse?.geraet : measuredKey === "figur" ? scene.renderedGroesse?.figur : undefined;
   return {
     x: round1((frame.x / Math.max(1, scene.width)) * 100),
     y: round1((frame.y / Math.max(1, scene.height)) * 100),
     breite: round1((frame.w / Math.max(1, scene.width)) * 100),
     hoehe: round1((frame.h / Math.max(1, scene.height)) * 100),
-    groesse: round1(nudge.scale * 100),
+    groesse: round1(saved ?? live ?? nudge.scale * 100),
     ebene: (ELEMENT_LAYER[element] ?? 3) + (nudge.z ?? 0),
     versteckt: hidden || nudge.hidden,
     farbe,
@@ -514,8 +517,52 @@ export function freshProblems(current: readonly LayoutProblem[], baseline: reado
   return current.filter((problem) => !known.has(`${problem.format}|${problem.text}`));
 }
 
-function newTextHits(current: readonly LayoutProblem[], baseline: readonly LayoutProblem[]): LayoutProblem[] {
-  return freshProblems(current, baseline).filter((problem) => /überdeckt (?:Datenmenge|Preis|Altwert|Einmalpreis|Pillentext|statt|Headline|Unterzeile|CTA)/i.test(problem.text));
+const COVERED_TEXT: Array<[string, string]> = [
+  ["datenmenge", "Datenmenge"],
+  ["datenmenge_alt", "Altwert"],
+  ["preis", "Preis"],
+  ["preis_alt", "statt"],
+  ["einmalpreis", "Einmalpreis"],
+  ["headline", "Headline"],
+  ["unterzeile", "Unterzeile"],
+  ["cta", "CTA"],
+];
+
+function boxesOverlap(left: LayoutParam, right: LayoutParam): boolean {
+  return left.breite > 0.2 && right.breite > 0.2 && right.hoehe > 0.2
+    && left.x < right.x + right.breite && right.x < left.x + left.breite
+    && left.y < right.y + right.hoehe && right.y < left.y + left.hoehe;
+}
+
+/** Text covers from the same boxes standFromScenes writes into the JSON. */
+export function coveredText(stand: LayoutStand, labels?: readonly string[]): string[] {
+  const names = labels ?? Object.keys(stand.layout);
+  const hits: string[] = [];
+  for (const label of names) {
+    const row = stand.layout[label];
+    const star = row?.stern;
+    if (!star) continue;
+    for (const [key, name] of COVERED_TEXT) {
+      const box = row[key];
+      if (box && boxesOverlap(star, box)) hits.push(`${label}: ${name}`);
+    }
+  }
+  return hits;
+}
+
+export function rememberMeasured(snap: AdjustSnap, stand: LayoutStand): void {
+  const gemessen: NonNullable<AdjustSnap["gemessen"]> = { ...(snap.gemessen ?? {}) };
+  for (const format of OTELO_FORMATS) {
+    const row = stand.layout[sceneFormatLabel(format)];
+    if (!row) continue;
+    const next = { ...(gemessen[format.id] ?? {}) };
+    for (const key of ["stern", "geraet", "figur"] as const) {
+      const value = row[key]?.groesse;
+      if (value !== undefined) next[key] = value;
+    }
+    if (Object.keys(next).length) gemessen[format.id] = next;
+  }
+  if (Object.keys(gemessen).length) snap.gemessen = gemessen;
 }
 
 const MOVE_WORD: Record<string, string> = { links: "links", rechts: "rechts", oben: "oben", unten: "unten" };
@@ -535,11 +582,27 @@ export type EditDebug = {
   gespeichert: unknown;
 };
 
+type MoveLook = LayoutProblem[] | EditInspection;
+
+function labelsFor(formate?: string[]): string[] {
+  const ids = formatIds(formate);
+  if (!ids) return OTELO_FORMATS.map((format) => sceneFormatLabel(format));
+  return OTELO_FORMATS.filter((format) => ids.includes(format.id)).map((format) => sceneFormatLabel(format));
+}
+
+function coversOf(result: MoveLook, labels: readonly string[]): string[] {
+  if (!Array.isArray(result) && Object.keys(result.stand.layout).length) return coveredText(result.stand, labels);
+  const problems = Array.isArray(result) ? result : result.problems;
+  return problems
+    .filter((problem) => labels.includes(problem.format) && /überdeckt (?:Datenmenge|Preis|Altwert|Einmalpreis|Pillentext|statt|Headline|Unterzeile|CTA)/i.test(problem.text))
+    .map((problem) => problem.text);
+}
+
 /** Shrinks a move that would cover text, dodges to a free neighbour, or drops it. Version loads run first. */
 export async function settleMoves(
   book: AdjustBook,
   edits: readonly EditChange[],
-  problemsOf: (book: AdjustBook) => Promise<LayoutProblem[]> | LayoutProblem[],
+  problemsOf: (book: AdjustBook) => Promise<MoveLook> | MoveLook,
 ): Promise<{ book: AdjustBook; errors: string[]; starFactor?: number; notes: string[]; lineFor: Map<EditChange, string>; debug: EditDebug[] }> {
   const rewritten: EditChange[] = [];
   const notes: string[] = [];
@@ -557,10 +620,14 @@ export async function settleMoves(
     }
     const asked = Math.abs(Number(edit.wert[primary]) || 0);
     const baselineBook = applyEdits(book, rewritten).book;
-    const baseline = await problemsOf(baselineBook);
-    const ids = formatIds(edit.formate) ?? ["*"];
+    const ids = (formatIds(edit.formate) ?? OTELO_FORMATS.map((format) => format.id)).filter((id) => id !== "*");
+    const labels = labelsFor(edit.formate);
     const element = edit.ziel === "stern" || edit.ziel === "stern_text" ? "stoerer" : edit.ziel === "kachel" ? "kachel" : "stoerer";
-    const ausgang = Object.fromEntries(ids.map((id) => [id, mergedNudge(baselineBook.snap, id, element).dx]));
+    const readShift = (source: AdjustBook) => Object.fromEntries(ids.map((id) => {
+      const nudge = mergedNudge(source.snap, id, element);
+      return [id, { dx: nudge.dx, dy: nudge.dy }];
+    }));
+    const ausgang = readShift(baselineBook);
     const neighbours = primary === "links" || primary === "rechts" ? (["oben", "unten"] as const) : (["links", "rechts"] as const);
     const attempts = [asked, 3, 1]
       .filter((step, index, all) => step > 0 && step <= asked + 0.01 && all.indexOf(step) === index)
@@ -571,13 +638,13 @@ export async function settleMoves(
     const schritte: EditDebug["schritte"] = [];
     for (const attempt of attempts) {
       const trial = applyEdits(book, [...rewritten, { ...edit, wert: attempt.wert }]).book;
-      const hits = newTextHits(await problemsOf(trial), baseline);
-      schritte.push({ schritt: `${MOVE_WORD[attempt.dir] ?? attempt.dir} ${attempt.step}`, verstoesse: hits.map((hit) => hit.text) });
+      const hits = coversOf(await problemsOf(trial), labels);
+      schritte.push({ schritt: `${MOVE_WORD[attempt.dir] ?? attempt.dir} ${attempt.step}`, verstoesse: hits });
       if (!hits.length) {
         chosen = attempt;
         break;
       }
-      if (!covered) covered = hits[0]?.text.match(/überdeckt\s+(\S+)/i)?.[1]?.trim() || "Text";
+      if (!covered) covered = hits[0]?.split(": ").pop()?.trim() || "Text";
     }
     const who = edit.ziel === "stern" ? "Stern" : edit.ziel === "kachel" ? "Kachel" : edit.ziel;
     let line = "";
@@ -595,7 +662,7 @@ export async function settleMoves(
       ausgang,
       geplant: edit.wert,
       schritte,
-      gespeichert: Object.fromEntries(ids.map((id) => [id, { dx: mergedNudge(storedBook.snap, id, element).dx, dy: mergedNudge(storedBook.snap, id, element).dy }])),
+      gespeichert: readShift(storedBook),
     });
   }
   if (!rewritten.length) return { book, errors: [], notes, starFactor: undefined, lineFor, debug };
@@ -617,7 +684,7 @@ export async function planCreativeEdits(
   inspect: (book: AdjustBook) => Promise<EditInspection> | EditInspection,
 ): Promise<{ book: AdjustBook; lines: string[]; notes: string[]; hints: string[]; debug: EditDebug[] }> {
   const before = await inspect(book);
-  const settled = await settleMoves(book, edits, async (current) => (await inspect(current)).problems);
+  const settled = await settleMoves(book, edits, inspect);
   let current = settled.book;
   const notes = [...settled.notes];
   const explained = new Set(edits.filter((edit) => settled.lineFor.has(edit)).map((edit) => `${edit.ziel}:${edit.aktion}`));
@@ -663,15 +730,83 @@ export async function planCreativeEdits(
   afterStand.version = current.version;
   before.stand.felder.version = String(book.version);
   afterStand.felder.version = String(current.version);
-  const lines = edits.flatMap((edit) => {
+  const lines = edits.map((edit) => {
     const settledLine = settled.lineFor.get(edit);
-    if (settledLine) return [settledLine];
-    if (commandsForEdit(edit, book.snap.fields.vorlage).error) return [];
-    const judged = judgeEdits([edit], before.stand, afterStand)[0];
-    return judged ? [judged] : [];
-  }).filter((line) => !/lässt sich dort nicht verschieben/.test(line));
+    if (settledLine) return settledLine;
+    if (commandsForEdit(edit, book.snap.fields.vorlage).error) return "";
+    return judgeEdits([edit], before.stand, afterStand)[0] ?? "";
+  });
   const hints = reference.problems.some((problem) => /überdeckt Datenmenge/.test(problem.text)) ? ["Hinweis: Stern verdeckt Datenmenge, nach rechts schieben?"] : [];
-  return { book: current, lines, notes, hints, debug: settled.debug };
+  return { book: current, lines: reconcileLines(edits, book, current, lines), notes, hints, debug: settled.debug };
+}
+
+export function versionLine(before: AdjustBook, after: AdjustBook, edit: EditChange): string {
+  const nummer = Math.round(percentOf(edit.wert, NaN));
+  const have = [...new Set(before.history.map((entry) => entry.n))].sort((left, right) => left - right);
+  const found = before.history.find((entry) => entry.n === nummer);
+  if (!found) return `nicht möglich: Version ${nummer} nicht vorhanden (vorhanden: ${have.join(", ") || "keine"})`;
+  if (JSON.stringify(after.snap) === JSON.stringify(before.snap)) return `unverändert: Version ${nummer} ist schon geladen`;
+  return `umgesetzt: Version ${nummer}`;
+}
+
+function paintColor(snap: AdjustSnap, formatId: string, element: ElementId): string {
+  const own = mergedNudge(snap, formatId, element).color;
+  if (own) return own.toLowerCase();
+  const field = element === "subline" ? snap.fields.sublineColor : element === "stoerer" ? snap.fields.sternColor : element === "cta" ? snap.fields.ctaColor : snap.fields.headlineColor;
+  return (field ?? "").toLowerCase();
+}
+
+function colorElement(edit: EditChange): ElementId {
+  if (edit.ziel === "unterzeile") return "subline";
+  if (edit.ziel === "cta") return "cta";
+  if (edit.ziel === "stern" || edit.ziel === "stern_text") return "stoerer";
+  return "headline";
+}
+
+function colorTitle(edit: EditChange): string {
+  if (edit.ziel === "unterzeile") return "Unterzeile";
+  if (edit.ziel === "cta") return "CTA";
+  if (edit.ziel === "stern" || edit.ziel === "stern_text") return "Stern";
+  return "Headline";
+}
+
+/** umgesetzt and teilweise only when the stored snap actually changed. */
+export function reconcileLines(edits: readonly EditChange[], before: AdjustBook, after: AdjustBook, lines: readonly string[]): string[] {
+  return edits.flatMap((edit, index) => {
+    const line = lines[index] ?? "";
+    if (!line) return [];
+    if (edit.aktion === "version_laden" || (edit.ziel === "version" && edit.aktion === "setzen")) return [versionLine(before, after, edit)];
+    const ids = formatIds(edit.formate) ?? OTELO_FORMATS.map((format) => format.id);
+    const labels = labelsFor(edit.formate);
+    if (edit.aktion === "farbe") {
+      const wanted = (colorOf(edit.wert) ?? "").toLowerCase();
+      const element = colorElement(edit);
+      const already = Boolean(wanted) && ids.every((id) => paintColor(before.snap, id, element) === wanted);
+      const unchanged = ids.every((id) => paintColor(before.snap, id, element) === paintColor(after.snap, id, element));
+      if (already || ((line.startsWith("umgesetzt") || line.startsWith("teilweise")) && unchanged)) {
+        return [`unverändert: ${colorTitle(edit)} ist schon ${textOf(edit.wert) || wanted}${edit.formate?.length ? ` (${labels.join(", ")})` : ""}`];
+      }
+      return [line];
+    }
+    if (edit.aktion === "verschieben") {
+      const element = edit.ziel === "kachel" ? "kachel" : "stoerer";
+      const moved = ids.some((id) => {
+        const left = mergedNudge(before.snap, id, element);
+        const right = mergedNudge(after.snap, id, element);
+        return left.dx !== right.dx || left.dy !== right.dy;
+      });
+      if (!moved) {
+        if (/^nicht möglich/.test(line)) return [line];
+        const covered = line.match(/würde ([^)]+) verdecken/)?.[1];
+        const who = edit.ziel === "stern" ? "Stern" : edit.ziel === "kachel" ? "Kachel" : edit.ziel;
+        return [`nicht möglich: ${who}${covered ? ` (würde ${covered} verdecken)` : ""}`];
+      }
+    }
+    if ((line.startsWith("umgesetzt") || line.startsWith("teilweise")) && JSON.stringify(after.snap) === JSON.stringify(before.snap)) {
+      return [`unverändert: ${line.replace(/^(?:umgesetzt|teilweise):\s*/, "")}`];
+    }
+    return [line];
+  });
 }
 
 /** Drops the deco-on-orange hint except when the draft is new or the deco itself changes. */
@@ -737,7 +872,7 @@ export function judgeEdits(edits: readonly EditChange[], before: LayoutStand, af
     }
     if (edit.aktion === "version_laden" || (edit.ziel === "version" && edit.aktion === "setzen")) {
       const nummer = Math.round(percentOf(edit.wert, NaN));
-      return after.version !== before.version ? `umgesetzt: Version ${nummer}` : `nicht möglich: Version ${nummer} kenne ich nicht.`;
+      return after.version !== before.version ? `umgesetzt: Version ${nummer}` : `nicht möglich: Version ${nummer} nicht vorhanden`;
     }
     if (edit.aktion === "zuruecksetzen" && edit.ziel === "version") {
       return after.version !== before.version ? "umgesetzt: vorherige Version" : "nicht möglich: Es gibt keine frühere Version.";
