@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { OTELO_FORMATS } from "../otelo-formats";
 import { type AdjustSnap, type ElementId } from "./adjust-commands";
 import { problemsFromScenes, standFromScenes, type LayoutProblem, type LayoutStand } from "./edit-creative";
-import { buildScene, dedupeHints, defaultHeadline, defaultOrange, defaultStoerer, normalizeVorlage, renderedStarDiameter, sceneFormatLabel, type HeadlineVariant, type OrangeSide, type OteloScene, type SceneCopy, type StoererTyp, type VorlageName } from "../otelo-scene";
+import { buildScene, dedupeHints, defaultHeadline, defaultOrange, defaultStoerer, normalizeDeko, normalizeVorlage, renderedStarDiameter, sceneFormatLabel, type HeadlineVariant, type OrangeSide, type OteloScene, type SceneCopy, type StoererTyp, type VorlageName } from "../otelo-scene";
 import type { StarSample } from "./adjust-commands";
 import type { RenderJob } from "../render-protocol";
 import type { CreativeState } from "../types";
@@ -79,6 +79,7 @@ export type RenderedCreative = {
   motifNote?: string;
   stand?: LayoutStand;
   layoutProblems?: LayoutProblem[];
+  clampNotes?: string[];
 };
 
 export type RenderRequest = {
@@ -110,6 +111,7 @@ export type RenderRequest = {
   sublineColor?: string;
   sternColor?: string;
   headlineColor?: string;
+  ctaColor?: string;
   motivWinkel?: string;
   layout?: AdjustSnap;
 };
@@ -201,12 +203,13 @@ async function loadOtelo(input: RenderRequest): Promise<{ name: VorlageName; ote
     preisAlt: input.preisAlt,
     preisMonatAlt: input.preisMonatAlt,
     sternText: input.sternText,
-    deko: input.deko === "bw_wellen" || input.deko === "fruehling_blaetter" || input.deko === "keine" ? input.deko : undefined,
+    deko: normalizeDeko(input.deko),
     geraetName: input.geraetName,
     kampagne: input.kampagne,
     sublineColor: input.sublineColor,
     sternColor: input.sternColor,
     headlineColor: input.headlineColor,
+    ctaColor: input.ctaColor,
   };
   const images: Record<string, string> = {};
   images[logo.path] = await asDataUrl(logo.path);
@@ -243,6 +246,7 @@ async function loadOtelo(input: RenderRequest): Promise<{ name: VorlageName; ote
         scale: parts.reduce((product, item) => product * (item?.scale ?? 1), 1),
         flip: parts.some((item) => item?.flip),
         hidden: parts.some((item) => item?.hidden),
+        color: parts.reduce<string | undefined>((picked, item) => item?.color ?? picked, undefined),
       }];
     }));
     const scene = buildScene(format, name, copy, shifts, cutout, input.layout?.follows, productCutout);
@@ -287,7 +291,8 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     formats.push({ id: format.format, label: labels.get(format.format) ?? format.pixelSize, token, pngBase64: format.pngBase64 });
   }
   const token = await storePreview(`${randomUUID()}-kontakt.jpg`, Buffer.from(output.contactSheetBase64, "base64"));
-  const hints = dedupeHints(output.formats.flatMap((format) => format.hints.map((hint) => hint.sentence)));
+  const hints = dedupeHints(output.formats.flatMap((format) => format.hints.map((hint) => hint.sentence))).filter((hint) => !hint.startsWith("Korrektur:"));
+  const clampNotes = dedupeHints(Object.values(otelo).flatMap((scene) => scene.hints)).filter((hint) => hint.startsWith("Korrektur:"));
   const measureText = Object.values(otelo).map((scene) => {
     const head = scene.headBox ? Math.round((scene.headBox.y / scene.height) * 100) : undefined;
     const top = scene.figure ? Math.round((scene.figure.y / scene.height) * 100) : undefined;
@@ -307,8 +312,9 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     hints: motifNote ? [`Rückfrage: ${motifNote}`, ...hints] : hints,
     measureText,
     motifNote,
-    stand: standFromScenes(otelo, input.layout, 1),
+    stand: standFromScenes(otelo, input.layout, 1, { vorlage: name, kampagne: input.kampagne }),
     layoutProblems: problemsFromScenes(otelo),
+    clampNotes,
   };
 }
 

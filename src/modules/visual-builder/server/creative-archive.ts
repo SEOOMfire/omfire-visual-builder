@@ -8,8 +8,8 @@ import { namePart, nextVersion, oteloFileName, oteloFolder, type OteloName } fro
 import { PNG } from "pngjs";
 import { encode as encodeJpeg } from "jpeg-js";
 import { applyToBook, correctStarStep, finishAdjustSummary, holdStarScale, interpretCommands, newBook, parseAdjustText, seedBook, type AdjustBook, type AdjustCommand, type AdjustSnap, type FieldPatch } from "./adjust-commands";
-import { applyEdits, commandsForEdit, editsFromArgs, freshProblems, judgeEdits, proposeLayoutFixes, type LayoutProblem, type LayoutStand } from "./edit-creative";
-import { normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
+import { applyEdits, commandsForEdit, editsFromArgs, freshProblems, judgeEdits, proposeLayoutFixes, syncStoredScale, type LayoutProblem, type LayoutStand } from "./edit-creative";
+import { normalizeDeko, normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
 import { layoutFrames, layoutStars, renderTemplate, type RenderedCreative } from "./otelo-render";
 import { signPreview, storePreview } from "./previews";
 import { previewUrl } from "./public-url";
@@ -103,7 +103,7 @@ export function creativeInput(args: Record<string, unknown>) {
     datenmenge: textOf(args, "datenmenge"),
     datenmengeAlt: textOf(args, "datenmenge_alt", "datenmengeAlt"),
     sternText: textOf(args, "stern_text", "sternText"),
-    deko: deko === "bw_wellen" || deko === "fruehling_blaetter" || deko === "keine" ? deko : undefined,
+    deko: normalizeDeko(deko),
     geraetName: textOf(args, "geraet_name", "geraetName"),
   };
 }
@@ -139,6 +139,7 @@ export function fieldsForRender(draft: CreativeDraft) {
     sublineColor: draft.layoutBook?.snap.fields?.sublineColor,
     sternColor: draft.layoutBook?.snap.fields?.sternColor,
     headlineColor: draft.layoutBook?.snap.fields?.headlineColor,
+    ctaColor: draft.layoutBook?.snap.fields?.ctaColor,
     layout: draft.layoutBook?.snap,
   };
 }
@@ -302,7 +303,8 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   if (typeof change.preis_alt === "string") draft.preisAlt = change.preis_alt;
   if (typeof change.energielabel === "string") draft.energielabel = change.energielabel;
   if (typeof change.geraet_name === "string") draft.geraetName = change.geraet_name;
-  if (change.deko === "bw_wellen" || change.deko === "fruehling_blaetter" || change.deko === "keine") draft.deko = change.deko;
+  const namedDeko = normalizeDeko(typeof change.deko === "string" ? change.deko : undefined);
+  if (namedDeko) draft.deko = namedDeko;
   const spoken = [change.text, change.anweisung, change.satz].find((value) => typeof value === "string" && value.trim()) as string | undefined ?? "";
   const versionBefore = draft.layoutBook?.version ?? 1;
   if (spoken || (Array.isArray(change.befehle) && change.befehle.length > 0)) {
@@ -411,6 +413,8 @@ export async function editCreative(
   const book = draft.layoutBook ?? newBook(draft.orange);
   const beforeSnap = structuredClone(book.snap);
   const baseline = await layoutFrames({ ...fieldsForRender({ ...draft, layoutBook: { ...book, snap: beforeSnap } }), layout: beforeSnap });
+  baseline.stand.felder.vorlage ||= draft.vorlage;
+  baseline.stand.felder.kampagne ||= draft.kampagne;
   const applied = applyEdits(book, edits);
   if (applied.starFactor && applied.starFactor !== 1 && applied.book.version !== book.version) {
     await settleStarGrowth(draft, applied.book, beforeSnap, applied.starFactor);
@@ -423,7 +427,13 @@ export async function editCreative(
     draft.orange = current.snap.orange;
     applySnapFields(draft, current.snap.fields ?? {});
     const rendered = await renderTemplate(fieldsForRender(draft));
-    if (rendered.stand) rendered.stand.version = current.version;
+    if (rendered.stand) {
+      rendered.stand.version = current.version;
+      rendered.stand.felder.version = String(current.version);
+      rendered.stand.felder.kampagne ||= draft.kampagne;
+      rendered.stand.felder.vorlage ||= draft.vorlage;
+      syncStoredScale(current, rendered.stand);
+    }
     return rendered;
   };
   let rendered = await paint(applied.book);
@@ -470,8 +480,13 @@ export async function editCreative(
     glance = againGlance;
   }
   const afterStand: LayoutStand = rendered.stand ?? { ...baseline.stand, version: draft.layoutBook?.version ?? 1 };
-  const accepted = edits.filter((edit) => !commandsForEdit(edit).error);
+  if (draft.layoutBook && JSON.stringify(draft.layoutBook.snap) === JSON.stringify(beforeSnap)) draft.layoutBook = book;
+  afterStand.version = draft.layoutBook?.version ?? book.version;
+  afterStand.felder.version = String(afterStand.version);
+  const accepted = edits.filter((edit) => !commandsForEdit(edit, draft.vorlage).error);
   const lines = [...errors, ...judgeEdits(accepted, { ...baseline.stand, version: book.version }, afterStand)];
+  corrections.push(...(rendered.clampNotes ?? []).filter((note) => !corrections.includes(note)));
+  if ((draft.layoutBook?.version ?? book.version) === book.version) lines.push(`Die Version bleibt ${book.version}, keine Änderung wurde umgesetzt.`);
   const entry = draft.layoutBook?.history.find((item) => item.n === draft.layoutBook?.version);
   if (entry) entry.summary = [...lines, ...corrections].filter(Boolean).join("\n");
   draft.summary = [...lines, ...corrections].filter(Boolean).join("\n");

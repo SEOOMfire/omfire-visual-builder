@@ -134,7 +134,7 @@ function drawHeadline(ctx: CanvasRenderingContext2D, scene: OteloScene) {
       ctx.strokeStyle = WHITE;
       ctx.stroke();
     }
-    ctx.fillStyle = LIME;
+    ctx.fillStyle = scene.headlineColor || LIME;
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillText(line, x, y + (scene.headline.variant === "box" ? size * 0.08 : 0));
@@ -281,10 +281,11 @@ function drawCta(ctx: CanvasRenderingContext2D, scene: OteloScene) {
   ctx.lineTo(x + w - point, y + h);
   ctx.lineTo(x, y + h);
   ctx.closePath();
-  ctx.fillStyle = LIME;
+  ctx.fillStyle = scene.ctaColor || LIME;
   ctx.fill();
   const chevron = h * 0.34;
-  ctx.fillStyle = BLACK;
+  const onDark = scene.ctaColor === "#000000" || scene.ctaColor === "#FA5A14";
+  ctx.fillStyle = onDark ? WHITE : BLACK;
   for (let index = 0; index < 3; index += 1) {
     const cx = x + h * 0.28 + index * chevron * 0.55;
     ctx.beginPath();
@@ -300,7 +301,7 @@ function drawCta(ctx: CanvasRenderingContext2D, scene: OteloScene) {
   let cursor = x + h * 1.15;
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
-  ctx.fillStyle = BLACK;
+  ctx.fillStyle = onDark ? WHITE : BLACK;
   const size = fit(ctx, raw, 700, "Geist", w - h * 1.5, h * 0.5);
   parts.forEach((part, index) => {
     if (!part) return;
@@ -651,7 +652,7 @@ export function drawOtelo(ctx: CanvasRenderingContext2D, scene: OteloScene, imag
     const figureImage = scene.figureKey ? images[scene.figureKey] : null;
     if (figureImage && scene.figure && scene.figureSource) drawCutout(ctx, figureImage, scene.figure, scene.figureSource, Boolean(scene.figureFlip));
     else drawImageBox(ctx, figureImage, scene.figure, scene.orangeSide === "rechts" ? "right" : "left");
-    ctx.fillStyle = LIME;
+    ctx.fillStyle = scene.headlineColor || LIME;
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     const headText = scene.headline.lines[0] ?? "";

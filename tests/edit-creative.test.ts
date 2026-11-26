@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
-import { buildScene, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { buildScene, normalizeDeko, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
 import { mergedNudge, seedBook, type AdjustBook } from "../src/modules/visual-builder/server/adjust-commands";
+import { creativeInput } from "../src/modules/visual-builder/server/creative-archive";
 import type { Cutout } from "../src/modules/visual-builder/server/cutout";
 import {
   EDIT_AKTIONEN,
@@ -15,6 +16,7 @@ import {
   problemsFromScenes,
   standFromScenes,
   starTextTooWide,
+  syncStoredScale,
   type LayoutParam,
   type LayoutStand,
 } from "../src/modules/visual-builder/server/edit-creative";
@@ -66,7 +68,7 @@ function scenesFor(book: AdjustBook, name: "kachel_person" | "kachel_geraet", de
 }
 
 function standOf(book: AdjustBook, name: "kachel_person" | "kachel_geraet" = "kachel_person", device?: Cutout): LayoutStand {
-  return standFromScenes(scenesFor(book, name, device), book.snap, book.version);
+  return standFromScenes(scenesFor(book, name, device), book.snap, book.version, { vorlage: book.snap.fields.vorlage || name, kampagne: book.snap.fields.kampagne });
 }
 
 test("edit_creative lists every target and action", () => {
@@ -192,4 +194,91 @@ test("a star text that is too wide is shortened", async () => {
   assert.equal(corrected.book.snap.fields.sternText, "GRATIS");
   assert.match(corrected.corrections.join("\n"), /Korrektur:/);
   assert.match(corrected.corrections.join("\n"), /Stern-Text ist „GRATIS“/);
+});
+
+test("a color respects the format filter", () => {
+  const book = seedBook("rechts", { vorlage: "kachel_person", subline: "TEXT", sublineColor: "#D7EB00" });
+  const step = applyEdits(book, [{ ziel: "unterzeile", aktion: "farbe", wert: "orange", formate: ["1080x1920 Meta", "1080x1920 Tiktok"] }]);
+  const stand = standOf(step.book);
+  assert.equal(stand.layout["1080x1920 Meta"]?.unterzeile.farbe?.toLowerCase(), "#fa5a14");
+  assert.equal(stand.layout["1080x1920 Tiktok"]?.unterzeile.farbe?.toLowerCase(), "#fa5a14");
+  assert.equal(stand.layout["1200x1200"]?.unterzeile.farbe?.toLowerCase(), "#d7eb00");
+  assert.equal(step.book.snap.fields.sublineColor?.toLowerCase(), "#d7eb00");
+  assert.match(judgeEdits([{ ziel: "unterzeile", aktion: "farbe", wert: "orange", formate: ["1080x1920 Meta", "1080x1920 Tiktok"] }], standOf(book), stand)[0], /^umgesetzt:/);
+  assert.equal(stand.felder.button, stand.felder.cta);
+  assert.equal(stand.felder.vorlage, "kachel_person");
+  assert.equal(stand.felder.version, String(step.book.version));
+  assert.equal(typeof stand.felder.kampagne, "string");
+  const square = stand.layout["1200x1200"];
+  for (const key of ["preis", "datenmenge", "datenmenge_alt", "stern_text", "geraet_name", "preis_alt", "einmalpreis", "headline", "unterzeile", "cta", "stern"]) {
+    assert.ok(square?.[key], key);
+  }
+  assert.ok(square?.stern.farbe);
+  assert.ok(square?.cta.farbe);
+  assert.ok(square?.unterzeile.farbe);
+});
+
+test("a star moves by the given percent", () => {
+  const book = seedBook("rechts", { vorlage: "kachel_person", sternText: "GRATIS" });
+  const before = standOf(book);
+  const edit = [{ ziel: "stern" as const, aktion: "verschieben" as const, wert: { links: 5 }, formate: ["1080x1920 Meta"] }];
+  const step = applyEdits(book, edit);
+  const after = standOf(step.book);
+  const moved = (before.layout["1080x1920 Meta"]?.stern.x ?? 0) - (after.layout["1080x1920 Meta"]?.stern.x ?? 0);
+  assert.ok(moved > 3, `Stern x ${moved}`);
+  const line = judgeEdits(edit, before, after)[0] ?? "";
+  assert.match(line, /^umgesetzt:/);
+  assert.doesNotMatch(line, /nicht verschieben$/);
+});
+
+test("a bigger star that the picture cannot grow is not stored as grown", () => {
+  const book = seedBook("rechts", { vorlage: "kachel_geraet", einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", sternText: "50 GB", geraetName: "Samsung Galaxy A57 5G" });
+  const before = standOf(book, "kachel_geraet", phone);
+  const edit = [{ ziel: "stern" as const, aktion: "groesser" as const, wert: 30, formate: ["1200x628"] }];
+  const step = applyEdits(book, edit);
+  syncStoredScale(step.book, standOf(step.book, "kachel_geraet", phone));
+  const after = standOf(step.book, "kachel_geraet", phone);
+  const left = before.layout["1200x628"]?.stern;
+  const right = after.layout["1200x628"]?.stern;
+  assert.ok(left && right);
+  const ratio = right.breite / left.breite;
+  assert.ok(Math.abs(right.groesse - left.groesse * ratio) < 3, `${right.groesse} vs ${left.groesse * ratio}`);
+  const line = judgeEdits(edit, before, after)[0] ?? "";
+  if (Math.abs(ratio - 1) < 0.03) assert.match(line, /^nicht möglich/);
+  else assert.match(line, /^(umgesetzt|teilweise)/);
+});
+
+test("an unknown target is named and a device alias changes the version", () => {
+  const parsed = editsFromArgs({ aenderungen: [{ ziel: "quarks", aktion: "setzen", wert: "x" }] });
+  assert.match(parsed.errors[0] ?? "", /nicht möglich \(unbekanntes Ziel quarks, gültig:/);
+  const book = seedBook("rechts", { vorlage: "kachel_geraet", geraetName: "Samsung Galaxy A57 5G", einmalpreis: "1 €" });
+  const edit = [{ ziel: "motiv" as const, aktion: "setzen" as const, wert: { groesse: 110 }, formate: ["1200x1200", "1080x1080"] }];
+  const step = applyEdits(book, edit);
+  const line = step.errors[0] || judgeEdits(edit, standOf(book, "kachel_geraet", phone), standOf(step.book, "kachel_geraet", phone))[0] || "";
+  assert.ok(line, "jede Änderung braucht eine Zeile");
+  assert.equal(step.errors.length + 1, 1);
+  if (line.startsWith("umgesetzt") || line.startsWith("teilweise")) assert.ok(step.book.version > book.version);
+  else assert.equal(step.book.version, book.version);
+});
+
+test("short deco names stay aliases", () => {
+  assert.equal(normalizeDeko("blaetter"), "fruehling_blaetter");
+  assert.equal(normalizeDeko("wellen"), "bw_wellen");
+  assert.equal(creativeInput({ deko: "blaetter" }).deko, "fruehling_blaetter");
+  assert.equal(creativeInput({ deko: "wellen" }).deko, "bw_wellen");
+  const step = applyEdits(seedBook("rechts", { deko: "bw_wellen" }), [{ ziel: "deko", aktion: "setzen", wert: "blaetter" }]);
+  assert.equal(step.book.snap.fields.deko, "fruehling_blaetter");
+});
+
+test("a star at 180 percent is limited and reported as partial", () => {
+  const book = seedBook("rechts", { vorlage: "kachel_geraet", einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", sternText: "50 GB", geraetName: "Samsung Galaxy A57 5G" });
+  const edit = [{ ziel: "stern" as const, aktion: "setzen" as const, wert: { groesse: 180 }, formate: ["1200x628"] }];
+  const step = applyEdits(book, edit);
+  const scenes = scenesFor(step.book, "kachel_geraet", phone);
+  const notes = scenes["pmax-1200x628"]?.hints.filter((hint) => hint.startsWith("Korrektur:")) ?? [];
+  assert.ok(notes.some((note) => /begrenzt/.test(note) && /Überlappung (Kachel|Pille)|außerhalb|verdecken/.test(note)), notes.join(" | "));
+  const before = standOf(book, "kachel_geraet", phone);
+  syncStoredScale(step.book, standFromScenes(scenes, step.book.snap, step.book.version, { vorlage: "kachel_geraet" }));
+  const after = standOf(step.book, "kachel_geraet", phone);
+  assert.match(judgeEdits(edit, before, after)[0] ?? "", /teilweise/);
 });

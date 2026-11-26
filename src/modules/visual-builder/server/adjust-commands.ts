@@ -4,7 +4,7 @@ import { buildScene, elementRelation, sceneFormatLabel, type OrangeSide, type Sc
 
 export type ElementId = "headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko" | "kachel" | "pfeile" | "altwert" | "datenmenge" | "stattpreis" | "zusatz" | "einmalig" | "geraetename";
 
-export type Nudge = { dx: number; dy: number; scale: number; flip: boolean; hidden: boolean; z?: number };
+export type Nudge = { dx: number; dy: number; scale: number; flip: boolean; hidden: boolean; z?: number; color?: string };
 
 /** Stacking order of the template. A stored z is the deviation from this number. */
 export const ELEMENT_LAYER: Record<ElementId, number> = {
@@ -52,7 +52,9 @@ export type FieldPatch = {
   sublineColor?: string;
   sternColor?: string;
   headlineColor?: string;
+  ctaColor?: string;
   motivWinkel?: string;
+  kampagne?: string;
 };
 
 export type AdjustSnap = {
@@ -635,7 +637,7 @@ export function mergedNudge(snap: AdjustSnap | undefined, formatId: string, elem
   const base = emptyNudge();
   const star = snap?.nudges["*"]?.[element];
   const own = snap?.nudges[formatId]?.[element];
-  return { ...base, ...star, ...own, scale: (star?.scale ?? 1) * (own?.scale ?? 1), dx: (star?.dx ?? 0) + (own?.dx ?? 0), dy: (star?.dy ?? 0) + (own?.dy ?? 0), flip: Boolean(own?.flip ?? star?.flip), hidden: Boolean(own?.hidden ?? star?.hidden), z: (star?.z ?? 0) + (own?.z ?? 0) };
+  return { ...base, ...star, ...own, scale: (star?.scale ?? 1) * (own?.scale ?? 1), dx: (star?.dx ?? 0) + (own?.dx ?? 0), dy: (star?.dy ?? 0) + (own?.dy ?? 0), flip: Boolean(own?.flip ?? star?.flip), hidden: Boolean(own?.hidden ?? star?.hidden), z: (star?.z ?? 0) + (own?.z ?? 0), color: own?.color ?? star?.color };
 }
 
 function copyOf(snap: AdjustSnap): SceneCopy {
@@ -664,6 +666,7 @@ function copyOf(snap: AdjustSnap): SceneCopy {
     sublineColor: fields.sublineColor,
     sternColor: fields.sternColor,
     headlineColor: fields.headlineColor,
+    ctaColor: fields.ctaColor,
   };
 }
 
@@ -683,6 +686,7 @@ function shiftsOf(snap: AdjustSnap, format: { id: string; token: string; w: numb
       scale: parts.reduce((product, item) => product * (item?.scale ?? 1), 1),
       flip: parts.some((item) => item?.flip),
       hidden: parts.some((item) => item?.hidden),
+      color: parts.reduce<string | undefined>((picked, item) => item?.color ?? picked, undefined),
     }];
   }));
 }
@@ -848,9 +852,18 @@ export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ 
       continue;
     }
     if (command.op === "farbe") {
-      if (command.element === "subline") snap.fields.sublineColor = command.farbe;
-      else if (command.element === "stoerer") snap.fields.sternColor = command.farbe;
-      else snap.fields.headlineColor = command.farbe;
+      if (command.formate?.length) {
+        for (const id of command.formate) slot(snap, id, command.element).color = command.farbe;
+      } else {
+        if (command.element === "subline") snap.fields.sublineColor = command.farbe;
+        else if (command.element === "stoerer") snap.fields.sternColor = command.farbe;
+        else if (command.element === "cta") snap.fields.ctaColor = command.farbe;
+        else snap.fields.headlineColor = command.farbe;
+        for (const bucket of Object.values(snap.nudges)) {
+          const nudge = bucket[command.element];
+          if (nudge?.color) delete nudge.color;
+        }
+      }
       bits.push(command);
       continue;
     }

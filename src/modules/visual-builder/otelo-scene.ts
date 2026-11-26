@@ -55,6 +55,7 @@ export type SceneCopy = {
   sublineColor?: string;
   sternColor?: string;
   headlineColor?: string;
+  ctaColor?: string;
 };
 
 export type OteloScene = {
@@ -94,6 +95,10 @@ export type OteloScene = {
   preisMonatAlt?: string;
   stern?: { box: Box; text: string };
   sternColor?: string;
+  headlineColor?: string;
+  ctaColor?: string;
+  /** User scale that the picture actually reached, in percent of the template size. */
+  renderedGroesse?: Partial<Record<"stern", number>>;
   deko?: { name: DekoName; box: Box; strength?: number };
   headlinePfeile?: boolean;
   deviceLabel?: { text: string; box: Box };
@@ -114,6 +119,16 @@ export function normalizeVorlage(value: string): VorlageName {
   if (value === "product_person") return "product_person";
   if (value === "kachel_person" || value === "kachel_geraet" || value === "kachel_geraet_person") return value;
   return "young";
+}
+
+/** Accepts the short names the tools already send. */
+export function normalizeDeko(value: string | undefined): DekoName | undefined {
+  if (!value) return undefined;
+  const text = value.trim().toLowerCase();
+  if (text === "bw_wellen" || text === "wellen") return "bw_wellen";
+  if (text === "fruehling_blaetter" || text === "blaetter" || text === "blätter" || text === "blatter") return "fruehling_blaetter";
+  if (text === "keine") return "keine";
+  return undefined;
 }
 
 export function dekoFor(copy: Pick<SceneCopy, "deko" | "kampagne">): DekoName {
@@ -732,7 +747,7 @@ export function priceNeedsLegal(copy: Pick<SceneCopy, "preis" | "preisZusatz" | 
   return /[¹*]/.test(priced) && !copy.pflichttext.trim();
 }
 
-type Shift = { dx?: number; dy?: number; scale?: number; flip?: boolean; hidden?: boolean };
+type Shift = { dx?: number; dy?: number; scale?: number; flip?: boolean; hidden?: boolean; color?: string };
 
 export function shiftBox(
   target: Box,
@@ -794,6 +809,13 @@ function keepInside(target: Box, width: number, height: number, right: number, b
   const y = Math.max(height * 0.05, Math.min(target.y, height * bottom - 4));
   const h = Math.min(target.h, height * bottom - y);
   return { x, y, w: Math.max(8, w), h: Math.max(8, h) };
+}
+
+function slideBox(target: Box, shift: Shift | undefined, width: number, height: number): Box {
+  const dx = ((shift?.dx ?? 0) / 100) * width;
+  const dy = ((shift?.dy ?? 0) / 100) * height;
+  if (!dx && !dy) return target;
+  return { ...target, x: target.x + dx, y: target.y + dy };
 }
 
 function applyShift(target: Box, shift: Shift | undefined, width: number, height: number, anchor: "top-left" | "bottom-center", limits: { left: number; top: number; right: number; bottom: number }, caps: string[], name: string): Box | undefined {
@@ -889,7 +911,7 @@ function buildKachel(
     step: 0,
   };
   const subline = {
-    lines: copy.subline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 2).map((text) => ({ text: /[a-zäöü]/.test(text) ? text : text.toUpperCase(), bold: true, color: copy.sublineColor || ORANGE })),
+    lines: copy.subline.split(/\n/).map((line) => line.trim()).filter(Boolean).slice(0, 2).map((text) => ({ text: /[a-zäöü]/.test(text) ? text : text.toUpperCase(), bold: true, color: shifts.subline?.color || copy.sublineColor || ORANGE })),
     box: mirrorBox(box(left, headline.box.y + headline.box.h + (wide ? headH * 0.16 : h * 0.012), headline.box.w, headH * 0.62), w, flip),
   };
   const sublineText = subline.lines.map((line) => line.text).join(" ");
@@ -1003,7 +1025,7 @@ function buildKachel(
     cta: applyShift(cta.box, shifts.cta, w, h, "top-left", textLimits, caps, "Leiste") ?? cta.box,
     pill: fittedPill,
     logo: applyShift(logo.box, shifts.logo, w, h, "top-left", textLimits, caps, "Logo"),
-    stern: stern ? applyShift(stern.box, shifts.stoerer ? { ...shifts.stoerer, scale: 1 } : undefined, w, h, "top-left", { ...textLimits, right: w * 1.02, top: 0 }, caps, "Stern") : undefined,
+    stern: stern ? applyShift(stern.box, shifts.stoerer ? { ...shifts.stoerer, scale: 1, dx: 0, dy: 0 } : undefined, w, h, "top-left", { ...textLimits, right: w * 1.02, top: 0 }, caps, "Stern") : undefined,
   };
   if (fittedPill) {
     fittedPill.x += fittedTile.x - tile.x;
@@ -1423,6 +1445,17 @@ function buildKachel(
     }
   }
   let starLimit: "groß" | "klein" | undefined;
+  let starGrund: string | undefined;
+  const starBlockReason = (star: Box): string => {
+    if (star.x < w * 0.02 || star.y < h * (tall ? 0.08 : 0.03) || star.x + star.w > w * (tiktok ? 0.84 : 0.98) || star.y + star.h > h * (tiktok ? 0.78 : 0.97)) return "außerhalb des sicheren Bereichs";
+    if (headBox && headBox.w > 2 && overlaps(star, faceCore(headBox))) return "würde Gesicht verdecken";
+    if (overlaps(star, placed.headline) || overlaps(star, placed.subline) || (placed.cta.w > 2 && overlaps(star, placed.cta))) return "würde Text verdecken";
+    if (deviceMode && fittedPill && fittedPill.w > 2) {
+      const air = Math.max(8, w * 0.012);
+      if (overlaps(star, { x: fittedPill.x - air, y: fittedPill.y - air, w: fittedPill.w + air * 2, h: fittedPill.h + air * 2 })) return "Überlappung Pille";
+    }
+    return "Überlappung Kachel";
+  };
   const askedScale = shifts.stoerer?.scale && shifts.stoerer.scale > 0 ? shifts.stoerer.scale : 1;
   let starBeforeScale: Box | undefined;
   let growStar: ((factor: number) => Box | undefined) | undefined;
@@ -1563,7 +1596,21 @@ function buildKachel(
     placed.stern.w = best.w;
     placed.stern.h = best.h;
     if (deviceMode && productCutout) deviceReserve = fitDevice();
-    if (best.w <= starBeforeScale.w + Math.max(1.5, starBeforeScale.w * 0.04)) starLimit = "groß";
+    if (best.w <= starBeforeScale.w + Math.max(1.5, starBeforeScale.w * 0.04)) {
+      starLimit = "groß";
+      const over = growStar(askedScale);
+      starGrund = over ? starBlockReason(over) : "Überlappung Kachel";
+    }
+  }
+  if (placed.stern && shifts.stoerer && ((shifts.stoerer.dx ?? 0) !== 0 || (shifts.stoerer.dy ?? 0) !== 0)) {
+    const dx = ((shifts.stoerer.dx ?? 0) / 100) * w;
+    const dy = ((shifts.stoerer.dy ?? 0) / 100) * h;
+    const moved = { ...placed.stern, x: placed.stern.x + dx, y: placed.stern.y + dy };
+    const outside = moved.x < w * 0.02 || moved.y < h * 0.02 || moved.x + moved.w > w * (tiktok ? 0.84 : 0.98) || moved.y + moved.h > h * (tiktok ? 0.78 : 0.97);
+    const face = headBox && headBox.w > 2 && overlaps(moved, faceCore(headBox));
+    if (outside || face) starGrund = face ? "würde Gesicht verdecken" : "außerhalb des sicheren Bereichs";
+    placed.stern.x = moved.x;
+    placed.stern.y = moved.y;
   }
   const hints: string[] = [];
   const label = sceneFormatLabel(format);
@@ -1644,7 +1691,12 @@ function buildKachel(
   const productPaint = productCutout && placed.product ? paintedProduct(placed.product, productCutout, w, tall, -0.1, tall ? placed.cta : undefined, deviceReserve) : undefined;
   const opaqueDevice = productPaint?.opaque;
   if (deviceMode && opaqueDevice && !tall && opaqueDevice.h < h * (wide ? 0.4 : 0.55) - 1) hints.push(`nicht bestanden: Das Gerät ist zu klein im ${label}.`);
-  if (starLimit) hints.push(`Stern schon ${starLimit === "groß" ? "maximal groß" : "minimal klein"} im ${label}.`);
+  if (starLimit && placed.stern && starBeforeScale && starBeforeScale.w > 2) {
+    const reached = Math.round((placed.stern.w / starBeforeScale.w) * 100);
+    const why = starGrund ?? (starLimit === "groß" ? "Überlappung Kachel" : "Mindestgröße");
+    hints.push(`Stern schon ${starLimit === "groß" ? "maximal groß" : "minimal klein"} im ${label}.`);
+    hints.push(`Korrektur: Stern auf ${reached} % begrenzt, ${why} im ${label}.`);
+  } else if (starLimit) hints.push(`Stern schon ${starLimit === "groß" ? "maximal groß" : "minimal klein"} im ${label}.`);
   if (productPaint) {
     const view = deviceInside(productPaint.opaque, w, h);
     if (view.rightCrop) hints.push(`nicht bestanden: Das Gerät ist rechts angeschnitten im ${label}.`);
@@ -1722,6 +1774,7 @@ function buildKachel(
     if (arrowHint) hints.push(arrowHint);
   }
   for (const note of [...new Set(caps)]) hints.push(`Hinweis: ${note}.`);
+  if (deko?.box) deko.box = slideBox(deko.box, shifts.deko, w, h);
   return {
     id: format.id,
     width: w,
@@ -1738,7 +1791,7 @@ function buildKachel(
     product: placed.product,
     productTilt: deviceMode ? -0.1 : undefined,
     productPaint,
-    energy: deviceMode ? energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName ?? "", captionNameH) : undefined,
+    energy: deviceMode ? slideBox(energyFrame(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName ?? "", captionNameH), shifts.energielabel, w, h) : undefined,
     headline: { ...headline, box: placed.headline },
     subline: { ...subline, box: placed.subline },
     stoerer: { typ: "stern", box: placed.stern ?? box(0, 0, 0, 0), preis: copy.preis, zusatz: copy.preisZusatz, einmal: copy.einmalpreis, aktion: copy.sternText ?? "" },
@@ -1755,8 +1808,11 @@ function buildKachel(
     stern: placed.stern && stern ? { box: placed.stern, text: stern.text } : undefined,
     deko,
     headlinePfeile: !shifts.pfeile?.hidden,
-    sternColor: copy.sternColor,
-    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName, captionNameH) } : undefined,
+    sternColor: shifts.stoerer?.color || copy.sternColor,
+    headlineColor: shifts.headline?.color || copy.headlineColor,
+    ctaColor: shifts.cta?.color || copy.ctaColor,
+    renderedGroesse: placed.stern && starBeforeScale && starBeforeScale.w > 2 ? { stern: Math.round((placed.stern.w / starBeforeScale.w) * 1000) / 10 } : undefined,
+    deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: slideBox(deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName, captionNameH), shifts.geraetename, w, h) } : undefined,
     textScale: {
       preisAlt: shifts.stattpreis?.scale && shifts.stattpreis.scale > 0 ? shifts.stattpreis.scale : 1,
       alt: shifts.altwert?.scale && shifts.altwert.scale > 0 ? shifts.altwert.scale : 1,
