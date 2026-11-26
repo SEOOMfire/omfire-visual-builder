@@ -229,7 +229,7 @@ test("a star moves by the given percent", () => {
   const step = applyEdits(book, edit);
   const after = standOf(step.book);
   const moved = (before.layout["1080x1920 Meta"]?.stern.x ?? 0) - (after.layout["1080x1920 Meta"]?.stern.x ?? 0);
-  assert.ok(moved > 3, `Stern x ${moved}`);
+  assert.ok(Math.abs(moved - 5) < 0.25, `Stern x ${moved}`);
   const line = judgeEdits(edit, before, after)[0] ?? "";
   assert.match(line, /^umgesetzt:/);
   assert.doesNotMatch(line, /nicht verschieben$/);

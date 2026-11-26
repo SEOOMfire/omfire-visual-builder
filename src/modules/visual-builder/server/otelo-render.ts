@@ -333,9 +333,16 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
 }
 
 /** Layout and measurement without the browser, for a before/after comparison. */
-export async function layoutFrames(input: RenderRequest): Promise<{ stand: LayoutStand; problems: LayoutProblem[] }> {
+export async function layoutFrames(input: RenderRequest): Promise<{ stand: LayoutStand; problems: LayoutProblem[]; heights: Record<string, number> }> {
   const loaded = await loadOtelo(input);
-  return { stand: standFromScenes(loaded.otelo, input.layout, 1), problems: problemsFromScenes(loaded.otelo) };
+  return {
+    stand: standFromScenes(loaded.otelo, input.layout, 1, { vorlage: loaded.name, kampagne: input.kampagne }),
+    problems: problemsFromScenes(loaded.otelo),
+    heights: Object.fromEntries(OTELO_FORMATS.map((format) => {
+      const scene = loaded.otelo[format.id];
+      return [sceneFormatLabel(format), scene?.productPaint?.opaque.h ?? scene?.product?.h ?? 0];
+    })),
+  };
 }
 
 export async function oteloStatus(): Promise<string> {

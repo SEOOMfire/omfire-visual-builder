@@ -1795,10 +1795,10 @@ function buildKachel(
   const reachedOf = (base: Box | undefined, placedBox: Box | undefined, asked: number, kind: "geraet" | "figur") => {
     if (!base || !placedBox || base.h < 2) return undefined;
     const reached = Math.round((placedBox.h / base.h) * 1000) / 10;
-    if (asked > placedBox.h / base.h + 0.03) {
+    if (asked > 1.02) {
       const right = placedBox.x + placedBox.w;
       sizeGrund[kind] = right > w * 0.9 ? "Rand rechts" : fittedTile.w > 2 && overlaps(placedBox, fittedTile) ? "Kachel" : "sicherer Bereich";
-    }
+    } else if (asked < 0.98) sizeGrund[kind] = "Gerät hat Mindesthöhe erreicht";
     return reached;
   };
   const geraetReached = reachedOf(device, placed.product, shifts.geraet?.scale && shifts.geraet.scale > 0 ? shifts.geraet.scale : 1, "geraet");

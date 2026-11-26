@@ -760,6 +760,7 @@ export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ 
       snap.orange = found.snap.orange;
       snap.nudges = clone(found.snap.nudges);
       snap.fields = clone(found.snap.fields ?? {});
+      snap.follows = found.snap.follows ? clone(found.snap.follows) : undefined;
       bits.push(command);
       continue;
     }

@@ -443,15 +443,12 @@ export function applyMeasuredSizes(
     const label = sceneFormatLabel(format);
     const sizes = measured[label];
     if (!sizes) continue;
-    for (const key of ["stern", "geraet", "figur"] as const) {
+    for (const key of ["stern"] as const) {
       const allow = wanted.get(key);
       if (!allow || (!allow.has("*") && !allow.has(format.id))) continue;
       const value = sizes[key];
       if (value === undefined) continue;
       writeMeasuredScale(book, stand, key, label, value);
-      const grund = key === "geraet" ? sizes.geraetGrund : key === "figur" ? sizes.figurGrund : "";
-      const row = stand.layout[label]?.[key];
-      if (grund && row) row.grund = grund;
     }
   }
 }
@@ -523,17 +520,21 @@ function newTextHits(current: readonly LayoutProblem[], baseline: readonly Layou
 
 const MOVE_WORD: Record<string, string> = { links: "links", rechts: "rechts", oben: "oben", unten: "unten" };
 
-/** Shrinks a move that would cover text, dodges to a free neighbour, or drops it. */
+function orderedEdits(edits: readonly EditChange[]): EditChange[] {
+  const first = edits.filter((edit) => edit.aktion === "version_laden" || (edit.ziel === "version" && edit.aktion === "setzen"));
+  const rest = edits.filter((edit) => !first.includes(edit));
+  return [...first, ...rest];
+}
+
+/** Shrinks a move that would cover text, dodges to a free neighbour, or drops it. Version loads run first. */
 export async function settleMoves(
   book: AdjustBook,
   edits: readonly EditChange[],
   problemsOf: (book: AdjustBook) => Promise<LayoutProblem[]> | LayoutProblem[],
 ): Promise<{ book: AdjustBook; errors: string[]; starFactor?: number; notes: string[] }> {
-  const moves = edits.some((edit) => edit.aktion === "verschieben");
-  const baseline = moves ? await problemsOf(book) : [];
   const rewritten: EditChange[] = [];
   const notes: string[] = [];
-  for (const edit of edits) {
+  for (const edit of orderedEdits(edits)) {
     if (edit.aktion !== "verschieben" || !edit.wert || typeof edit.wert !== "object") {
       rewritten.push(edit);
       continue;
@@ -544,6 +545,8 @@ export async function settleMoves(
       continue;
     }
     const asked = Math.abs(Number(edit.wert[primary]) || 0);
+    const baselineBook = applyEdits(book, rewritten).book;
+    const baseline = await problemsOf(baselineBook);
     const neighbours = primary === "links" || primary === "rechts" ? (["oben", "unten"] as const) : (["links", "rechts"] as const);
     const attempts = [asked, 3, 1]
       .filter((step, index, all) => step > 0 && step <= asked + 0.01 && all.indexOf(step) === index)
@@ -558,7 +561,7 @@ export async function settleMoves(
         chosen = attempt;
         break;
       }
-      if (attempt.dir === primary) covered = hits[0]?.text.match(/überdeckt\s+(\S+)/i)?.[1]?.trim() || "Text";
+      if (attempt.dir === primary || !covered) covered = hits[0]?.text.match(/überdeckt\s+(\S+)/i)?.[1]?.trim() || "Text";
     }
     const who = edit.ziel === "stern" ? "Stern" : edit.ziel === "kachel" ? "Kachel" : edit.ziel;
     if (!chosen) {
@@ -570,8 +573,66 @@ export async function settleMoves(
       notes.push(`teilweise: ${who} ${chosen.step} % nach ${MOVE_WORD[chosen.dir] ?? chosen.dir}${covered ? ` (würde ${covered} verdecken)` : ""}`);
     }
   }
+  if (!rewritten.length) return { book, errors: [], notes, starFactor: undefined };
   const applied = applyEdits(book, rewritten);
   return { ...applied, notes };
+}
+
+export type EditInspection = { problems: LayoutProblem[]; stand: LayoutStand; heights: Record<string, number> };
+
+function imageKey(edit: EditChange, vorlage?: string): "geraet" | "figur" | "" {
+  if (edit.ziel !== "motiv" && edit.ziel !== "geraet" && edit.ziel !== "handy" && edit.ziel !== "gerät" && edit.ziel !== "figur") return "";
+  return imageElement(vorlage) === "geraet" ? "geraet" : "figur";
+}
+
+/** The decision path behind edit_creative: restore a version, then settle later edits. */
+export async function planCreativeEdits(
+  book: AdjustBook,
+  edits: readonly EditChange[],
+  inspect: (book: AdjustBook) => Promise<EditInspection> | EditInspection,
+): Promise<{ book: AdjustBook; lines: string[]; notes: string[]; hints: string[] }> {
+  const before = await inspect(book);
+  const settled = await settleMoves(book, edits, async (current) => (await inspect(current)).problems);
+  let current = settled.book;
+  const notes = [...settled.notes];
+  const explained = new Set(edits.filter((edit) => edit.aktion === "verschieben" && notes.some((note) => note.toLowerCase().includes("stern") && edit.ziel === "stern")).map((edit) => `${edit.ziel}:${edit.aktion}`));
+  const sized = edits.filter((edit) => imageKey(edit, book.snap.fields.vorlage) && (edit.aktion === "groesser" || edit.aktion === "kleiner" || (edit.aktion === "setzen" && typeof edit.wert === "object" && edit.wert.groesse !== undefined)));
+  if (sized.length && JSON.stringify(current.snap) !== JSON.stringify(book.snap)) {
+    const after = await inspect(current);
+    for (const edit of sized) {
+      const key = imageKey(edit, book.snap.fields.vorlage);
+      const element = key === "geraet" ? "geraet" : "person";
+      const ids = formatIds(edit.formate) ?? OTELO_FORMATS.map((format) => format.id);
+      const labels = ids.map((id) => sceneFormatLabel(OTELO_FORMATS.find((format) => format.id === id) ?? OTELO_FORMATS[0]));
+      const changes = labels.map((label) => {
+        const from = before.heights[label] ?? 0;
+        const to = after.heights[label] ?? from;
+        return from > 0 ? Math.abs(to - from) / from * 100 : 0;
+      });
+      const shrinking = edit.aktion === "kleiner" || (typeof edit.wert === "object" && edit.wert?.groesse !== undefined && edit.wert.groesse < (before.stand.layout[labels[0] ?? ""]?.[key]?.groesse ?? 100));
+      if (changes.length && changes.every((change) => change < 3)) {
+        for (const id of ids) {
+          current.snap.nudges[id] ??= {};
+          const prior = book.snap.nudges[id]?.[element];
+          if (prior) current.snap.nudges[id][element] = structuredClone(prior);
+          else delete current.snap.nudges[id][element];
+          if (current.snap.nudges[id] && !Object.keys(current.snap.nudges[id]).length) delete current.snap.nudges[id];
+        }
+        notes.push(shrinking ? "nicht möglich (Gerät hat Mindesthöhe erreicht)" : "nicht möglich (Rand rechts)");
+        explained.add(`${edit.ziel}:${edit.aktion}`);
+      }
+    }
+    if (JSON.stringify(current.snap) === JSON.stringify(book.snap)) current = book;
+  }
+  const afterStand = current === book ? before.stand : (await inspect(current)).stand;
+  before.stand.version = book.version;
+  afterStand.version = current.version;
+  before.stand.felder.version = String(book.version);
+  afterStand.felder.version = String(current.version);
+  const accepted = edits.filter((edit) => !commandsForEdit(edit, book.snap.fields.vorlage).error && !explained.has(`${edit.ziel}:${edit.aktion}`));
+  const lines = [...notes, ...judgeEdits(accepted, before.stand, afterStand)].filter((line) => !/lässt sich dort nicht verschieben/.test(line));
+  const hints = before.problems.some((problem) => /überdeckt Datenmenge/.test(problem.text)) ? ["Hinweis: Stern verdeckt Datenmenge, nach rechts schieben?"] : [];
+  return { book: current, lines, notes, hints };
 }
 
 /** Drops the deco-on-orange hint except when the draft is new or the deco itself changes. */
@@ -688,7 +749,7 @@ export function judgeEdits(edits: readonly EditChange[], before: LayoutStand, af
       });
       const best = achieved.length ? Math.max(...achieved) : 0;
       if (done.length === labels.length && labels.length && best + 0.5 >= askedMove) return `umgesetzt: ${name} verschoben`;
-      if (best < 0.8) return `nicht möglich: ${name} lässt sich dort nicht verschieben${why ? ` (${why})` : ""}`;
+      if (best < 0.8) return `nicht möglich${why ? ` (${why})` : " (der Schritt ändert die Position nicht)"}`;
       return `teilweise: ${name} ${Math.round(best)} % verschoben${why ? ` (${why})` : ""}`;
     }
     if (edit.aktion === "setzen" && edit.wert && typeof edit.wert === "object" && edit.wert.groesse !== undefined) {
