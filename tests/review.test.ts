@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockingHints } from "../src/modules/visual-builder/server/creative-archive";
-import { completeSentences, failedGlanceFormats, glanceBrief, glanceContradictsMeasure, glanceLine, pruefungText, withoutInstructed } from "../src/modules/visual-builder/server/review";
+import { completeSentences, failedGlanceFormats, glanceBrief, glanceContradictsMeasure, glanceLine, parseGlance, pruefungText, withoutInstructed } from "../src/modules/visual-builder/server/review";
 
 test("the reply always names the image check", () => {
   assert.match(pruefungText([], ""), /Bildprüfung: nicht gelaufen/);
@@ -47,4 +47,11 @@ test("every glance line has a verdict and the typeface is not judged", () => {
   const stripped = withoutInstructed("Die Unterzeile steht in Titillium Web Black statt Titillium. Der Aufbau passt.", "Deko ist auf Wunsch keine.");
   assert.doesNotMatch(stripped, /Titillium|Geist/);
   assert.match(stripped, /Aufbau/);
+  assert.equal(parseGlance("Aufbau und Größen passen. Nicht bestanden: alles wirkt stimmig."), "Bestanden.");
+  assert.equal(parseGlance('{"verstoesse":[]}'), "Bestanden.");
+  assert.match(parseGlance('{"verstoesse":[{"art":"text_abgeschnitten","element":"Preis","beschreibung":"Der Preis ist abgeschnitten."}]}'), /^Nicht bestanden: Der Preis ist abgeschnitten/);
+  assert.equal(parseGlance('{"verstoesse":[{"art":"pflichtelement_fehlt","element":"Logo","beschreibung":"Das Logo fehlt."}]}', "Meta 9x16"), "Bestanden.");
+  assert.equal(parseGlance('{"verstoesse":[{"art":"falsche_ci_farbe","element":"Headline","beschreibung":"Headline nur 78 Prozent. Dieser Punkt zählt als angewiesene Änderung."}]}', "Meta 9x16"), "Bestanden.");
+  assert.equal(parseGlance('{"verstoesse":[{"art":"text_ueberdeckt","element":"Display","beschreibung":"Branding auf dem Geräte-Display."}]}'), "Bestanden.");
+  assert.doesNotMatch(glanceBrief("", "", "", "Meta 9x16"), /Dieser Punkt zählt als angewiesene Änderung\./);
 });

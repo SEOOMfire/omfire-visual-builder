@@ -74,10 +74,54 @@ export function glanceLine(note: string, formatLabel = ""): string {
   return `Nicht bestanden: ${body}`;
 }
 
-/** The image check judges layout and CI colours. The typeface is set in code. */
+const GLANCE_ARTS = new Set(["text_ueberdeckt", "text_abgeschnitten", "gesicht_verdeckt", "text_unleserlich", "falsche_ci_farbe", "pflichtelement_fehlt"]);
+
+export type GlanceViolation = { art: string; element: string; beschreibung: string };
+
+/** Drops reports that the prompt lists as not a violation. */
+export function keepGlanceViolation(item: GlanceViolation, formatLabel = ""): boolean {
+  if (!GLANCE_ARTS.has(item.art)) return false;
+  const blob = `${item.element} ${item.beschreibung}`;
+  if (/dieser punkt zählt als angewiesene änderung/i.test(blob)) return false;
+  if (/statt/i.test(blob) && /durchstreich|streichung|gestrichen/i.test(blob)) return false;
+  if (/display|branding/i.test(blob)) return false;
+  if (/9x16|1920/.test(formatLabel) && item.art === "pflichtelement_fehlt" && /logo/i.test(blob)) return false;
+  if (/prozent|%/i.test(blob)) return false;
+  if (/position/i.test(blob) && /cta|kachel|pfeil/i.test(blob)) return false;
+  if (/referenz/i.test(blob)) return false;
+  if (/schriftart|schriftschnitt|titillium|geist/i.test(blob)) return false;
+  return true;
+}
+
+/** Status comes from the JSON list. Prose without that list is „Bestanden.“ */
+export function parseGlance(raw: string, formatLabel = ""): string {
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return "Bestanden.";
+  let payload: { verstoesse?: unknown };
+  try {
+    payload = JSON.parse(match[0]) as { verstoesse?: unknown };
+  } catch {
+    return "Bestanden.";
+  }
+  const list = Array.isArray(payload.verstoesse) ? payload.verstoesse : [];
+  const kept = list.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const record = entry as { art?: unknown; element?: unknown; beschreibung?: unknown };
+    const item = {
+      art: String(record.art ?? ""),
+      element: String(record.element ?? ""),
+      beschreibung: String(record.beschreibung ?? "").replace(/Dieser Punkt zählt als angewiesene Änderung\.?/gi, "").trim(),
+    };
+    return item.beschreibung && keepGlanceViolation(item, formatLabel) ? [item] : [];
+  });
+  if (!kept.length) return "Bestanden.";
+  return `Nicht bestanden: ${kept.map((item) => item.beschreibung).join(" ")}`;
+}
+
+/** The image check returns a JSON list. The status is computed here. */
 export function glanceBrief(instructed = "", measured = "", rules = "", formatLabel = ""): string {
   const share = headlineTarget(formatLabel);
-  return `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz. Bewerte nur Aufbau, Größen und CI.\nSoll für ${formatLabel || "dieses Format"}: die Headline-Breite liegt etwa bei ${share} Prozent. Das ist der Normalfall und kein Fehler. Prozent-Abweichungen, die Position des CTA-Pfeils, „anders als die Referenz“ und die Größe oder Position der Kachel sind kein Verstoß.\nNicht bestanden nur bei einem dieser Verstöße: Text überdeckt oder abgeschnitten, Gesicht verdeckt, Text unleserlich klein, falsche CI-Farbe bei Text oder Fläche, fehlendes Pflichtelement (Logo, außer im 9x16, CTA oder Preis). Sonst beginne mit „Bestanden.“.\nIm 9x16 ist kein Logo vorgesehen.\nAngewiesene Änderungen sind kein Fehler. Melde sie nicht. Deko „keine“ ist eine bewusste Wahl. Fehlende Wellen oder fehlende Blätter sind dann kein Fehler und werden nicht gemeldet. Schriftart und Schriftschnitt nicht bewerten, die Schrift wird fest gesetzt. Farben im Foto oder Produktbild, also Kleidung und Display, sind kein Verstoß. Die Farben des Energielabels sind gesetzlich vorgegeben und nie ein CI-Fehler. Eine unzulässige Textfarbe außerhalb von Lime, Orange, Schwarz und Weiß bleibt ein Verstoß. Textinhalte des Nutzers, auch der Sterntext, nie mit dem Referenztext vergleichen und nie als Abweichung werten.\nAngewiesen: ${instructed || "keine"}\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"}.\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}\nDas erste Bild ist der Entwurf, das zweite die Referenz. Höchstens zwei Sätze zu diesem einen Format. Beginne mit „Bestanden.“ oder „Nicht bestanden:“.`;
+  return `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz.\nSoll für ${formatLabel || "dieses Format"}: Headline-Breite etwa ${share} Prozent. Das ist kein Verstoß.\nAntworte nur mit JSON: {"verstoesse":[{"art":"text_ueberdeckt"|"text_abgeschnitten"|"gesicht_verdeckt"|"text_unleserlich"|"falsche_ci_farbe"|"pflichtelement_fehlt","element":"…","beschreibung":"…"}]}\nLeere Liste, wenn keiner dieser sechs Fälle zutrifft.\nKein Verstoß, auch nicht in die Liste aufnehmen: Durchstreichung des statt-Preises, Branding oder Text auf dem Geräte-Display, fehlendes Logo im 9x16, Headline-Prozente, Position von CTA oder Kachel, Abweichung von der Referenz. Schriftart und Schriftschnitt nicht bewerten.\nSchreibe keinen Satz wie „Dieser Punkt zählt als angewiesene Änderung“.\nAngewiesen: ${instructed || "keine"}\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}`;
 }
 
 /** Keeps whole sentences. A period inside „bzw.“ does not end a sentence. */
@@ -130,7 +174,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
   if (reference && images.length < 2) images.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${reviewJpeg(reference).toString("base64")}` } });
   const ask = (reasoning?: { effort: "low" | "none"; exclude?: boolean }) => openRouterComplete({
       messages: [
-        { role: "system", content: "Du vergleichst ein Werbemotiv mit der CI und, falls vorhanden, mit dem zweiten Bild als Referenz. Höchstens fünf kurze deutsche Sätze. Beginne mit „Bestanden.“ oder „Nicht bestanden:“. Nicht bestanden nur bei überdecktem oder abgeschnittenem Text, verdecktem Gesicht, unleserlich kleinem Text, falscher CI-Farbe oder einem fehlenden Pflichtelement. Schriftart und Schriftschnitt nicht bewerten. Kein Modellname." },
+        { role: "system", content: "Du prüfst ein Werbemotiv und antwortest nur mit JSON. Kein Modellname. Keine anderen Sätze." },
         {
           role: "user",
           content: [
@@ -155,7 +199,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
       if (!/keine Antwort|abgelehnt/.test(message)) throw error;
       text = await ask(undefined);
     }
-    return withoutInstructed(completeSentences(text), instructed);
+    return parseGlance(text, formatLabel);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unbekannter Fehler";
     return `nicht gelaufen, weil ${message.replace(/\s+/g, " ").slice(0, 180)}`;
@@ -172,7 +216,7 @@ export async function glanceFormats(
 ): Promise<string> {
   const picked = formats.filter((format) => format.jpeg);
   const notes = await Promise.all(picked.map(async (format) => {
-    const note = glanceLine(await glanceAt(format.jpeg, rules, referencePath, measured, format.label, instructed, fontRule), format.label);
+    const note = await glanceAt(format.jpeg, rules, referencePath, measured, format.label, instructed, fontRule);
     return `${format.label}: ${note}`;
   }));
   return notes.join("\n");

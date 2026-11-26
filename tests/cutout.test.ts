@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PNG } from "pngjs";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
-import { arrowSpan, buildScene, fitHeadlineForChevrons, fitSublineText, renderedStarDiameter, renderedStarTextSize, wavePaintShare, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { arrowSpan, buildScene, deviceInside, fitHeadlineForChevrons, fitSublineText, renderedStarDiameter, renderedStarTextSize, wavePaintShare, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
 import { blockingHints } from "../src/modules/visual-builder/server/creative-archive";
 import { headInside, measureCutout, placeCutout, type Cutout } from "../src/modules/visual-builder/server/cutout";
 import { glanceContradictsMeasure } from "../src/modules/visual-builder/server/review";
@@ -238,6 +238,49 @@ test("the rendered device star is at least 45 percent of the lime tile", () => {
     const ratio = renderedStarDiameter(star.w) / tile.w;
     assert.ok(ratio >= 0.45, `${format.id} ${ratio.toFixed(2)}`);
     assert.ok(renderedStarTextSize(star.w, "50 GB") >= format.h * 0.02 - 0.2, `${format.id} text ${renderedStarTextSize(star.w, "50 GB").toFixed(1)}`);
+  }
+});
+
+test("Endlos Surfen passes every format and the A57 only cares about the visible device", () => {
+  const endless = { ...copy(), headline: "ENDLOS SURFEN", subline: "UNBEGRENZTES DATENVOLUMEN IM VODAFONE-NETZ", deko: "keine" as const };
+  for (const format of OTELO_FORMATS) {
+    const scene = buildScene(format, "kachel_person", endless);
+    assert.equal(blockingHints(scene.hints).length, 0, `${format.id} ${scene.hints.join(" | ")}`);
+  }
+  const phone: Cutout = { imageW: 2400, imageH: 1600, opaque: { x: 904, y: 80, w: 595, h: 1440 }, head: { x: 0, y: 0, w: 1, h: 1 } };
+  const a57 = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57 5G" };
+  for (const format of OTELO_FORMATS) {
+    const scene = buildScene(format, "kachel_geraet", a57, {}, undefined, undefined, phone);
+    const seen = scene.productPaint?.opaque;
+    assert.ok(seen, format.id);
+    const view = deviceInside(seen, format.w, format.h);
+    assert.equal(view.rightCrop, false, `${format.id} rechts ${seen.x + seen.w}`);
+    assert.ok(view.share >= 0.85, `${format.id} ${view.share.toFixed(2)}`);
+    const blocking = blockingHints(scene.hints);
+    assert.ok(blocking.every((hint) => /Geräteanteil|rechts angeschnitten/.test(hint)), `${format.id} ${blocking.join(" | ")}`);
+    assert.equal(blocking.length, 0, `${format.id} ${blocking.join(" | ")}`);
+  }
+});
+
+test("the Sommer star stays on the top of the tile", () => {
+  const cutout: Cutout = {
+    imageW: 800,
+    imageH: 1400,
+    opaque: { x: 160, y: 20, w: 480, h: 1320 },
+    head: { x: 340, y: 60, w: 240, h: 260 },
+    orangeCloth: true,
+  };
+  const fields = { ...copy(), headline: "SOMMER-DEAL", sternText: "1. MONAT GRATIS", deko: "fruehling_blaetter" as const };
+  for (const format of OTELO_FORMATS.filter((item) => item.id.endsWith("9x16"))) {
+    const scene = buildScene(format, "kachel_person", fields, {}, cutout);
+    const star = scene.stern?.box;
+    const tile = scene.kachel?.box;
+    assert.ok(star && tile, format.id);
+    const relY = (star.y + star.h / 2 - tile.y) / tile.h;
+    assert.ok(relY < 0.55, `${format.id} relY ${relY.toFixed(2)}`);
+    const meetsTile = star.x < tile.x + tile.w && tile.x < star.x + star.w && star.y < tile.y + tile.h && tile.y < star.y + star.h;
+    assert.equal(meetsTile, true, format.id);
+    assert.equal(scene.hints.some((hint) => hint.includes("orangem Motiv") && !hint.startsWith("Hinweis:")), false);
   }
 });
 
