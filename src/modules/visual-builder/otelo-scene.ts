@@ -1425,6 +1425,7 @@ function buildKachel(
   let starLimit: "groß" | "klein" | undefined;
   const askedScale = shifts.stoerer?.scale && shifts.stoerer.scale > 0 ? shifts.stoerer.scale : 1;
   let starBeforeScale: Box | undefined;
+  let growStar: ((factor: number) => Box | undefined) | undefined;
   if (placed.stern && placed.stern.w > 2) {
     const blockedStar = (star: Box) => {
       if (star.x < w * 0.02 || star.y < h * (tall ? 0.08 : 0.03) || star.x + star.w > w * (tiktok ? 0.84 : 0.98) || star.y + star.h > h * (tiktok ? 0.78 : 0.97)) return true;
@@ -1460,15 +1461,22 @@ function buildKachel(
       }
     }
     starBeforeScale = { ...placed.stern };
-    if (Math.abs(askedScale - 1) > 0.02) {
+    growStar = (factor: number) => {
+      const baseStar = starBeforeScale;
+      if (!baseStar) return undefined;
+      if (factor <= 1.02) return { ...baseStar };
+      const next = grown(baseStar, factor);
+      if (blockedStar(next) || next.w + 0.5 < baseStar.w) return undefined;
+      return next;
+    };
+    if (askedScale < 0.98 && placed.stern) {
       const next = grown(placed.stern, askedScale);
-      const visible = !blockedStar(next) && Math.abs(next.w - placed.stern.w) > placed.stern.w * 0.08;
-      if (visible) {
+      if (!blockedStar(next) && next.w > 2) {
         placed.stern.x = next.x;
         placed.stern.y = next.y;
         placed.stern.w = next.w;
         placed.stern.h = next.h;
-      } else starLimit = askedScale > 1 ? "groß" : "klein";
+      } else starLimit = "klein";
     }
   }
   const productHome = placed.product ? { x: placed.product.x, y: placed.product.y, w: placed.product.w, h: placed.product.h } : undefined;
@@ -1517,16 +1525,40 @@ function buildKachel(
       }
     };
     pullStarForPhone();
-    const grownFrame = paintedProduct(placed.product, productCutout, w, false, -0.1, undefined, deviceReserve);
-    if (askedScale > 1.02 && starBeforeScale && grownFrame.opaque.h < phoneFloor - 1) {
-      placed.stern.x = starBeforeScale.x;
-      placed.stern.y = starBeforeScale.y;
-      placed.stern.w = starBeforeScale.w;
-      placed.stern.h = starBeforeScale.h;
-      starLimit = "groß";
-      deviceReserve = fitDevice();
-      pullStarForPhone();
+    if (placed.stern) starBeforeScale = { ...placed.stern };
+  }
+  if (askedScale > 1.02 && growStar && starBeforeScale && placed.stern) {
+    const phoneOk = () => {
+      if (!deviceMode || tall || !productCutout || !placed.product) return true;
+      const frame = paintedProduct(placed.product, productCutout, w, false, -0.1, undefined, deviceReserve);
+      return frame.opaque.h >= h * (wide ? 0.4 : 0.55) - 1;
+    };
+    let best = { ...starBeforeScale };
+    let low = 1;
+    let high = askedScale;
+    for (let step = 0; step < 7; step += 1) {
+      const mid = (low + high) / 2;
+      const candidate = growStar(mid);
+      if (!candidate) {
+        high = mid;
+        continue;
+      }
+      placed.stern.x = candidate.x;
+      placed.stern.y = candidate.y;
+      placed.stern.w = candidate.w;
+      placed.stern.h = candidate.h;
+      if (deviceMode && productCutout) deviceReserve = fitDevice();
+      if (phoneOk() && placed.stern.w + 0.5 >= starBeforeScale.w) {
+        best = { ...placed.stern };
+        low = mid;
+      } else high = mid;
     }
+    placed.stern.x = best.x;
+    placed.stern.y = best.y;
+    placed.stern.w = best.w;
+    placed.stern.h = best.h;
+    if (deviceMode && productCutout) deviceReserve = fitDevice();
+    if (low < askedScale - 0.03) starLimit = "groß";
   }
   const hints: string[] = [];
   const label = sceneFormatLabel(format);

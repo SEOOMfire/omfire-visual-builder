@@ -237,9 +237,11 @@ test("a much larger device star does not shrink the phone below the floor", () =
   assert.ok(phone);
   const fields = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57 5G" };
   for (const format of OTELO_FORMATS) {
-    const scene = buildScene(format, "kachel_geraet", fields, { stoerer: { scale: 1.3 } }, undefined, undefined, phone);
-    assert.equal(blockingHints(scene.hints).some((hint) => /Gerät ist zu klein/.test(hint)), false, `${format.id} ${scene.hints.join(" | ")}`);
-    const seen = scene.productPaint?.opaque;
+    const once = buildScene(format, "kachel_geraet", fields, { stoerer: { scale: 1.3 } }, undefined, undefined, phone);
+    const twice = buildScene(format, "kachel_geraet", fields, { stoerer: { scale: 1.69 } }, undefined, undefined, phone);
+    assert.ok((twice.stern?.box.w ?? 0) + 0.5 >= (once.stern?.box.w ?? 0), `${format.id} ${(twice.stern?.box.w ?? 0).toFixed(0)} < ${(once.stern?.box.w ?? 0).toFixed(0)}`);
+    assert.equal(blockingHints(twice.hints).some((hint) => /Gerät ist zu klein/.test(hint)), false, `${format.id} ${twice.hints.join(" | ")}`);
+    const seen = twice.productPaint?.opaque;
     const min = format.id === "pmax-1200x628" ? 0.4 : format.id.endsWith("9x16") ? 0 : 0.55;
     if (min && seen) assert.ok(seen.h >= format.h * min - 1, `${format.id} ${(seen.h / format.h).toFixed(2)}`);
   }

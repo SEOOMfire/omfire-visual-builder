@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyToBook, commandFromModel, mergedNudge, newBook, seedBook } from "../src/modules/visual-builder/server/adjust-commands";
+import { applyToBook, commandFromModel, finishAdjustSummary, mergedNudge, newBook, seedBook } from "../src/modules/visual-builder/server/adjust-commands";
 
 test("Störer etwas tiefer moves it down by 3 percent", () => {
   const step = applyToBook(newBook(), "Störer etwas tiefer");
@@ -87,6 +87,22 @@ test("the spoken sentences set text, color, scope, deco and versions", () => {
 test("a color outside the palette is a question", () => {
   const step = applyToBook(newBook(), "Unterzeile in Rot");
   assert.match(step.question ?? "", /Markenpalette/);
+});
+
+test("a bigger star that fits nowhere is not reported as done", () => {
+  const doubled = [
+    "umgesetzt: Leiste ist jetzt „Jetzt bestellen“",
+    "umgesetzt: Leiste ist jetzt „Jetzt bestellen“",
+    "umgesetzt: Störer 30 % größer",
+    "Stern schon maximal groß im 1200x1200.",
+    "Stern schon maximal groß im 1200x1200.",
+  ].join("\n");
+  const hints = ["Stern schon maximal groß (1200x1200, 1200x628, 960x1200, 1080x1080, 1080x1920 Meta, 1080x1920 Tiktok)."];
+  const all = finishAdjustSummary(doubled, hints);
+  assert.equal(all, "umgesetzt: Leiste ist jetzt „Jetzt bestellen“\nnicht möglich: Stern schon maximal groß");
+  const some = finishAdjustSummary("umgesetzt: Störer 30 % größer", ["Stern schon maximal groß im 960x1200.", "Stern schon maximal groß im 1080x1920 Meta."]);
+  assert.match(some, /umgesetzt: Störer 30 % größer \(außer 960x1200, 1080x1920 Meta: schon maximal\)/);
+  assert.doesNotMatch(some, /nicht möglich/);
 });
 
 test("the subline sentence keeps the command out of the banner", () => {

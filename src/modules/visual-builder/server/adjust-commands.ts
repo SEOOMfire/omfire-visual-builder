@@ -821,7 +821,9 @@ export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ 
       const word = command.faktor >= 1 ? "maximal groß" : "minimal klein";
       if (visible.length > 0 && stuck.length === visible.length) {
         for (const format of formatsOf(command)) slot(snap, format, command.element).scale /= command.faktor;
-        noop.push(`${who} schon ${word} im ${stuck.map((item) => item.label).join(", ")}.`);
+        noop.push(stuck.length >= LIMIT_LABELS.length && command.element === "stoerer"
+          ? `nicht möglich: Stern schon ${word}`
+          : `${who} schon ${word} im ${stuck.map((item) => item.label).join(", ")}.`);
         continue;
       }
       if (stuck.length) noop.push(`${who} schon ${word} im ${stuck.map((item) => item.label).join(", ")}.`);
@@ -852,14 +854,14 @@ export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ 
   });
   const missed = parsed.unknown.map((clause) => `nicht verstanden: ${clause}${parsed.question ? ` (Vorschlag: ${parsed.question})` : ""}`);
   if (same) {
-    const summary = [...noop, ...missed].filter(Boolean).join("\n") || (parsed.question ? `nicht verstanden: ${parsed.question}` : "Die Anweisung ändert keine Eigenschaft.");
+    const summary = finishAdjustSummary([...noop, ...missed].filter(Boolean).join("\n") || (parsed.question ? `nicht verstanden: ${parsed.question}` : "Die Anweisung ändert keine Eigenschaft."));
     return { book, summary, question: parsed.commands.length ? undefined : parsed.question };
   }
   const namesOf = (command: AdjustCommand) => "element" in command && command.element ? LABEL[command.element] : command.op === "abstand" ? LABEL[command.nach] : "";
   const scoped = bits.some((command) => "formate" in command && command.formate?.length);
   const open = bits.filter((command) => ("element" in command || command.op === "abstand") && !("formate" in command && command.formate?.length));
   const scopeNote = scoped && open.length ? ` ${[...new Set(open.map(namesOf).filter(Boolean))].join("/")}: alle Formate – sag „nur 9x16“, wenn anders gemeint.` : "";
-  const summary = `${[...done, ...noop, ...missed].join("\n")}${scopeNote}`;
+  const summary = finishAdjustSummary(`${[...done, ...noop, ...missed].join("\n")}${scopeNote}`);
   history.push({ n: book.version + 1, summary, snap: clone(snap) });
   return {
     book: { version: book.version + 1, snap, history },
@@ -867,6 +869,45 @@ export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ 
     question: parsed.commands.length ? undefined : parsed.question,
     compare: undefined,
   };
+}
+
+const LIMIT_LABELS = ["1200x1200", "1200x628", "960x1200", "1080x1080", "1080x1920 Meta", "1080x1920 Tiktok"];
+
+function limitFormats(hints: readonly string[]): string[] {
+  const found: string[] = [];
+  for (const hint of hints) {
+    if (!/schon maximal groß|schon minimal klein/.test(hint)) continue;
+    const list = hint.match(/\(([^)]+)\)/);
+    const labels = list ? list[1].split(",").map((item) => item.trim()) : [];
+    if (!labels.length) {
+      const single = hint.match(/im\s+(.+?)\.?\s*$/);
+      if (single?.[1]) labels.push(single[1].trim());
+    }
+    for (const label of labels) if (!found.includes(label)) found.push(label);
+  }
+  return found;
+}
+
+/** One line per result. A size step that fits nowhere is „nicht möglich“, not „umgesetzt“. */
+export function finishAdjustSummary(summary: string, hints: readonly string[] = []): string {
+  const limited = limitFormats(hints);
+  let lines = summary.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (limited.length) lines = lines.filter((line) => !/schon maximal groß|schon minimal klein/.test(line));
+  const index = lines.findIndex((line) => /umgesetzt: Störer \d+ % (größer|kleiner)/.test(line));
+  if (index >= 0 && limited.length) {
+    const growing = /größer/.test(lines[index] ?? "");
+    const state = growing ? "maximal" : "minimal";
+    const coversAll = LIMIT_LABELS.every((label) => limited.includes(label));
+    lines[index] = coversAll
+      ? `nicht möglich: Stern schon ${growing ? "maximal groß" : "minimal klein"}`
+      : `${(lines[index] ?? "").replace(/\.\s*$/, "")} (außer ${limited.join(", ")}: schon ${state})`;
+  }
+  const seen = new Set<string>();
+  return lines.filter((line) => {
+    if (seen.has(line)) return false;
+    seen.add(line);
+    return true;
+  }).join("\n");
 }
 
 const MODEL_FIELDS = ["button", "headline", "subline", "sternText", "preis", "datenmenge", "deko"] as const;
