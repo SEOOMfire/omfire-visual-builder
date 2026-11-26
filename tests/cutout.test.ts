@@ -114,7 +114,10 @@ test("the device star uses the visible phone and the pill follows its text", () 
     assert.equal(cx > pill.x && cx < pill.x + pill.w && cy > pill.y && cy < pill.y + pill.h, false, format.id);
     const meetsPill = star.x < pill.x + pill.w && pill.x < star.x + star.w && star.y < pill.y + pill.h && pill.y < star.y + star.h;
     const meetsTile = star.x < tile.x + tile.w && tile.x < star.x + star.w && star.y < tile.y + tile.h && tile.y < star.y + star.h;
-    assert.equal(meetsPill || meetsTile, true, format.id);
+    const dx = star.x > pill.x + pill.w ? star.x - (pill.x + pill.w) : pill.x > star.x + star.w ? pill.x - (star.x + star.w) : 0;
+    const dy = star.y > pill.y + pill.h ? star.y - (pill.y + pill.h) : pill.y > star.y + star.h ? pill.y - (star.y + star.h) : 0;
+    const pillGap = dx === 0 && dy === 0 ? 0 : dx > 0 && dy > 0 ? Math.hypot(dx, dy) : dx + dy;
+    assert.equal(meetsPill || meetsTile || (pillGap > 0 && pillGap <= format.w * 0.02 + 2), true, format.id);
     assert.equal(scene.hints.some((hint) => hint.includes("nicht bestanden") || hint.includes("überdeckt das Gerät") || hint.includes("Pillentext")), false, `${format.id} ${scene.hints.join(" | ")}`);
   }
 });
@@ -241,24 +244,47 @@ test("the rendered device star is at least 45 percent of the lime tile", () => {
   }
 });
 
-test("Endlos Surfen passes every format and the A57 only cares about the visible device", () => {
+test("the three live briefings stay free of blocking hints", () => {
+  const named = (hint: string) => !hint.includes("1080x1920") || /1080x1920 (Meta|Tiktok)/.test(hint);
   const endless = { ...copy(), headline: "ENDLOS SURFEN", subline: "UNBEGRENZTES DATENVOLUMEN IM VODAFONE-NETZ", deko: "keine" as const };
-  for (const format of OTELO_FORMATS) {
-    const scene = buildScene(format, "kachel_person", endless);
-    assert.equal(blockingHints(scene.hints).length, 0, `${format.id} ${scene.hints.join(" | ")}`);
-  }
+  const sommer = { ...copy(), headline: "SOMMER-DEAL", sternText: "1. MONAT GRATIS", deko: "fruehling_blaetter" as const };
   const phone: Cutout = { imageW: 2400, imageH: 1600, opaque: { x: 904, y: 80, w: 595, h: 1440 }, head: { x: 0, y: 0, w: 1, h: 1 } };
   const a57 = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57 5G" };
+  const pulli: Cutout = { imageW: 800, imageH: 1400, opaque: { x: 160, y: 20, w: 480, h: 1320 }, head: { x: 340, y: 60, w: 240, h: 260 }, orangeCloth: true };
   for (const format of OTELO_FORMATS) {
-    const scene = buildScene(format, "kachel_geraet", a57, {}, undefined, undefined, phone);
-    const seen = scene.productPaint?.opaque;
+    for (const [name, scene] of [
+      ["endlos", buildScene(format, "kachel_person", endless)],
+      ["sommer", buildScene(format, "kachel_person", sommer, {}, pulli)],
+      ["a57", buildScene(format, "kachel_geraet", a57, {}, undefined, undefined, phone)],
+    ] as const) {
+      assert.equal(blockingHints(scene.hints).length, 0, `${name} ${format.id} ${scene.hints.join(" | ")}`);
+      assert.ok(scene.hints.every(named), scene.hints.join(" | "));
+    }
+    const device = buildScene(format, "kachel_geraet", a57, {}, undefined, undefined, phone);
+    const seen = device.productPaint?.opaque;
     assert.ok(seen, format.id);
     const view = deviceInside(seen, format.w, format.h);
-    assert.equal(view.rightCrop, false, `${format.id} rechts ${seen.x + seen.w}`);
+    assert.equal(view.rightCrop, false, format.id);
     assert.ok(view.share >= 0.85, `${format.id} ${view.share.toFixed(2)}`);
-    const blocking = blockingHints(scene.hints);
-    assert.ok(blocking.every((hint) => /Geräteanteil|rechts angeschnitten/.test(hint)), `${format.id} ${blocking.join(" | ")}`);
-    assert.equal(blocking.length, 0, `${format.id} ${blocking.join(" | ")}`);
+    if (format.id.endsWith("9x16") && device.cta.box.w > 2) {
+      assert.ok(seen.y >= device.cta.box.y + device.cta.box.h + format.h * 0.02 - 1, `${format.id} CTA ${seen.y.toFixed(0)}`);
+    }
+    if (format.id === "pmax-1200x1200" || format.id === "meta-1x1") {
+      const star = device.stern?.box;
+      const pill = device.pill?.box;
+      assert.ok(star && pill, format.id);
+      const dx = star.x > pill.x + pill.w ? star.x - (pill.x + pill.w) : pill.x > star.x + star.w ? pill.x - (star.x + star.w) : 0;
+      const dy = star.y > pill.y + pill.h ? star.y - (pill.y + pill.h) : pill.y > star.y + star.h ? pill.y - (star.y + star.h) : 0;
+      const gap = dx === 0 && dy === 0 ? 0 : dx > 0 && dy > 0 ? Math.hypot(dx, dy) : dx + dy;
+      assert.ok(gap >= format.w * 0.01, `${format.id} Abstand ${gap.toFixed(0)}`);
+    }
+    const person = buildScene(format, "kachel_person", sommer, {}, pulli);
+    if (format.id.endsWith("9x16") && person.stern && person.kachel) {
+      const star = person.stern.box;
+      const tile = person.kachel.box;
+      const relY = (star.y + star.h / 2 - tile.y) / tile.h;
+      assert.ok(relY < 0.55, `${format.id} relY ${relY.toFixed(2)}`);
+    }
   }
 });
 

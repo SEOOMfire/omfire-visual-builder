@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockingHints } from "../src/modules/visual-builder/server/creative-archive";
+import { reviewSize } from "../src/modules/visual-builder/server/review-image";
 import { completeSentences, failedGlanceFormats, glanceBrief, glanceContradictsMeasure, glanceLine, parseGlance, pruefungText, withoutInstructed } from "../src/modules/visual-builder/server/review";
 
 test("the reply always names the image check", () => {
@@ -53,5 +54,11 @@ test("every glance line has a verdict and the typeface is not judged", () => {
   assert.equal(parseGlance('{"verstoesse":[{"art":"pflichtelement_fehlt","element":"Logo","beschreibung":"Das Logo fehlt."}]}', "Meta 9x16"), "Bestanden.");
   assert.equal(parseGlance('{"verstoesse":[{"art":"falsche_ci_farbe","element":"Headline","beschreibung":"Headline nur 78 Prozent. Dieser Punkt zählt als angewiesene Änderung."}]}', "Meta 9x16"), "Bestanden.");
   assert.equal(parseGlance('{"verstoesse":[{"art":"text_ueberdeckt","element":"Display","beschreibung":"Branding auf dem Geräte-Display."}]}'), "Bestanden.");
-  assert.doesNotMatch(glanceBrief("", "", "", "Meta 9x16"), /Dieser Punkt zählt als angewiesene Änderung\./);
+  const fields = "CTA: Jetzt wechseln\nHeadline: ENDLOS SURFEN";
+  assert.equal(parseGlance('{"verstoesse":[{"art":"text_unleserlich","element":"CTA","beschreibung":"Der CTA lautet Jetzt sichern."}]}', "1080x1080", fields), "Bestanden.");
+  assert.equal(parseGlance('{"verstoesse":[{"art":"text_ueberdeckt","element":"Haar","beschreibung":"Die CTA-Spitze liegt über den Haaren."}]}'), "Bestanden.");
+  assert.match(parseGlance('{"verstoesse":[{"art":"gesicht_verdeckt","element":"Gesicht","beschreibung":"Augen und Mund sind verdeckt."}]}'), /^Nicht bestanden:/);
+  assert.doesNotMatch(glanceBrief("", "", "", "Meta 9x16", fields), /Dieser Punkt zählt als angewiesene Änderung\./);
+  assert.match(glanceBrief("", "", "", "1080x1920 Meta", fields), /voller Auflösung/);
+  assert.deepEqual(reviewSize(1080, 1920), { width: 1080, height: 1920 });
 });

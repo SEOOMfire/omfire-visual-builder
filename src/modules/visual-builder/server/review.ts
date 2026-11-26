@@ -79,7 +79,7 @@ const GLANCE_ARTS = new Set(["text_ueberdeckt", "text_abgeschnitten", "gesicht_v
 export type GlanceViolation = { art: string; element: string; beschreibung: string };
 
 /** Drops reports that the prompt lists as not a violation. */
-export function keepGlanceViolation(item: GlanceViolation, formatLabel = ""): boolean {
+export function keepGlanceViolation(item: GlanceViolation, formatLabel = "", briefing = ""): boolean {
   if (!GLANCE_ARTS.has(item.art)) return false;
   const blob = `${item.element} ${item.beschreibung}`;
   if (/dieser punkt zählt als angewiesene änderung/i.test(blob)) return false;
@@ -90,11 +90,16 @@ export function keepGlanceViolation(item: GlanceViolation, formatLabel = ""): bo
   if (/position/i.test(blob) && /cta|kachel|pfeil/i.test(blob)) return false;
   if (/referenz/i.test(blob)) return false;
   if (/schriftart|schriftschnitt|titillium|geist/i.test(blob)) return false;
+  if (/haar|kleidung|körper|koerper|pulli|schulter/i.test(blob) && !/augen|nase|mund/i.test(blob)) return false;
+  const claimed = [
+    ...blob.matchAll(/[„"]([^“"]+)[“"]/g),
+  ].map((match) => match[1]?.trim() ?? "").concat(blob.match(/\blautet\s+([^.,]+)/i)?.[1]?.trim() ?? "").filter(Boolean);
+  if (claimed.some((phrase) => !briefing.toLowerCase().includes(phrase.toLowerCase()))) return false;
   return true;
 }
 
 /** Status comes from the JSON list. Prose without that list is „Bestanden.“ */
-export function parseGlance(raw: string, formatLabel = ""): string {
+export function parseGlance(raw: string, formatLabel = "", briefing = ""): string {
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) return "Bestanden.";
   let payload: { verstoesse?: unknown };
@@ -112,16 +117,16 @@ export function parseGlance(raw: string, formatLabel = ""): string {
       element: String(record.element ?? ""),
       beschreibung: String(record.beschreibung ?? "").replace(/Dieser Punkt zählt als angewiesene Änderung\.?/gi, "").trim(),
     };
-    return item.beschreibung && keepGlanceViolation(item, formatLabel) ? [item] : [];
+    return item.beschreibung && keepGlanceViolation(item, formatLabel, briefing) ? [item] : [];
   });
   if (!kept.length) return "Bestanden.";
   return `Nicht bestanden: ${kept.map((item) => item.beschreibung).join(" ")}`;
 }
 
 /** The image check returns a JSON list. The status is computed here. */
-export function glanceBrief(instructed = "", measured = "", rules = "", formatLabel = ""): string {
+export function glanceBrief(instructed = "", measured = "", rules = "", formatLabel = "", briefing = ""): string {
   const share = headlineTarget(formatLabel);
-  return `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz.\nSoll für ${formatLabel || "dieses Format"}: Headline-Breite etwa ${share} Prozent. Das ist kein Verstoß.\nAntworte nur mit JSON: {"verstoesse":[{"art":"text_ueberdeckt"|"text_abgeschnitten"|"gesicht_verdeckt"|"text_unleserlich"|"falsche_ci_farbe"|"pflichtelement_fehlt","element":"…","beschreibung":"…"}]}\nLeere Liste, wenn keiner dieser sechs Fälle zutrifft.\nKein Verstoß, auch nicht in die Liste aufnehmen: Durchstreichung des statt-Preises, Branding oder Text auf dem Geräte-Display, fehlendes Logo im 9x16, Headline-Prozente, Position von CTA oder Kachel, Abweichung von der Referenz. Schriftart und Schriftschnitt nicht bewerten.\nSchreibe keinen Satz wie „Dieser Punkt zählt als angewiesene Änderung“.\nAngewiesen: ${instructed || "keine"}\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}`;
+  return `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz.\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"} in voller Auflösung, kein Kontaktbogen.\nSoll: Headline-Breite etwa ${share} Prozent. Das ist kein Verstoß.\nGesetzte Texte, nicht per Bild prüfen:\n${briefing || "keine"}\nAntworte nur mit JSON: {"verstoesse":[{"art":"text_ueberdeckt"|"text_abgeschnitten"|"gesicht_verdeckt"|"text_unleserlich"|"falsche_ci_farbe"|"pflichtelement_fehlt","element":"…","beschreibung":"…"}]}\nLeere Liste, wenn keiner dieser sechs Fälle zutrifft.\nTexte wie CTA, Preise und Headline nicht bewerten. Ein Verstoß, der einen anderen Wortlaut behauptet als die gesetzten Felder, ist keiner.\nÜberlappung nur, wenn Text verdeckt ist oder das Gesicht, also Augen, Nase oder Mund. CTA-Spitze, Stern oder Kachel über Haaren, Kleidung oder Körper ist kein Verstoß.\nKein Verstoß: Durchstreichung des statt-Preises, Branding oder Text auf dem Geräte-Display, fehlendes Logo im 9x16, Headline-Prozente, Position von CTA oder Kachel, Abweichung von der Referenz. Schriftart und Schriftschnitt nicht bewerten.\nSchreibe keinen Satz und nimm keinen Verstoß auf, der „Dieser Punkt zählt als angewiesene Änderung“ enthält.\nAngewiesen: ${instructed || "keine"}\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}`;
 }
 
 /** Keeps whole sentences. A period inside „bzw.“ does not end a sentence. */
@@ -163,7 +168,7 @@ export function withoutInstructed(glance: string, instructed: string): string {
 }
 
 /** A look at one format. Never a reason to block saving. */
-export async function glanceAt(jpegBase64: string, rules: string, referencePath = "files/referenz/styleguide-seite-4.jpg", measured = "", formatLabel = "", instructed = "", _fontRule = ""): Promise<string> {
+export async function glanceAt(jpegBase64: string, rules: string, referencePath = "files/referenz/styleguide-seite-4.jpg", measured = "", formatLabel = "", instructed = "", _fontRule = "", briefing = ""): Promise<string> {
   const config = openRouterConfig(MODEL_VARIABLE, "anthropic/claude-sonnet-5.5");
   if (!config.configured) return "nicht gelaufen, weil die Prüfung nicht erreichbar ist.";
   if (!jpegBase64) return "nicht gelaufen, weil kein Bild vorlag.";
@@ -178,7 +183,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
         {
           role: "user",
           content: [
-            { type: "text", text: glanceBrief(instructed, measured, rules, formatLabel) },
+            { type: "text", text: glanceBrief(instructed, measured, rules, formatLabel, briefing) },
             ...images,
           ],
         },
@@ -199,7 +204,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
       if (!/keine Antwort|abgelehnt/.test(message)) throw error;
       text = await ask(undefined);
     }
-    return parseGlance(text, formatLabel);
+    return parseGlance(text, formatLabel, briefing);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unbekannter Fehler";
     return `nicht gelaufen, weil ${message.replace(/\s+/g, " ").slice(0, 180)}`;
@@ -213,10 +218,11 @@ export async function glanceFormats(
   measured = "",
   instructed = "",
   fontRule = "",
+  briefing = "",
 ): Promise<string> {
   const picked = formats.filter((format) => format.jpeg);
   const notes = await Promise.all(picked.map(async (format) => {
-    const note = await glanceAt(format.jpeg, rules, referencePath, measured, format.label, instructed, fontRule);
+    const note = await glanceAt(format.jpeg, rules, referencePath, measured, format.label, instructed, fontRule, briefing);
     return `${format.label}: ${note}`;
   }));
   return notes.join("\n");

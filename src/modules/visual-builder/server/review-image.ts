@@ -1,10 +1,11 @@
 import { decode, encode } from "jpeg-js";
 import { PNG } from "pngjs";
 
-const LONG_EDGE = 1568;
+const LONG_EDGE = 1920;
 const BYTE_LIMIT = 3.5 * 1024 * 1024;
 
-function fit(width: number, height: number): { width: number; height: number } {
+/** A single format stays at its own pixel size. Only larger sheets are reduced. */
+export function reviewSize(width: number, height: number): { width: number; height: number } {
   const long = Math.max(width, height);
   if (long <= LONG_EDGE) return { width, height };
   const scale = LONG_EDGE / long;
@@ -38,11 +39,11 @@ function jpegBytes(data: Uint8Array, width: number, height: number): Buffer {
   return bytes;
 }
 
-/** JPEG with a long edge of at most 1568 px, under 3.5 MB. */
+/** JPEG at the format's own size, long edge at most 1920 px, under 3.5 MB. */
 export function reviewJpeg(bytes: Buffer): Buffer {
   const png = bytes[0] === 0x89 && bytes[1] === 0x50;
   const decoded = png ? PNG.sync.read(bytes) : decode(bytes, { useTArray: true, formatAsRGBA: true });
-  const size = fit(decoded.width, decoded.height);
+  const size = reviewSize(decoded.width, decoded.height);
   const data = size.width === decoded.width && size.height === decoded.height
     ? decoded.data
     : scaleRgba(decoded.data, decoded.width, decoded.height, size.width, size.height);

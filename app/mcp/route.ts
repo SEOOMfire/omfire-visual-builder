@@ -69,7 +69,19 @@ async function attachReview(draft: { vorlage?: string; glance?: string; hints: s
     : draft.vorlage?.startsWith("kachel")
       ? "files/referenz/banner/Meta_Q4_1126_BW_Young_Classic_Woman_1x1.png"
       : "files/referenz/styleguide-seite-4.jpg";
-  draft.glance = await glanceFormats(formats.map((format) => ({ label: format.label, jpeg: format.pngBase64 })), rules ?? "", reference, measureText, instructedText(draft).trim());
+  const fields = draft as { headline?: string; subline?: string; button?: string; preis?: string; preisZusatz?: string; einmalpreis?: string; sternText?: string; datenmenge?: string; geraetName?: string };
+  const briefing = [
+    fields.headline ? `Headline: ${fields.headline}` : "",
+    fields.subline ? `Unterzeile: ${fields.subline}` : "",
+    fields.button ? `CTA: ${fields.button}` : "",
+    fields.preis ? `Preis: ${fields.preis}` : "",
+    fields.preisZusatz ? `Preis-Zusatz: ${fields.preisZusatz}` : "",
+    fields.einmalpreis ? `Einmalpreis: ${fields.einmalpreis}` : "",
+    fields.sternText ? `Stern: ${fields.sternText}` : "",
+    fields.datenmenge ? `Datenmenge: ${fields.datenmenge}` : "",
+    fields.geraetName ? `Gerätename: ${fields.geraetName}` : "",
+  ].filter(Boolean).join("\n");
+  draft.glance = await glanceFormats(formats.map((format) => ({ label: format.label, jpeg: format.pngBase64 })), rules ?? "", reference, measureText, instructedText(draft).trim(), "", briefing);
   draft.hints = measured;
   await writeDraft(draft as Parameters<typeof writeDraft>[0]);
   return pruefungText(measured, draft.glance);
