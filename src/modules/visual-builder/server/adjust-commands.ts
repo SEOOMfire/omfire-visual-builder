@@ -187,7 +187,8 @@ function splitClauses(text: string): string[] {
     for (const bit of bits.slice(1)) {
       const next = elementIn(bit);
       const currentElement = elementIn(current);
-      if ((next && next !== currentElement) || /^auf die andere seite/i.test(bit.trim())) {
+      const closed = /(?:hei[sß]en|lauten|sein)$/i.test(current.trim());
+      if (closed || (next && next !== currentElement) || /^auf die andere seite/i.test(bit.trim())) {
         out.push(current.trim());
         current = bit;
       } else current = `${current} und ${bit}`;
@@ -255,9 +256,19 @@ function textField(label: string): TextField | undefined {
   return undefined;
 }
 
+function cleanSpokenValue(raw: string): string {
+  return unquote(raw).replace(/[.!]+$/g, "").replace(/\s+(?:hei[sß]en|lauten|sein)$/i, "").trim();
+}
+
+/** A banner text must not still contain the rest of the instruction. */
+export function plausibleText(value: string): boolean {
+  return !/\b(?:mach|ändere|aendere|änder|aender|setze|setzen|nimm|hei[sß]en|lauten|soll|und dann)\b/i.test(value)
+    && !/\b(?:cta|button|stern|st[öo]rer|unterzeile|headline|datenmenge|deko|preis)\b/i.test(value);
+}
+
 function commandsForText(field: TextField, raw: string, element: ElementId | undefined, formate?: string[]): AdjustCommand[] {
-  const text = unquote(raw).replace(/[.!]+$/g, "");
-  if (!text || /^(?:etwas|deutlich)?\s*(?:gr[öo]ßer|kleiner)$/i.test(text)) return [];
+  const text = cleanSpokenValue(raw);
+  if (!text || /^(?:etwas|deutlich)?\s*(?:gr[öo]ßer|kleiner)$/i.test(text) || !plausibleText(text)) return [];
   if (field === "datenmenge") {
     const parts = splitStatt(text);
     const commands: AdjustCommand[] = [{ op: "feld", key: "datenmenge", value: parts.neu }];
@@ -276,14 +287,44 @@ function commandsForText(field: TextField, raw: string, element: ElementId | und
   return [{ op: "text", element: element ?? who, text, formate }];
 }
 
-function commandsFromClause(clause: string, inherited: ElementId | undefined, formate?: string[]): { commands: AdjustCommand[]; element?: ElementId; question?: string } {
+function fieldByValue(fields: FieldPatch, raw: string): keyof FieldPatch | undefined {
+  const needle = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  const pairs: Array<[keyof FieldPatch, string | undefined]> = [
+    ["datenmenge", fields.datenmenge],
+    ["datenmengeAlt", fields.datenmengeAlt],
+    ["preis", fields.preis],
+    ["subline", fields.subline],
+    ["headline", fields.headline],
+    ["button", fields.button],
+    ["sternText", fields.sternText],
+    ["einmalpreis", fields.einmalpreis],
+    ["geraetName", fields.geraetName],
+  ];
+  return pairs.find(([, value]) => value && value.trim().toLowerCase().replace(/\s+/g, " ") === needle)?.[0];
+}
+
+function replaceCurrent(fields: FieldPatch, from: string, to: string): AdjustCommand | undefined {
+  const key = fieldByValue(fields, from);
+  if (!key) return undefined;
+  const value = cleanSpokenValue(to);
+  if (!value || !plausibleText(value)) return undefined;
+  if (key === "headline" || key === "subline" || key === "button" || key === "sternText") {
+    const element: ElementId = key === "button" ? "cta" : key === "sternText" ? "stoerer" : key === "headline" ? "headline" : "subline";
+    return { op: "text", element, text: value };
+  }
+  return { op: "feld", key, value };
+}
+
+function commandsFromClause(clause: string, inherited: ElementId | undefined, formate: string[] | undefined, fields: FieldPatch): { commands: AdjustCommand[]; element?: ElementId; question?: string } {
   const commands: AdjustCommand[] = [];
   const labeled = clause.match(/^([a-zäöü0-9-]+)\s*:\s*(.+)$/i);
   if (labeled) {
     const key = fieldKey(labeled[1] ?? "");
     const element = elementIn(labeled[1] ?? "") ?? inherited;
     if (key) {
-      commands.push({ op: "text", element: element ?? "headline", text: (labeled[2] ?? "").trim().replace(/^[„"]|[”"]$/g, ""), formate });
+      const text = cleanSpokenValue(labeled[2] ?? "");
+      if (!plausibleText(text)) return { commands, element };
+      commands.push({ op: "text", element: element ?? "headline", text, formate });
       return { commands, element };
     }
   }
@@ -326,7 +367,7 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
   const spokenText = clause.match(/^(?:(?:ändere|aendere|änder|aender)\s+(?:den|die|das)\s+)?(headline|[üu]berschrift|unterzeile|subline|cta|button|leiste|stern(?:-?\s?text)?|st[öo]rer|preis|datenmenge)\s+(?:auf|in|zu|soll)\s+(.+)$/i);
   if (spokenText) {
     const field = textField(spokenText[1] ?? "");
-    const value = (spokenText[2] ?? "").replace(/\s+hei[sß]en$/i, "");
+    const value = cleanSpokenValue(spokenText[2] ?? "");
     const colorWord = /^(?:lime|orange|schwarz|wei[ßs]|rot|blau|gr[üu]n)$/i.test(unquote(value));
     if (field && !colorWord && !/^(?:etwas\s+|deutlich\s+)?(?:gr[öo]ßer|kleiner)$/i.test(value)) {
       commands.push(...commandsForText(field, value, named, formate));
@@ -337,6 +378,15 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
     const motiv = clause.split(":").slice(1).join(":").split(/,|energielabel/i)[0]?.trim();
     commands.push({ op: "vorlage_setzen", vorlage: "kachel_geraet", motiv: motiv || undefined });
     return { commands, element: "geraet" };
+  }
+  const fromCurrent = clause.match(/^mach\s+aus\s+(?:den|der|dem|die)?\s*(.+?)\s+(\d+(?:[.,]\d+)?\s*(?:gb|€))\s*$/i)
+    ?? clause.match(/^aus\s+(.+?)\s+wird\s+(.+)$/i);
+  if (fromCurrent?.[1] && fromCurrent[2]) {
+    const command = replaceCurrent(fields, fromCurrent[1], fromCurrent[2]);
+    if (command) {
+      commands.push(command);
+      return { commands, element: command.op === "text" ? command.element : "datenmenge" };
+    }
   }
   const sizeWord = /^(?:deutlich\s+|etwas\s+)?(?:gr[öo]ßer|groesser|kleiner)\b/i;
   const deviceName = clause.match(/^(?:ger[äa]tename|modell)\s+(.+)$/i) ?? (/^name\s+\S*\d/i.test(clause) ? clause.match(/^name\s+(.+)$/i) : null);
@@ -452,7 +502,7 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
   return { commands, element };
 }
 
-export function parseAdjustText(text: string): { commands: AdjustCommand[]; question?: string; unknown: string[] } {
+export function parseAdjustText(text: string, fields: FieldPatch = {}): { commands: AdjustCommand[]; question?: string; unknown: string[] } {
   const raw = text.trim();
   if (!raw) return { commands: [], unknown: [], question: "Welches Element soll ich ändern?" };
   if (/^r[üu]ckg[äa]ngig\.?$/i.test(raw) || /\br[üu]ckg[äa]ngig\b/i.test(raw) && raw.split(/\s+/).length < 4) return { commands: [{ op: "rueckgaengig" }], unknown: [] };
@@ -467,7 +517,7 @@ export function parseAdjustText(text: string): { commands: AdjustCommand[]; ques
   const questions: string[] = [];
   let carried: ElementId | undefined;
   for (const clause of splitClauses(raw)) {
-    const parsed = commandsFromClause(clause, carried, formatsIn(clause));
+    const parsed = commandsFromClause(clause, carried, formatsIn(clause), fields);
     if (parsed.question) questions.push(parsed.question);
     if (!parsed.commands.length && !parsed.question) unknown.push(clause);
     commands.push(...parsed.commands);
@@ -529,12 +579,12 @@ export function adjustRequest(args: Record<string, unknown> | string | undefined
   return "";
 }
 
-export function parseAdjust(input: unknown): { commands: AdjustCommand[]; question?: string; unknown: string[] } {
-  if (typeof input === "string") return parseAdjustText(input);
+export function parseAdjust(input: unknown, fields: FieldPatch = {}): { commands: AdjustCommand[]; question?: string; unknown: string[] } {
+  if (typeof input === "string") return parseAdjustText(input, fields);
   if (!input || typeof input !== "object") return { commands: [], unknown: [], question: "Ich habe den Änderungswunsch nicht verstanden." };
   const record = input as Record<string, unknown>;
   const spoken = adjustRequest(record);
-  if (spoken) return parseAdjustText(spoken);
+  if (spoken) return parseAdjustText(spoken, fields);
   if (Array.isArray(record.befehle)) return { commands: record.befehle as AdjustCommand[], unknown: [] };
   return { commands: [], unknown: [], question: "Welches Element soll ich ändern?" };
 }
@@ -623,12 +673,11 @@ function renderedSpan(snap: AdjustSnap, element: ElementId, format: (typeof OTEL
 }
 
 export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ clause: string; command: AdjustCommand }> = []): { book: AdjustBook; summary: string; question?: string; compare?: { links: number; rechts: number } } {
-  const parsed = parseAdjust(input);
+  const parsed = parseAdjust(input, book.snap.fields ?? {});
   if (resolved.length) {
-    for (const item of resolved) {
-      parsed.commands.push(item.command);
-      parsed.unknown = parsed.unknown.filter((clause) => clause !== item.clause);
-    }
+    for (const item of resolved) parsed.commands.push(item.command);
+    if (resolved.some((item) => item.clause === "*")) parsed.unknown = [];
+    else parsed.unknown = parsed.unknown.filter((clause) => !resolved.some((item) => item.clause === clause));
   }
   if (parsed.question && !parsed.commands.length) return { book, summary: `nicht verstanden: ${parsed.question}`, question: parsed.question };
   const history = book.history.some((entry) => entry.n === book.version)
@@ -822,48 +871,61 @@ export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ 
 
 const MODEL_FIELDS = ["button", "headline", "subline", "sternText", "preis", "datenmenge", "deko"] as const;
 
-/** Turns a model JSON object into one command. Unknown fields are dropped. */
-export function commandFromModel(raw: string): AdjustCommand | undefined {
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) return undefined;
-  let payload: { feld?: unknown; wert?: unknown };
-  try {
-    payload = JSON.parse(match[0]) as { feld?: unknown; wert?: unknown };
-  } catch {
-    return undefined;
-  }
-  const feld = String(payload.feld ?? "");
-  const wert = unquote(String(payload.wert ?? ""));
-  if (!MODEL_FIELDS.includes(feld as (typeof MODEL_FIELDS)[number]) || !wert) return undefined;
+function oneModelCommand(feld: string, wert: string): AdjustCommand | undefined {
+  const value = cleanSpokenValue(wert);
+  if (!MODEL_FIELDS.includes(feld as (typeof MODEL_FIELDS)[number]) || !value || !plausibleText(value)) return undefined;
   if (feld === "deko") {
-    const name = dekoToken(wert);
+    const name = dekoToken(value);
     return name ? { op: "deko_setzen", name } : undefined;
   }
-  const field = textField(feld) ?? (feld === "sternText" ? "sternText" : feld === "subline" ? "subline" : feld === "headline" ? "headline" : feld === "button" ? "button" : undefined);
+  const field = textField(feld);
   if (!field) return undefined;
-  return commandsForText(field, wert, undefined)[0];
+  return commandsForText(field, value, undefined)[0];
 }
 
-/** Asks for one field and one value when no fixed rule matched the clause. */
-export async function interpretClause(clause: string): Promise<AdjustCommand | undefined> {
+/** Turns model JSON into commands. Unknown fields are dropped. */
+export function commandFromModel(raw: string): AdjustCommand | undefined {
+  return commandsFromModel(raw)[0];
+}
+
+export function commandsFromModel(raw: string): AdjustCommand[] {
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return [];
+  let payload: { feld?: unknown; wert?: unknown; aenderungen?: unknown };
+  try {
+    payload = JSON.parse(match[0]) as { feld?: unknown; wert?: unknown; aenderungen?: unknown };
+  } catch {
+    return [];
+  }
+  const rows = Array.isArray(payload.aenderungen) ? payload.aenderungen : [payload];
+  return rows.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const record = row as { feld?: unknown; wert?: unknown };
+    const command = oneModelCommand(String(record.feld ?? ""), String(record.wert ?? ""));
+    return command ? [command] : [];
+  });
+}
+
+/** The whole instruction, when a clause did not match a fixed rule. */
+export async function interpretCommands(text: string): Promise<AdjustCommand[]> {
   const config = openRouterConfig("VISUAL_BUILDER_OPENROUTER_MODEL", "anthropic/claude-sonnet-5.5");
-  if (!config.configured) return undefined;
+  if (!config.configured) return [];
   const raw = await openRouterComplete({
     messages: [
       {
         role: "system",
-        content: `Du liest einen Teilsatz einer Layout-Anweisung und antwortest nur mit JSON {"feld":"button|headline|subline|sternText|preis|datenmenge|deko","wert":"…"}. deko ist nur blätter, wellen oder keine. Kein anderer Schlüssel. Wenn der Satz kein Feld setzt, antworte {"feld":"","wert":""}.`,
+        content: `Du liest eine Layout-Anweisung und antwortest nur mit JSON {"aenderungen":[{"feld":"button|headline|subline|sternText|preis|datenmenge|deko","wert":"…"}]}. deko ist nur blätter, wellen oder keine. Werte enthalten keine Befehlswörter. Wenn nichts zu setzen ist, antworte {"aenderungen":[]}.`,
       },
-      { role: "user", content: clause },
+      { role: "user", content: text },
     ],
     config,
     appTitle: "Visual Builder",
     temperature: 0,
-    maxTokens: 120,
+    maxTokens: 300,
     timeoutMs: 20000,
     responseFormat: { type: "json_object" },
   }).catch(() => "");
-  return commandFromModel(raw);
+  return commandsFromModel(raw);
 }
 
 export function newBook(orange: OrangeSide = "rechts"): AdjustBook {

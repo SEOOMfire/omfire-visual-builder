@@ -107,6 +107,8 @@ export function keepGlanceViolation(item: GlanceViolation, formatLabel = "", bri
   if (/position/i.test(blob) && /cta|kachel|pfeil/i.test(blob)) return false;
   if (/referenz/i.test(blob)) return false;
   if (/schriftart|schriftschnitt|titillium|geist/i.test(blob)) return false;
+  if (/pille/i.test(blob) && /lime|kachel/i.test(blob)) return false;
+  if (/nicht zu sehen|nicht sichtbar/i.test(blob) && /stern|gratis/i.test(blob) && !/stern:/i.test(briefing)) return false;
   if (/haar|kleidung|körper|koerper|pulli|schulter/i.test(blob) && !/augen|nase|mund/i.test(blob)) return false;
   const claimed = [
     ...blob.matchAll(/[„"]([^“"]+)[“"]/g),
@@ -140,10 +142,38 @@ export function parseGlance(raw: string, formatLabel = "", briefing = ""): strin
   return `Nicht bestanden: ${kept.map((item) => item.beschreibung).join(" ")}`;
 }
 
+/** Only fields that are still drawn. A hidden star must not be described to the image check. */
+export function visibleBriefing(fields: {
+  headline?: string;
+  subline?: string;
+  button?: string;
+  preis?: string;
+  preisZusatz?: string;
+  einmalpreis?: string;
+  sternText?: string;
+  datenmenge?: string;
+  geraetName?: string;
+  vorlage?: string;
+}, hidden: ReadonlySet<string>): string {
+  const off = (element: string) => hidden.has(element);
+  const device = fields.vorlage === "kachel_geraet" || fields.vorlage === "kachel_geraet_person";
+  return [
+    fields.headline && !off("headline") ? `Headline: ${fields.headline}` : "",
+    fields.subline && !off("subline") ? `Unterzeile: ${fields.subline}` : "",
+    fields.button && !off("cta") ? `CTA: ${fields.button}` : "",
+    fields.preis ? `Preis: ${fields.preis}` : "",
+    fields.preisZusatz ? `Preis-Zusatz: ${fields.preisZusatz}` : "",
+    fields.einmalpreis ? `Einmalpreis: ${fields.einmalpreis}` : "",
+    fields.sternText && !off("stoerer") ? `Stern: ${fields.sternText}` : "",
+    fields.datenmenge && !(device && off("stoerer")) ? `Datenmenge: ${fields.datenmenge}` : "",
+    fields.geraetName && !off("geraetename") ? `Gerätename: ${fields.geraetName}` : "",
+  ].filter(Boolean).join("\n");
+}
+
 /** The image check returns a JSON list. The status is computed here. */
 export function glanceBrief(instructed = "", measured = "", rules = "", formatLabel = "", briefing = ""): string {
   const share = headlineTarget(formatLabel);
-  return `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz.\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"} in voller Auflösung, kein Kontaktbogen.\nSoll: Headline-Breite etwa ${share} Prozent. Das ist kein Verstoß.\nGesetzte Texte, nicht per Bild prüfen:\n${briefing || "keine"}\nAntworte nur mit JSON: {"verstoesse":[{"art":"text_ueberdeckt"|"text_abgeschnitten"|"gesicht_verdeckt"|"text_unleserlich"|"falsche_ci_farbe"|"pflichtelement_fehlt","element":"…","beschreibung":"…"}]}\nLeere Liste, wenn keiner dieser sechs Fälle zutrifft.\nTexte wie CTA, Preise und Headline nicht bewerten. Ein Verstoß, der einen anderen Wortlaut behauptet als die gesetzten Felder, ist keiner.\nÜberlappung nur, wenn Text verdeckt ist oder das Gesicht, also Augen, Nase oder Mund. CTA-Spitze, Stern oder Kachel über Haaren, Kleidung oder Körper ist kein Verstoß.\nKein Verstoß: Durchstreichung des statt-Preises, Branding oder Text auf dem Geräte-Display, fehlendes Logo im 9x16, Headline-Prozente, Position von CTA oder Kachel, Abweichung von der Referenz. Schriftart und Schriftschnitt nicht bewerten.\nSchreibe keinen Satz und nimm keinen Verstoß auf, der „Dieser Punkt zählt als angewiesene Änderung“ enthält.\nAngewiesen: ${instructed || "keine"}\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}`;
+  return `Das Motiv, also die Person oder das Gerät, ist absichtlich ein anderes als in der Referenz.\nDieses Bild ist nur das Format ${formatLabel || "des Entwurfs"} in voller Auflösung, kein Kontaktbogen.\nSoll: Headline-Breite etwa ${share} Prozent. Das ist kein Verstoß.\nGesetzte Texte, nicht per Bild prüfen:\n${briefing || "keine"}\nAntworte nur mit JSON: {"verstoesse":[{"art":"text_ueberdeckt"|"text_abgeschnitten"|"gesicht_verdeckt"|"text_unleserlich"|"falsche_ci_farbe"|"pflichtelement_fehlt","element":"…","beschreibung":"…"}]}\nLeere Liste, wenn keiner dieser sechs Fälle zutrifft.\nTexte wie CTA, Preise und Headline nicht bewerten. Ein Verstoß, der einen anderen Wortlaut behauptet als die gesetzten Felder, ist keiner.\nÜberlappung nur, wenn Text verdeckt ist oder das Gesicht, also Augen, Nase oder Mund. CTA-Spitze, Stern oder Kachel über Haaren, Kleidung oder Körper ist kein Verstoß.\nAusgeblendete Elemente stehen nicht in der Liste. Dass sie fehlen oder nicht zu sehen sind, ist kein Verstoß.\nBei der Geräte-Kachel ragt die Preis-Pille absichtlich in die Lime-Kachel. Das ist kein Verstoß.\nKein Verstoß: Durchstreichung des statt-Preises, Branding oder Text auf dem Geräte-Display, fehlendes Logo im 9x16, Headline-Prozente, Position von CTA oder Kachel, Abweichung von der Referenz. Schriftart und Schriftschnitt nicht bewerten.\nSchreibe keinen Satz und nimm keinen Verstoß auf, der „Dieser Punkt zählt als angewiesene Änderung“ enthält.\nAngewiesen: ${instructed || "keine"}\nGemessen:\n${measured.slice(0, 1800)}\nRichtlinie:\n${rules.slice(0, 1200)}`;
 }
 
 /** Keeps whole sentences. A period inside „bzw.“ does not end a sentence. */

@@ -231,6 +231,20 @@ test("the A57 name and energy label stay off the visible phone on 9x16", () => {
   }
 });
 
+test("a much larger device star does not shrink the phone below the floor", () => {
+  const stage = process.env.OTELO_ASSET_STAGE || "/Users/marc/Documents/otelo-asset-stage";
+  const phone = measureCutout(readFileSync(`${stage}/Hardwear/Input/Handys/SEG_Galaxy_A57_5G_SM-A576B_Awesome_Navy_45_Logoscreen_RGB.png`));
+  assert.ok(phone);
+  const fields = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57 5G" };
+  for (const format of OTELO_FORMATS) {
+    const scene = buildScene(format, "kachel_geraet", fields, { stoerer: { scale: 1.3 } }, undefined, undefined, phone);
+    assert.equal(blockingHints(scene.hints).some((hint) => /Gerät ist zu klein/.test(hint)), false, `${format.id} ${scene.hints.join(" | ")}`);
+    const seen = scene.productPaint?.opaque;
+    const min = format.id === "pmax-1200x628" ? 0.4 : format.id.endsWith("9x16") ? 0 : 0.55;
+    if (min && seen) assert.ok(seen.h >= format.h * min - 1, `${format.id} ${(seen.h / format.h).toFixed(2)}`);
+  }
+});
+
 test("the rendered device star is at least 45 percent of the lime tile", () => {
   const phone: Cutout = { imageW: 2400, imageH: 1600, opaque: { x: 904, y: 80, w: 595, h: 1440 }, head: { x: 0, y: 0, w: 1, h: 1 } };
   const fields = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57 5G" };

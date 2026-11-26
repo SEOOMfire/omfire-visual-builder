@@ -1423,6 +1423,8 @@ function buildKachel(
     }
   }
   let starLimit: "groß" | "klein" | undefined;
+  const askedScale = shifts.stoerer?.scale && shifts.stoerer.scale > 0 ? shifts.stoerer.scale : 1;
+  let starBeforeScale: Box | undefined;
   if (placed.stern && placed.stern.w > 2) {
     const blockedStar = (star: Box) => {
       if (star.x < w * 0.02 || star.y < h * (tall ? 0.08 : 0.03) || star.x + star.w > w * (tiktok ? 0.84 : 0.98) || star.y + star.h > h * (tiktok ? 0.78 : 0.97)) return true;
@@ -1457,16 +1459,16 @@ function buildKachel(
         }
       }
     }
-    const asked = shifts.stoerer?.scale && shifts.stoerer.scale > 0 ? shifts.stoerer.scale : 1;
-    if (Math.abs(asked - 1) > 0.02) {
-      const next = grown(placed.stern, asked);
+    starBeforeScale = { ...placed.stern };
+    if (Math.abs(askedScale - 1) > 0.02) {
+      const next = grown(placed.stern, askedScale);
       const visible = !blockedStar(next) && Math.abs(next.w - placed.stern.w) > placed.stern.w * 0.08;
       if (visible) {
         placed.stern.x = next.x;
         placed.stern.y = next.y;
         placed.stern.w = next.w;
         placed.stern.h = next.h;
-      } else starLimit = asked > 1 ? "groß" : "klein";
+      } else starLimit = askedScale > 1 ? "groß" : "klein";
     }
   }
   const productHome = placed.product ? { x: placed.product.x, y: placed.product.y, w: placed.product.w, h: placed.product.h } : undefined;
@@ -1498,16 +1500,32 @@ function buildKachel(
   };
   let deviceReserve = fitDevice();
   if (!tall && deviceMode && placed.product && productCutout && placed.stern && fittedTile.w > 2 && fittedPill) {
+    const product = placed.product;
     const phoneFloor = h * (wide ? 0.4 : 0.55);
     const glyphs = deviceGlyphs(fittedTile, fittedPill, copy).map((item) => item[1]);
     const starHits = (star: Box) => glyphs.some((item) => item.w > 2 && overlaps(star, item)) || overlaps(star, placed.headline) || overlaps(star, placed.subline) || (placed.cta.w > 2 && overlaps(star, placed.cta));
-    for (let step = 0; step < 8; step += 1) {
-      const frame = paintedProduct(placed.product, productCutout, w, false, -0.1, undefined, deviceReserve);
-      if (frame.opaque.h >= phoneFloor - 1) break;
-      const next = { ...placed.stern, x: placed.stern.x - Math.max(8, w * 0.012) };
-      if (next.x < w * 0.03 || starHits(next)) break;
-      placed.stern.x = next.x;
+    const pullStarForPhone = () => {
+      const star = placed.stern;
+      if (!star) return;
+      for (let step = 0; step < 8; step += 1) {
+        const frame = paintedProduct(product, productCutout, w, false, -0.1, undefined, deviceReserve);
+        if (frame.opaque.h >= phoneFloor - 1) break;
+        const next = { x: star.x - Math.max(8, w * 0.012), y: star.y, w: star.w, h: star.h };
+        if (next.x < w * 0.03 || starHits(next)) break;
+        star.x = next.x;
+        deviceReserve = fitDevice();
+      }
+    };
+    pullStarForPhone();
+    const grownFrame = paintedProduct(placed.product, productCutout, w, false, -0.1, undefined, deviceReserve);
+    if (askedScale > 1.02 && starBeforeScale && grownFrame.opaque.h < phoneFloor - 1) {
+      placed.stern.x = starBeforeScale.x;
+      placed.stern.y = starBeforeScale.y;
+      placed.stern.w = starBeforeScale.w;
+      placed.stern.h = starBeforeScale.h;
+      starLimit = "groß";
       deviceReserve = fitDevice();
+      pullStarForPhone();
     }
   }
   const hints: string[] = [];

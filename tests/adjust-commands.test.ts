@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyToBook, commandFromModel, mergedNudge, newBook } from "../src/modules/visual-builder/server/adjust-commands";
+import { applyToBook, commandFromModel, mergedNudge, newBook, seedBook } from "../src/modules/visual-builder/server/adjust-commands";
 
 test("Störer etwas tiefer moves it down by 3 percent", () => {
   const step = applyToBook(newBook(), "Störer etwas tiefer");
@@ -87,6 +87,14 @@ test("the spoken sentences set text, color, scope, deco and versions", () => {
 test("a color outside the palette is a question", () => {
   const step = applyToBook(newBook(), "Unterzeile in Rot");
   assert.match(step.question ?? "", /Markenpalette/);
+});
+
+test("the subline sentence keeps the command out of the banner", () => {
+  const book = seedBook("rechts", { subline: "ALT", datenmenge: "40 GB" });
+  const step = applyToBook(book, "Unterzeile soll JETZT 50 GB SICHERN heißen und mach aus den 40 GB 50 GB");
+  assert.equal(step.book.snap.fields.subline, "JETZT 50 GB SICHERN");
+  assert.equal(step.book.snap.fields.datenmenge, "50 GB");
+  assert.doesNotMatch(step.summary, /nicht verstanden|heißen/);
 });
 
 test("the live sentence sets the button, the leaves and a visible star", () => {

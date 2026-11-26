@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { blockingHints } from "../src/modules/visual-builder/server/creative-archive";
 import { reviewSize } from "../src/modules/visual-builder/server/review-image";
-import { completeSentences, failedGlanceFormats, glanceBrief, glanceContradictsMeasure, glanceLine, measuredLines, parseGlance, pruefungText, withoutInstructed } from "../src/modules/visual-builder/server/review";
+import { completeSentences, failedGlanceFormats, glanceBrief, glanceContradictsMeasure, glanceLine, measuredLines, parseGlance, pruefungText, visibleBriefing, withoutInstructed } from "../src/modules/visual-builder/server/review";
 
 test("the reply always names the image check", () => {
   assert.match(pruefungText([], ""), /Bildprüfung: nicht gelaufen/);
@@ -69,5 +69,11 @@ test("every glance line has a verdict and the typeface is not judged", () => {
   assert.match(parseGlance('{"verstoesse":[{"art":"gesicht_verdeckt","element":"Gesicht","beschreibung":"Augen und Mund sind verdeckt."}]}'), /^Nicht bestanden:/);
   assert.doesNotMatch(glanceBrief("", "", "", "Meta 9x16", fields), /Dieser Punkt zählt als angewiesene Änderung\./);
   assert.match(glanceBrief("", "", "", "1080x1920 Meta", fields), /voller Auflösung/);
+  assert.match(glanceBrief("", "", "", "1080x1080"), /Preis-Pille absichtlich/);
+  const shown = visibleBriefing({ subline: "JETZT", sternText: "1. MONAT GRATIS", vorlage: "kachel_person" }, new Set(["stoerer"]));
+  assert.match(shown, /JETZT/);
+  assert.doesNotMatch(shown, /MONAT/);
+  assert.equal(parseGlance('{"verstoesse":[{"art":"pflichtelement_fehlt","element":"Stern","beschreibung":"1. MONAT GRATIS ist nicht zu sehen."}]}', "1080x1080", shown), "Bestanden.");
+  assert.equal(parseGlance('{"verstoesse":[{"art":"text_ueberdeckt","element":"Pille","beschreibung":"Die Pille ragt in die Lime-Kachel."}]}'), "Bestanden.");
   assert.deepEqual(reviewSize(1080, 1920), { width: 1080, height: 1920 });
 });

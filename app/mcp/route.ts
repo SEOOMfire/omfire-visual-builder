@@ -64,25 +64,21 @@ function instructedText(draft: { layoutBook?: { snap: { fields?: { sublineColor?
 
 async function attachReview(draft: { vorlage?: string; glance?: string; hints: string[]; layoutBook?: { snap: { fields?: { sublineColor?: string; datenmengeAlt?: string; deko?: string; button?: string }; nudges?: Record<string, Partial<Record<string, { hidden?: boolean }>>> } } }, measured: string[], formats: Array<{ label: string; pngBase64: string }>, measureText = ""): Promise<string> {
   const { readClientText } = await import("../../src/modules/visual-builder/server/client-volume");
-  const { glanceFormats, pruefungText } = await import("../../src/modules/visual-builder/server/review");
+  const { glanceFormats, pruefungText, visibleBriefing } = await import("../../src/modules/visual-builder/server/review");
   const rules = await readClientText("otelo", "ci-richtlinie.md").catch(() => "");
   const reference = draft.vorlage === "kachel_geraet" || draft.vorlage === "kachel_geraet_person"
     ? "files/referenz/banner/Meta_Q4_1126_BW_i17_Young_1x1.png"
     : draft.vorlage?.startsWith("kachel")
       ? "files/referenz/banner/Meta_Q4_1126_BW_Young_Classic_Woman_1x1.png"
       : "files/referenz/styleguide-seite-4.jpg";
-  const fields = draft as { headline?: string; subline?: string; button?: string; preis?: string; preisZusatz?: string; einmalpreis?: string; sternText?: string; datenmenge?: string; geraetName?: string };
-  const briefing = [
-    fields.headline ? `Headline: ${fields.headline}` : "",
-    fields.subline ? `Unterzeile: ${fields.subline}` : "",
-    fields.button ? `CTA: ${fields.button}` : "",
-    fields.preis ? `Preis: ${fields.preis}` : "",
-    fields.preisZusatz ? `Preis-Zusatz: ${fields.preisZusatz}` : "",
-    fields.einmalpreis ? `Einmalpreis: ${fields.einmalpreis}` : "",
-    fields.sternText ? `Stern: ${fields.sternText}` : "",
-    fields.datenmenge ? `Datenmenge: ${fields.datenmenge}` : "",
-    fields.geraetName ? `Gerätename: ${fields.geraetName}` : "",
-  ].filter(Boolean).join("\n");
+  const fields = draft as { vorlage?: string; headline?: string; subline?: string; button?: string; preis?: string; preisZusatz?: string; einmalpreis?: string; sternText?: string; datenmenge?: string; geraetName?: string };
+  const hidden = new Set<string>();
+  for (const bucket of Object.values(draft.layoutBook?.snap.nudges ?? {})) {
+    for (const [element, nudge] of Object.entries(bucket ?? {})) {
+      if (nudge?.hidden) hidden.add(element);
+    }
+  }
+  const briefing = visibleBriefing(fields, hidden);
   draft.glance = await glanceFormats(formats.map((format) => ({ label: format.label, jpeg: format.pngBase64 })), rules ?? "", reference, measureText, instructedText(draft).trim(), "", briefing);
   draft.hints = measured;
   await writeDraft(draft as Parameters<typeof writeDraft>[0]);

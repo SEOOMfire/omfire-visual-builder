@@ -7,7 +7,7 @@ import { clientRoot } from "./client-volume";
 import { namePart, nextVersion, oteloFileName, oteloFolder, type OteloName } from "./naming";
 import { PNG } from "pngjs";
 import { encode as encodeJpeg } from "jpeg-js";
-import { applyToBook, interpretClause, newBook, parseAdjustText, seedBook, type AdjustBook, type AdjustCommand, type AdjustSnap, type FieldPatch } from "./adjust-commands";
+import { applyToBook, interpretCommands, newBook, parseAdjustText, seedBook, type AdjustBook, type AdjustCommand, type AdjustSnap, type FieldPatch } from "./adjust-commands";
 import { normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
 import { renderTemplate, type RenderedCreative } from "./otelo-render";
 import { signPreview, storePreview } from "./previews";
@@ -305,12 +305,10 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   const spoken = [change.text, change.anweisung, change.satz].find((value) => typeof value === "string" && value.trim()) as string | undefined ?? "";
   const versionBefore = draft.layoutBook?.version ?? 1;
   if (spoken || (Array.isArray(change.befehle) && change.befehle.length > 0)) {
-    const preview = spoken ? parseAdjustText(spoken) : { unknown: [] as string[] };
-    const resolved: Array<{ clause: string; command: AdjustCommand }> = [];
-    for (const clause of preview.unknown) {
-      const command = await interpretClause(clause);
-      if (command) resolved.push({ clause, command });
-    }
+    const preview = spoken ? parseAdjustText(spoken, draft.layoutBook?.snap.fields ?? {}) : { unknown: [] as string[] };
+    const resolved: Array<{ clause: string; command: AdjustCommand }> = preview.unknown.length
+      ? (await interpretCommands(spoken)).map((command) => ({ clause: "*", command }))
+      : [];
     const result = applyToBook(draft.layoutBook ?? newBook(draft.orange), spoken || { befehle: change.befehle }, resolved);
     if (result.question && result.book.version === versionBefore) {
       draft.summary = result.summary || `nicht verstanden: ${result.question}`;
@@ -365,6 +363,11 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   draft.hints = rendered.hints;
   if (rendered.motifNote) draft.summary = `${draft.summary ?? ""} ${rendered.motifNote}`.trim();
   rememberMotifChoice(draft, rendered);
+  const limited = rendered.hints.filter((hint) => /schon maximal groß|schon minimal klein/.test(hint));
+  if (limited.length) {
+    const lines = (draft.summary ?? "").split("\n").filter((line) => !/umgesetzt: Störer \d+ % (größer|kleiner)/.test(line) || limited.length < 4);
+    draft.summary = [...lines, ...limited].filter(Boolean).join("\n");
+  }
   const notes = [...new Set(rendered.hints.filter((hint) => hint.includes("Maximum vergrößert")).map((hint) => hint.replace(/^Hinweis: /, "").replace(/\.$/, "")))];
   if (notes.length) {
     const base = (draft.summary ?? "").replace(/\.\s*$/, "");
