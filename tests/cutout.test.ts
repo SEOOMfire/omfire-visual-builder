@@ -282,7 +282,8 @@ test("the three live briefings stay free of blocking hints", () => {
       const tile = device.kachel?.box;
       assert.ok(star && tile, format.id);
       const ratio = renderedStarDiameter(star.w) / tile.w;
-      assert.ok(ratio <= 0.55 && ratio >= 0.45, `${format.id} Stern ${(ratio * 100).toFixed(0)}`);
+      const cap = format.id === "pmax-960x1200" || format.id === "meta-1x1" ? 0.65 : 0.55;
+      assert.ok(ratio <= cap && ratio >= 0.45, `${format.id} Stern ${(ratio * 100).toFixed(0)}`);
     }
     const person = scenes[1][1];
     if (format.id.endsWith("9x16") && person.stern && person.kachel) {

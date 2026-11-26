@@ -55,6 +55,8 @@ function sceneFor(book: AdjustBook, format = OTELO_FORMATS[3]) {
   if (fields.deko) copy.deko = fields.deko;
   if (fields.datenmenge) copy.datenmenge = fields.datenmenge;
   if (fields.datenmengeAlt !== undefined) copy.datenmengeAlt = fields.datenmengeAlt;
+  if (fields.preis) copy.preis = fields.preis;
+  if (fields.sternColor) copy.sternColor = fields.sternColor;
   copy.orange = book.snap.orange;
   const name = fields.vorlage === "kachel_geraet" ? "kachel_geraet" : "kachel_person";
   return buildScene(format, name, copy, shiftsFor(book, format), undefined, book.snap.follows);
@@ -85,18 +87,21 @@ function raster(book: AdjustBook, format = OTELO_FORMATS[3]): Buffer {
   fill(scene.headline.box, [215, 235, 0]);
   if (scene.deko?.name === "fruehling_blaetter") fill(scene.deko.box, [20, 140, 40]);
   if (scene.deko?.name === "bw_wellen") fill({ x: scene.width * 0.72, y: scene.height * 0.72, w: scene.width * 0.2, h: scene.height * 0.2 }, [250, 90, 20]);
+  const starLime = (scene.sternColor ?? "").toLowerCase() === "#d7eb00";
   const color = scene.subline.lines[0]?.color ?? "#FA5A14";
   const lime = color.toLowerCase() === "#d7eb00";
   fill(scene.subline.box, lime ? [215, 235, 0] : [250, 90, 20]);
   fill(scene.cta.box, [215, 235, 0]);
-  fill(scene.stern?.box, [250, 90, 20]);
+  fill(scene.stern?.box, starLime ? [215, 235, 0] : [250, 90, 20]);
   fill(scene.kachel?.box, [180, 200, 0]);
   fill(scene.figure, [200, 120, 80]);
-  const text = `${scene.cta.text}|${scene.stern?.text ?? ""}|${scene.kachel?.alt ?? ""}|${scene.deko?.name ?? ""}`;
-  for (let index = 0; index < text.length && index < width; index += 1) {
-    png.data[index * 4] = text.charCodeAt(index);
-    png.data[index * 4 + 3] = 255;
-  }
+  const text = `${scene.cta.text}|${scene.headline.lines[0] ?? ""}|${scene.subline.lines.map((line) => line.text).join(" ")}|${scene.stern?.text ?? ""}|${scene.stoerer.preis}|${scene.pill?.preis ?? ""}|${scene.kachel?.datenmenge ?? ""}|${scene.kachel?.alt ?? ""}|${scene.deko?.name ?? ""}|${scene.sternColor ?? ""}`;
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) hash = (hash * 33 + text.charCodeAt(index)) >>> 0;
+  png.data[0] = hash & 255;
+  png.data[1] = (hash >>> 8) & 255;
+  png.data[2] = (hash >>> 16) & 255;
+  png.data[3] = 255;
   return PNG.sync.write(png);
 }
 
@@ -155,6 +160,39 @@ test("Button-Text ändern auf Jetzt wechseln sets the CTA", () => {
   assert.equal(step.book.version, 2);
 });
 
+test("twenty spoken formulations are applied and change the picture", () => {
+  const cases: Array<{ sentence: string; seed?: Parameters<typeof seedBook>[1] }> = [
+    { sentence: "CTA auf 'Jetzt bestellen'" },
+    { sentence: "Button: Jetzt wechseln" },
+    { sentence: "CTA soll Mehr erfahren heißen" },
+    { sentence: "ändere den Button in Tarife sehen" },
+    { sentence: "Headline auf ENDLOS SURFEN" },
+    { sentence: "Unterzeile soll Unbegrenzt heißen" },
+    { sentence: "Preis auf 9,99 €" },
+    { sentence: "Stern-Text auf NUR HEUTE" },
+    { sentence: "Datenmenge auf 50 GB" },
+    { sentence: "Wellen durch Blätter ersetzen", seed: { deko: "bw_wellen" } },
+    { sentence: "nimm Wellen", seed: { deko: "keine" } },
+    { sentence: "ohne Deko", seed: { deko: "bw_wellen" } },
+    { sentence: "Deko weg", seed: { deko: "fruehling_blaetter" } },
+    { sentence: "Stern weg" },
+    { sentence: "Unterzeile in Lime" },
+    { sentence: "Stern in Orange", seed: { sternColor: "#D7EB00" } },
+    { sentence: "Stern etwas größer" },
+    { sentence: "Headline deutlich kleiner" },
+    { sentence: "Unterzeile etwas größer" },
+    { sentence: "Kachel etwas höher" },
+  ];
+  assert.equal(cases.length, 20);
+  for (const item of cases) {
+    const book = item.seed ? seedBook("rechts", item.seed) : newBook();
+    const step = applyToBook(book, item.sentence);
+    assert.match(step.summary, /umgesetzt:/, item.sentence);
+    assert.doesNotMatch(step.summary, /nicht verstanden/, item.sentence);
+    assert.ok(changedPixels(book, step.book) > 0, item.sentence);
+  }
+});
+
 test("the twelve spoken sentences change the rendered pixels when a property changes", () => {
   let book = newBook();
   for (const sentence of sentences) {
@@ -193,7 +231,7 @@ test("spacing stays in the answer and a format limit stays in its clause", () =>
   assert.equal(mergedNudge(scoped.book.snap, "meta-1x1", "headline").scale, 1);
   assert.equal(mergedNudge(scoped.book.snap, "meta-1x1", "kachel").dy, -3);
   assert.equal(mergedNudge(scoped.book.snap, "9x16", "kachel").dy, -3);
-  assert.equal(mergedNudge(scoped.book.snap, "meta-1x1", "person").scale, 1.25);
+  assert.equal(mergedNudge(scoped.book.snap, "meta-1x1", "person").scale, 1.3);
   assert.match(scoped.summary, /alle Formate/);
 });
 

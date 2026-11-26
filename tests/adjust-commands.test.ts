@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyToBook, mergedNudge, newBook } from "../src/modules/visual-builder/server/adjust-commands";
+import { applyToBook, commandFromModel, mergedNudge, newBook } from "../src/modules/visual-builder/server/adjust-commands";
 
 test("Störer etwas tiefer moves it down by 3 percent", () => {
   const step = applyToBook(newBook(), "Störer etwas tiefer");
@@ -18,12 +18,12 @@ test("Frau spiegeln und auf die andere Seite flips her and swaps the side", () =
 
 test("the live sentence grows the badge, flips the woman and swaps the layout", () => {
   const step = applyToBook(newBook("rechts"), "Störer deutlich größer und etwas tiefer, Frau spiegeln und auf die andere Seite");
-  assert.match(step.summary, /umgesetzt: Störer 25 % größer/);
+  assert.match(step.summary, /umgesetzt: Störer 30 % größer/);
   assert.match(step.summary, /umgesetzt: Frau gespiegelt/);
   assert.match(step.summary, /umgesetzt: Layout getauscht/);
   assert.equal(step.book.snap.orange, "links");
   const badge = mergedNudge(step.book.snap, "meta-9x16", "stoerer");
-  assert.equal(badge.scale, 1.25);
+  assert.equal(badge.scale, 1.3);
   assert.equal(badge.dy, 3);
   assert.equal(badge.flip, false);
   assert.equal(mergedNudge(step.book.snap, "meta-9x16", "person").flip, true);
@@ -37,16 +37,16 @@ test("Headline kleiner nur im 1200x628 stays on that format", () => {
 
 test("the live sentence grows the headline, the waves and the woman", () => {
   const step = applyToBook(newBook(), "Headline deutlich größer, Wellen stärker, Frau etwas größer");
-  assert.equal(mergedNudge(step.book.snap, "meta-1x1", "headline").scale, 1.25);
+  assert.equal(mergedNudge(step.book.snap, "meta-1x1", "headline").scale, 1.3);
   assert.equal(mergedNudge(step.book.snap, "meta-1x1", "deko").scale, 1.25);
-  assert.equal(mergedNudge(step.book.snap, "meta-1x1", "person").scale, 1.05);
+  assert.equal(mergedNudge(step.book.snap, "meta-1x1", "person").scale, 1.15);
   assert.match(step.summary, /Wellen 25 % stärker/);
 });
 
 test("an unknown clause is named and the rest still applies", () => {
   const step = applyToBook(newBook(), "Headline etwas größer, blabla");
   assert.equal(step.question, undefined);
-  assert.equal(mergedNudge(step.book.snap, "meta-1x1", "headline").scale, 1.05);
+  assert.equal(mergedNudge(step.book.snap, "meta-1x1", "headline").scale, 1.15);
   assert.match(step.summary, /nicht verstanden: blabla/);
 });
 
@@ -65,7 +65,7 @@ test("the spoken sentences set text, color, scope, deco and versions", () => {
   assert.equal(mergedNudge(small.book.snap, "1080x1080", "headline").scale, 1);
   const moved = applyToBook(small.book, "Kachel etwas höher und Frau deutlich größer");
   assert.equal(mergedNudge(moved.book.snap, "meta-1x1", "kachel").dy, -3);
-  assert.equal(mergedNudge(moved.book.snap, "meta-1x1", "person").scale, 1.25);
+  assert.equal(mergedNudge(moved.book.snap, "meta-1x1", "person").scale, 1.3);
   const leaves = applyToBook(moved.book, "nimm Blätter statt Wellen");
   assert.equal(leaves.book.snap.fields.deko, "fruehling_blaetter");
   const device = applyToBook(leaves.book, "Gerät statt Person: Galaxy A56, Energielabel B");
@@ -87,6 +87,27 @@ test("the spoken sentences set text, color, scope, deco and versions", () => {
 test("a color outside the palette is a question", () => {
   const step = applyToBook(newBook(), "Unterzeile in Rot");
   assert.match(step.question ?? "", /Markenpalette/);
+});
+
+test("the live sentence sets the button, the leaves and a visible star", () => {
+  const step = applyToBook(newBook(), "Stern etwas größer, CTA auf 'Jetzt bestellen', Wellen durch Blätter ersetzen und die Unterzeile in Lime");
+  assert.match(step.summary, /umgesetzt: Leiste ist jetzt „Jetzt bestellen“/);
+  assert.match(step.summary, /umgesetzt: Deko Blätter/);
+  assert.match(step.summary, /umgesetzt: Subline neu gefärbt/);
+  assert.match(step.summary, /umgesetzt: Störer 15 % größer|Stern schon maximal groß/);
+  assert.equal(step.book.snap.fields.button, "Jetzt bestellen");
+  assert.equal(step.book.snap.fields.deko, "fruehling_blaetter");
+  assert.equal(step.book.snap.fields.sublineColor, "#D7EB00");
+  assert.doesNotMatch(step.summary, /nicht verstanden/);
+});
+
+test("a model JSON field becomes one command and unknown fields are dropped", () => {
+  const button = commandFromModel('{"feld":"button","wert":"Jetzt bestellen"}');
+  assert.equal(button?.op, "text");
+  assert.equal(button && "text" in button ? button.text : "", "Jetzt bestellen");
+  const leaves = commandFromModel('{"feld":"deko","wert":"Blätter"}');
+  assert.equal(leaves?.op, "deko_setzen");
+  assert.equal(commandFromModel('{"feld":"logo","wert":"weg"}'), undefined);
 });
 
 test("rückgängig restores the previous version as a new one", () => {

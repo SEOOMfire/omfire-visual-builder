@@ -1,5 +1,6 @@
 import { OTELO_FORMATS } from "../otelo-formats";
-import { buildScene, elementRelation, type OrangeSide, type SceneCopy, type SquareFollow, type VorlageName } from "../otelo-scene";
+import { openRouterComplete, openRouterConfig } from "../../../platform/ai/openrouter";
+import { buildScene, elementRelation, sceneFormatLabel, type OrangeSide, type SceneCopy, type SquareFollow, type VorlageName } from "../otelo-scene";
 
 export type ElementId = "headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko" | "kachel" | "pfeile" | "altwert" | "datenmenge" | "stattpreis" | "zusatz" | "einmalig" | "geraetename";
 
@@ -172,8 +173,7 @@ function windowAmount(text: string, verb: RegExp, kind: "move" | "size"): number
     if (/deutlich/i.test(slice)) return 12;
     return 6;
   }
-  if (/etwas/i.test(slice)) return 5;
-  if (/deutlich/i.test(slice)) return 25;
+  if (/deutlich/i.test(slice)) return 30;
   return 15;
 }
 
@@ -232,6 +232,50 @@ function fieldKey(label: string): keyof FieldPatch | undefined {
   return FIELD_LABEL[label.toLowerCase()];
 }
 
+function unquote(value: string): string {
+  return value.trim().replace(/^[„“"'«»]+|[“”"'«»]+$/g, "").replace(/\s+/g, " ").trim();
+}
+
+function dekoToken(value: string): "bw_wellen" | "fruehling_blaetter" | "keine" | undefined {
+  if (/bl[äa]tter|laub/i.test(value)) return "fruehling_blaetter";
+  if (/wellen/i.test(value)) return "bw_wellen";
+  if (/keine|ohne|weg/i.test(value)) return "keine";
+  return undefined;
+}
+
+type TextField = "button" | "headline" | "subline" | "sternText" | "preis" | "datenmenge";
+
+function textField(label: string): TextField | undefined {
+  if (/datenmenge/i.test(label)) return "datenmenge";
+  if (/stern|st[öo]rer/i.test(label)) return "sternText";
+  if (/unterzeile|subline/i.test(label)) return "subline";
+  if (/headline|[üu]berschrift/i.test(label)) return "headline";
+  if (/button|cta|leiste/i.test(label)) return "button";
+  if (/^preis\b|monatspreis/i.test(label)) return "preis";
+  return undefined;
+}
+
+function commandsForText(field: TextField, raw: string, element: ElementId | undefined, formate?: string[]): AdjustCommand[] {
+  const text = unquote(raw).replace(/[.!]+$/g, "");
+  if (!text || /^(?:etwas|deutlich)?\s*(?:gr[öo]ßer|kleiner)$/i.test(text)) return [];
+  if (field === "datenmenge") {
+    const parts = splitStatt(text);
+    const commands: AdjustCommand[] = [{ op: "feld", key: "datenmenge", value: parts.neu }];
+    if (parts.alt) commands.push({ op: "feld", key: "datenmengeAlt", value: parts.alt });
+    return commands;
+  }
+  if (field === "preis") {
+    const parts = splitStatt(text);
+    const alt = parts.alt;
+    const higher = alt ? (money(alt) ?? 0) > (money(parts.neu) ?? 0) : false;
+    const commands: AdjustCommand[] = [{ op: "feld", key: "preis", value: parts.neu, hinweis: alt && !higher ? `${alt} ist nicht höher, kein statt.` : undefined }];
+    if (alt && higher) commands.push({ op: "feld", key: "preisMonatAlt", value: alt });
+    return commands;
+  }
+  const who: ElementId = field === "button" ? "cta" : field === "sternText" ? "stoerer" : field === "subline" ? "subline" : "headline";
+  return [{ op: "text", element: element ?? who, text, formate }];
+}
+
 function commandsFromClause(clause: string, inherited: ElementId | undefined, formate?: string[]): { commands: AdjustCommand[]; element?: ElementId; question?: string } {
   const commands: AdjustCommand[] = [];
   const labeled = clause.match(/^([a-zäöü0-9-]+)\s*:\s*(.+)$/i);
@@ -243,9 +287,9 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
       return { commands, element };
     }
   }
-  const quoted = clause.match(/[„"]([^„"”]+)[”"]/);
+  const quoted = clause.match(/[„“"']([^„“”"']+)[”"']/);
   const auf = clause.match(/(?:ändern|aendern|setzen)\s+auf\s+(.+)$/i);
-  const replacement = (quoted?.[1] ?? auf?.[1] ?? "").trim().replace(/^[„"]|[”"]$/g, "");
+  const replacement = unquote(quoted?.[1] ?? auf?.[1] ?? "");
   const named = elementIn(clause) ?? inherited;
   if (replacement && named && /ändern|aendern|setzen|text/i.test(clause)) {
     commands.push({ op: "text", element: named, text: replacement, formate });
@@ -262,13 +306,32 @@ function commandsFromClause(clause: string, inherited: ElementId | undefined, fo
     commands.push({ op: "feld", key: "motivWinkel", value: angle[1] });
     return { commands, element: "geraet" };
   }
-  if (/bl[äa]tter\s+statt\s+wellen/i.test(clause)) {
-    commands.push({ op: "deko_setzen", name: "fruehling_blaetter" });
+  if (/ohne\s+deko|deko\s+(?:weg|keine)|keine\s+deko/i.test(clause)) {
+    commands.push({ op: "deko_setzen", name: "keine" });
     return { commands, element: "deko" };
   }
-  if (/wellen\s+statt\s+bl[äa]tter/i.test(clause)) {
-    commands.push({ op: "deko_setzen", name: "bw_wellen" });
+  const durch = clause.match(/(.+?)\s+durch\s+(.+?)\s+ersetzen/i);
+  const stattDeko = clause.match(/(.+?)\s+statt\s+(.+)/i);
+  const dekoPick = durch ? dekoToken(durch[2] ?? "") : stattDeko ? dekoToken(stattDeko[1] ?? "") : undefined;
+  if (dekoPick && (durch || (stattDeko && dekoToken(stattDeko[2] ?? "")))) {
+    commands.push({ op: "deko_setzen", name: dekoPick });
     return { commands, element: "deko" };
+  }
+  const takeDeko = clause.match(/^(?:nimm|deko)\s+(.+)$/i);
+  const taken = takeDeko ? dekoToken(takeDeko[1] ?? "") : undefined;
+  if (taken) {
+    commands.push({ op: "deko_setzen", name: taken });
+    return { commands, element: "deko" };
+  }
+  const spokenText = clause.match(/^(?:(?:ändere|aendere|änder|aender)\s+(?:den|die|das)\s+)?(headline|[üu]berschrift|unterzeile|subline|cta|button|leiste|stern(?:-?\s?text)?|st[öo]rer|preis|datenmenge)\s+(?:auf|in|zu|soll)\s+(.+)$/i);
+  if (spokenText) {
+    const field = textField(spokenText[1] ?? "");
+    const value = (spokenText[2] ?? "").replace(/\s+hei[sß]en$/i, "");
+    const colorWord = /^(?:lime|orange|schwarz|wei[ßs]|rot|blau|gr[üu]n)$/i.test(unquote(value));
+    if (field && !colorWord && !/^(?:etwas\s+|deutlich\s+)?(?:gr[öo]ßer|kleiner)$/i.test(value)) {
+      commands.push(...commandsForText(field, value, named, formate));
+      if (commands.length) return { commands, element: field === "button" ? "cta" : field === "sternText" ? "stoerer" : field === "subline" ? "subline" : field === "preis" ? "stoerer" : "headline" };
+    }
   }
   if (/ger[äa]t\s+statt\s+person/i.test(clause)) {
     const motiv = clause.split(":").slice(1).join(":").split(/,|energielabel/i)[0]?.trim();
@@ -547,8 +610,26 @@ function targetsOf(formate: string[] | undefined) {
   return OTELO_FORMATS.filter((format) => format.id !== "pmax-1200x1200" && tokens.some((token) => token === format.id || token === format.token || token === `${format.w}x${format.h}`));
 }
 
-export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBook; summary: string; question?: string; compare?: { links: number; rechts: number } } {
+function renderedSpan(snap: AdjustSnap, element: ElementId, format: (typeof OTELO_FORMATS)[number]): number {
+  const scene = buildScene(format, vorlageOf(snap.fields.vorlage), copyOf(snap), shiftsOf(snap, format), undefined, snap.follows);
+  const box = element === "stoerer" ? scene.stern?.box
+    : element === "person" ? scene.figure
+    : element === "headline" ? scene.headline.box
+    : element === "subline" ? scene.subline.box
+    : element === "cta" ? scene.cta.box
+    : element === "kachel" ? scene.kachel?.box
+    : undefined;
+  return Math.max(box?.w ?? 0, box?.h ?? 0);
+}
+
+export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ clause: string; command: AdjustCommand }> = []): { book: AdjustBook; summary: string; question?: string; compare?: { links: number; rechts: number } } {
   const parsed = parseAdjust(input);
+  if (resolved.length) {
+    for (const item of resolved) {
+      parsed.commands.push(item.command);
+      parsed.unknown = parsed.unknown.filter((clause) => clause !== item.clause);
+    }
+  }
   if (parsed.question && !parsed.commands.length) return { book, summary: `nicht verstanden: ${parsed.question}`, question: parsed.question };
   const history = book.history.some((entry) => entry.n === book.version)
     ? book.history
@@ -681,6 +762,23 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
       bits.push(command);
       continue;
     }
+    if (command.op === "groesse" && (command.element === "stoerer" || command.element === "headline" || command.element === "subline" || command.element === "person" || command.element === "kachel" || command.element === "cta")) {
+      const before = OTELO_FORMATS.map((format) => renderedSpan(snap, command.element, format));
+      for (const format of formatsOf(command)) slot(snap, format, command.element).scale *= command.faktor;
+      const after = OTELO_FORMATS.map((format) => ({ label: sceneFormatLabel(format), size: renderedSpan(snap, command.element, format) }));
+      const stuck = after.filter((item, index) => (before[index] ?? 0) > 2 && Math.abs(item.size - (before[index] ?? 0)) < Math.max(1.5, (before[index] ?? 0) * 0.04));
+      const visible = after.filter((_, index) => (before[index] ?? 0) > 2);
+      const who = command.element === "stoerer" ? "Stern" : LABEL[command.element];
+      const word = command.faktor >= 1 ? "maximal groß" : "minimal klein";
+      if (visible.length > 0 && stuck.length === visible.length) {
+        for (const format of formatsOf(command)) slot(snap, format, command.element).scale /= command.faktor;
+        noop.push(`${who} schon ${word} im ${stuck.map((item) => item.label).join(", ")}.`);
+        continue;
+      }
+      if (stuck.length) noop.push(`${who} schon ${word} im ${stuck.map((item) => item.label).join(", ")}.`);
+      bits.push(command);
+      continue;
+    }
     for (const format of formatsOf(command)) {
       const nudge = slot(snap, format, command.element);
       if (command.op === "verschieben") {
@@ -720,6 +818,52 @@ export function applyToBook(book: AdjustBook, input: unknown): { book: AdjustBoo
     question: parsed.commands.length ? undefined : parsed.question,
     compare: undefined,
   };
+}
+
+const MODEL_FIELDS = ["button", "headline", "subline", "sternText", "preis", "datenmenge", "deko"] as const;
+
+/** Turns a model JSON object into one command. Unknown fields are dropped. */
+export function commandFromModel(raw: string): AdjustCommand | undefined {
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return undefined;
+  let payload: { feld?: unknown; wert?: unknown };
+  try {
+    payload = JSON.parse(match[0]) as { feld?: unknown; wert?: unknown };
+  } catch {
+    return undefined;
+  }
+  const feld = String(payload.feld ?? "");
+  const wert = unquote(String(payload.wert ?? ""));
+  if (!MODEL_FIELDS.includes(feld as (typeof MODEL_FIELDS)[number]) || !wert) return undefined;
+  if (feld === "deko") {
+    const name = dekoToken(wert);
+    return name ? { op: "deko_setzen", name } : undefined;
+  }
+  const field = textField(feld) ?? (feld === "sternText" ? "sternText" : feld === "subline" ? "subline" : feld === "headline" ? "headline" : feld === "button" ? "button" : undefined);
+  if (!field) return undefined;
+  return commandsForText(field, wert, undefined)[0];
+}
+
+/** Asks for one field and one value when no fixed rule matched the clause. */
+export async function interpretClause(clause: string): Promise<AdjustCommand | undefined> {
+  const config = openRouterConfig("VISUAL_BUILDER_OPENROUTER_MODEL", "anthropic/claude-sonnet-5.5");
+  if (!config.configured) return undefined;
+  const raw = await openRouterComplete({
+    messages: [
+      {
+        role: "system",
+        content: `Du liest einen Teilsatz einer Layout-Anweisung und antwortest nur mit JSON {"feld":"button|headline|subline|sternText|preis|datenmenge|deko","wert":"…"}. deko ist nur blätter, wellen oder keine. Kein anderer Schlüssel. Wenn der Satz kein Feld setzt, antworte {"feld":"","wert":""}.`,
+      },
+      { role: "user", content: clause },
+    ],
+    config,
+    appTitle: "Visual Builder",
+    temperature: 0,
+    maxTokens: 120,
+    timeoutMs: 20000,
+    responseFormat: { type: "json_object" },
+  }).catch(() => "");
+  return commandFromModel(raw);
 }
 
 export function newBook(orange: OrangeSide = "rechts"): AdjustBook {

@@ -669,7 +669,7 @@ export function renderedStarTextSize(boxWidth: number, text: string): number {
   const lines = starDisplayLines(text);
   const longest = Math.max(1, ...lines.map((line) => line.length));
   const lineSize = boxWidth * (lines.length >= 2 ? 0.28 : 0.42);
-  return Math.min(lineSize, (boxWidth * 0.7) / (longest * 0.56));
+  return Math.min(lineSize, (boxWidth * 0.82) / (longest * 0.56));
 }
 
 /** Smallest star box whose painted text still reaches 2 percent of the format height. */
@@ -1003,7 +1003,7 @@ function buildKachel(
     cta: applyShift(cta.box, shifts.cta, w, h, "top-left", textLimits, caps, "Leiste") ?? cta.box,
     pill: fittedPill,
     logo: applyShift(logo.box, shifts.logo, w, h, "top-left", textLimits, caps, "Logo"),
-    stern: stern ? applyShift(stern.box, shifts.stoerer, w, h, "top-left", { ...textLimits, right: w * 1.02, top: 0 }, caps, "Stern") : undefined,
+    stern: stern ? applyShift(stern.box, shifts.stoerer ? { ...shifts.stoerer, scale: 1 } : undefined, w, h, "top-left", { ...textLimits, right: w * 1.02, top: 0 }, caps, "Stern") : undefined,
   };
   if (fittedPill) {
     fittedPill.x += fittedTile.x - tile.x;
@@ -1422,6 +1422,53 @@ function buildKachel(
       fittedTile.h = Math.max(h * 0.08, placed.cta.y - gap - fittedTile.y);
     }
   }
+  let starLimit: "groß" | "klein" | undefined;
+  if (placed.stern && placed.stern.w > 2) {
+    const blockedStar = (star: Box) => {
+      if (star.x < w * 0.02 || star.y < h * (tall ? 0.08 : 0.03) || star.x + star.w > w * (tiktok ? 0.84 : 0.98) || star.y + star.h > h * (tiktok ? 0.78 : 0.97)) return true;
+      if (overlaps(star, placed.headline) || overlaps(star, placed.subline) || (placed.cta.w > 2 && overlaps(star, placed.cta))) return true;
+      if (headBox && headBox.w > 2 && overlaps(star, faceCore(headBox))) return true;
+      const glyphs = deviceMode && fittedPill ? deviceGlyphs(fittedTile, fittedPill, copy).map((item) => item[1]) : tileInk(fittedTile);
+      return glyphs.some((item) => item.w > 2 && overlaps(star, item));
+    };
+    const grown = (star: Box, factor: number) => {
+      const width = star.w * factor;
+      const height = star.h * factor;
+      const anchors = [
+        { x: star.x, y: star.y, w: width, h: height },
+        { x: star.x, y: star.y + star.h - height, w: width, h: height },
+        { x: star.x + star.w - width, y: star.y, w: width, h: height },
+        { x: star.x + star.w - width, y: star.y + star.h - height, w: width, h: height },
+        { x: star.x + (star.w - width) / 2, y: star.y + (star.h - height) / 2, w: width, h: height },
+      ];
+      return anchors.find((box) => !blockedStar(box)) ?? anchors[0];
+    };
+    if (deviceMode && (format.id === "pmax-960x1200" || format.id === "meta-1x1") && fittedTile.w > 2) {
+      for (const ratio of [0.58, 0.56, 0.54]) {
+        const target = fittedTile.w * ratio / 0.96;
+        if (target <= placed.stern.w * 1.04) break;
+        const next = grown(placed.stern, target / placed.stern.w);
+        if (!blockedStar(next)) {
+          placed.stern.x = next.x;
+          placed.stern.y = next.y;
+          placed.stern.w = next.w;
+          placed.stern.h = next.h;
+          break;
+        }
+      }
+    }
+    const asked = shifts.stoerer?.scale && shifts.stoerer.scale > 0 ? shifts.stoerer.scale : 1;
+    if (Math.abs(asked - 1) > 0.02) {
+      const next = grown(placed.stern, asked);
+      const visible = !blockedStar(next) && Math.abs(next.w - placed.stern.w) > placed.stern.w * 0.08;
+      if (visible) {
+        placed.stern.x = next.x;
+        placed.stern.y = next.y;
+        placed.stern.w = next.w;
+        placed.stern.h = next.h;
+      } else starLimit = asked > 1 ? "groß" : "klein";
+    }
+  }
   const productHome = placed.product ? { x: placed.product.x, y: placed.product.y, w: placed.product.w, h: placed.product.h } : undefined;
   const fitDevice = () => {
     if (!deviceMode || !placed.product || !productCutout || !productHome) return 0;
@@ -1542,6 +1589,7 @@ function buildKachel(
   const productPaint = productCutout && placed.product ? paintedProduct(placed.product, productCutout, w, tall, -0.1, tall ? placed.cta : undefined, deviceReserve) : undefined;
   const opaqueDevice = productPaint?.opaque;
   if (deviceMode && opaqueDevice && !tall && opaqueDevice.h < h * (wide ? 0.4 : 0.55) - 1) hints.push(`nicht bestanden: Das Gerät ist zu klein im ${label}.`);
+  if (starLimit) hints.push(`Stern schon ${starLimit === "groß" ? "maximal groß" : "minimal klein"} im ${label}.`);
   if (productPaint) {
     const view = deviceInside(productPaint.opaque, w, h);
     if (view.rightCrop) hints.push(`nicht bestanden: Das Gerät ist rechts angeschnitten im ${label}.`);

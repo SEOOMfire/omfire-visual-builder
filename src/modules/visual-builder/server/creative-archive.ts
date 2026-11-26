@@ -7,7 +7,7 @@ import { clientRoot } from "./client-volume";
 import { namePart, nextVersion, oteloFileName, oteloFolder, type OteloName } from "./naming";
 import { PNG } from "pngjs";
 import { encode as encodeJpeg } from "jpeg-js";
-import { applyToBook, newBook, seedBook, type AdjustBook, type AdjustSnap, type FieldPatch } from "./adjust-commands";
+import { applyToBook, interpretClause, newBook, parseAdjustText, seedBook, type AdjustBook, type AdjustCommand, type AdjustSnap, type FieldPatch } from "./adjust-commands";
 import { normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
 import { renderTemplate, type RenderedCreative } from "./otelo-render";
 import { signPreview, storePreview } from "./previews";
@@ -305,7 +305,13 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   const spoken = [change.text, change.anweisung, change.satz].find((value) => typeof value === "string" && value.trim()) as string | undefined ?? "";
   const versionBefore = draft.layoutBook?.version ?? 1;
   if (spoken || (Array.isArray(change.befehle) && change.befehle.length > 0)) {
-    const result = applyToBook(draft.layoutBook ?? newBook(draft.orange), spoken || { befehle: change.befehle });
+    const preview = spoken ? parseAdjustText(spoken) : { unknown: [] as string[] };
+    const resolved: Array<{ clause: string; command: AdjustCommand }> = [];
+    for (const clause of preview.unknown) {
+      const command = await interpretClause(clause);
+      if (command) resolved.push({ clause, command });
+    }
+    const result = applyToBook(draft.layoutBook ?? newBook(draft.orange), spoken || { befehle: change.befehle }, resolved);
     if (result.question && result.book.version === versionBefore) {
       draft.summary = result.summary || `nicht verstanden: ${result.question}`;
       const rendered = await renderTemplate(fieldsForRender(draft));
