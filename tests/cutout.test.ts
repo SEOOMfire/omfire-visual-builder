@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { PNG } from "pngjs";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
-import { arrowSpan, buildScene, deviceInside, faceCore, fitHeadlineForChevrons, fitSublineText, renderedStarDiameter, renderedStarTextSize, wavePaintShare, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { arrowSpan, buildScene, deviceInside, faceCore, fitHeadlineForChevrons, fitSublineText, renderedStarDiameter, renderedStarTextSize, sceneFormatLabel, wavePaintShare, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { correctStarStep, type StarSample } from "../src/modules/visual-builder/server/adjust-commands";
 import { blockingHints } from "../src/modules/visual-builder/server/creative-archive";
 import { headInside, measureCutout, placeCutout, type Cutout } from "../src/modules/visual-builder/server/cutout";
 import { glanceContradictsMeasure } from "../src/modules/visual-builder/server/review";
@@ -239,11 +240,48 @@ test("a much larger device star does not shrink the phone below the floor", () =
   for (const format of OTELO_FORMATS) {
     const once = buildScene(format, "kachel_geraet", fields, { stoerer: { scale: 1.3 } }, undefined, undefined, phone);
     const twice = buildScene(format, "kachel_geraet", fields, { stoerer: { scale: 1.69 } }, undefined, undefined, phone);
-    assert.ok((twice.stern?.box.w ?? 0) + 0.5 >= (once.stern?.box.w ?? 0), `${format.id} ${(twice.stern?.box.w ?? 0).toFixed(0)} < ${(once.stern?.box.w ?? 0).toFixed(0)}`);
-    assert.equal(blockingHints(twice.hints).some((hint) => /Gerät ist zu klein/.test(hint)), false, `${format.id} ${twice.hints.join(" | ")}`);
-    const seen = twice.productPaint?.opaque;
+    const sample = (scene: ReturnType<typeof buildScene>): StarSample => {
+      const star = scene.stern?.box;
+      const pill = scene.pill?.box;
+      const air = Math.max(8, format.w * 0.012);
+      const hitsPill = Boolean(star && pill && star.x < pill.x + pill.w + air && pill.x - air < star.x + star.w && star.y < pill.y + pill.h + air && pill.y - air < star.y + star.h);
+      return { id: format.id, label: sceneFormatLabel(format), diameter: renderedStarDiameter(star?.w ?? 0), blocked: scene.hints.some((hint) => /Stern überdeckt|Gerät ist zu klein/.test(hint)) || hitsPill };
+    };
+    const before = sample(once);
+    const after = sample(twice);
+    const seen = (after.diameter + 0.5 < before.diameter || after.blocked ? once : twice).productPaint?.opaque;
     const min = format.id === "pmax-1200x628" ? 0.4 : format.id.endsWith("9x16") ? 0 : 0.55;
     if (min && seen) assert.ok(seen.h >= format.h * min - 1, `${format.id} ${(seen.h / format.h).toFixed(2)}`);
+  }
+  const measure = (scale: number): StarSample[] => OTELO_FORMATS.map((format) => {
+    const scene = buildScene(format, "kachel_geraet", fields, { stoerer: { scale } }, undefined, undefined, phone);
+    const star = scene.stern?.box;
+    const pill = scene.pill?.box;
+    const air = Math.max(8, format.w * 0.012);
+    const hitsPill = Boolean(star && pill && star.x < pill.x + pill.w + air && pill.x - air < star.x + star.w && star.y < pill.y + pill.h + air && pill.y - air < star.y + star.h);
+    return {
+      id: format.id,
+      label: sceneFormatLabel(format),
+      diameter: renderedStarDiameter(star?.w ?? 0),
+      blocked: scene.hints.some((hint) => /Stern überdeckt|Gerät ist zu klein/.test(hint)) || hitsPill,
+    };
+  });
+  const before = measure(1.3);
+  const after = measure(1.69);
+  const step = correctStarStep(before, after, 30);
+  const final = after.map((item, index) => step.holdIds.includes(item.id) ? before[index] : item);
+  final.forEach((item, index) => {
+    assert.ok(item.diameter + 0.5 >= before[index].diameter, item.label);
+    if (!before[index].blocked) assert.equal(item.blocked, false, item.label);
+  });
+  const grew = final.filter((item, index) => item.diameter > before[index].diameter + Math.max(1.5, before[index].diameter * 0.04)).map((item) => item.label);
+  if (!grew.length) assert.equal(step.line, "nicht möglich: Stern schon maximal groß");
+  else {
+    assert.match(step.line, /^umgesetzt:/);
+    for (const label of before.map((item) => item.label)) {
+      if (grew.includes(label)) assert.doesNotMatch(step.line, new RegExp(`außer[^(]*${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+      else assert.match(step.line, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    }
   }
 });
 

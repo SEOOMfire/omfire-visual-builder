@@ -589,6 +589,11 @@ export function parseAdjust(input: unknown, fields: FieldPatch = {}): { commands
   return { commands: [], unknown: [], question: "Welches Element soll ich ändern?" };
 }
 
+export function holdStarScale(snap: AdjustSnap, formatId: string, faktor: number): void {
+  const nudge = slot(snap, formatId, "stoerer");
+  nudge.scale /= faktor;
+}
+
 function slot(snap: AdjustSnap, format: string, element: ElementId): Nudge {
   snap.nudges[format] ??= {};
   snap.nudges[format][element] ??= emptyNudge();
@@ -672,7 +677,7 @@ function renderedSpan(snap: AdjustSnap, element: ElementId, format: (typeof OTEL
   return Math.max(box?.w ?? 0, box?.h ?? 0);
 }
 
-export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ clause: string; command: AdjustCommand }> = []): { book: AdjustBook; summary: string; question?: string; compare?: { links: number; rechts: number } } {
+export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ clause: string; command: AdjustCommand }> = []): { book: AdjustBook; summary: string; question?: string; compare?: { links: number; rechts: number }; starFactor?: number } {
   const parsed = parseAdjust(input, book.snap.fields ?? {});
   if (resolved.length) {
     for (const item of resolved) parsed.commands.push(item.command);
@@ -687,6 +692,7 @@ export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ 
   snap.fields ??= {};
   const bits: AdjustCommand[] = [];
   const noop: string[] = [];
+  let starFactor: number | undefined;
   if (parsed.commands.length === 1 && parsed.commands[0]?.op === "vergleichen") {
     const command = parsed.commands[0];
     return { book, summary: `Version ${command.links} und ${command.rechts}.`, compare: { links: command.links, rechts: command.rechts } };
@@ -826,7 +832,8 @@ export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ 
           : `${who} schon ${word} im ${stuck.map((item) => item.label).join(", ")}.`);
         continue;
       }
-      if (stuck.length) noop.push(`${who} schon ${word} im ${stuck.map((item) => item.label).join(", ")}.`);
+      if (stuck.length && command.element !== "stoerer") noop.push(`${who} schon ${word} im ${stuck.map((item) => item.label).join(", ")}.`);
+      if (command.element === "stoerer") starFactor = command.faktor;
       bits.push(command);
       continue;
     }
@@ -855,7 +862,7 @@ export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ 
   const missed = parsed.unknown.map((clause) => `nicht verstanden: ${clause}${parsed.question ? ` (Vorschlag: ${parsed.question})` : ""}`);
   if (same) {
     const summary = finishAdjustSummary([...noop, ...missed].filter(Boolean).join("\n") || (parsed.question ? `nicht verstanden: ${parsed.question}` : "Die Anweisung ändert keine Eigenschaft."));
-    return { book, summary, question: parsed.commands.length ? undefined : parsed.question };
+    return { book, summary, question: parsed.commands.length ? undefined : parsed.question, starFactor };
   }
   const namesOf = (command: AdjustCommand) => "element" in command && command.element ? LABEL[command.element] : command.op === "abstand" ? LABEL[command.nach] : "";
   const scoped = bits.some((command) => "formate" in command && command.formate?.length);
@@ -868,6 +875,7 @@ export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ 
     summary,
     question: parsed.commands.length ? undefined : parsed.question,
     compare: undefined,
+    starFactor,
   };
 }
 
@@ -888,20 +896,41 @@ function limitFormats(hints: readonly string[]): string[] {
   return found;
 }
 
-/** One line per result. A size step that fits nowhere is „nicht möglich“, not „umgesetzt“. */
+export type StarSample = { id: string; label: string; diameter: number; blocked: boolean };
+
+/** The reply follows the measured diameters, not the planned scale. */
+export function correctStarStep(before: StarSample[], after: StarSample[], percent: number): { holdIds: string[]; line: string } {
+  const tolerance = (size: number) => Math.max(1.5, size * 0.04);
+  const holdIds = after.flatMap((item, index) => {
+    const prior = before[index];
+    if (!prior || prior.id !== item.id) return [];
+    const grew = item.diameter > prior.diameter + tolerance(prior.diameter);
+    const shrunk = item.diameter + tolerance(item.diameter) < prior.diameter;
+    const newBlock = item.blocked && !prior.blocked;
+    return shrunk || newBlock || (grew && newBlock) ? [item.id] : [];
+  });
+  const final = after.map((item, index) => holdIds.includes(item.id) ? before[index] ?? item : item);
+  const stuck = final.filter((item, index) => {
+    const prior = before[index];
+    return !prior || item.diameter <= prior.diameter + tolerance(prior.diameter);
+  });
+  const word = percent >= 0 ? "maximal" : "minimal";
+  const line = !final.some((item, index) => {
+    const prior = before[index];
+    return prior && item.diameter > prior.diameter + tolerance(prior.diameter);
+  })
+    ? `nicht möglich: Stern schon ${percent >= 0 ? "maximal groß" : "minimal klein"}`
+    : stuck.length
+      ? `umgesetzt: Störer ${Math.abs(percent)} % ${percent >= 0 ? "größer" : "kleiner"} (außer ${stuck.map((item) => item.label).join(", ")}: schon ${word})`
+      : `umgesetzt: Störer ${Math.abs(percent)} % ${percent >= 0 ? "größer" : "kleiner"}`;
+  return { holdIds, line };
+}
+
+/** One line per result. Identical lines are dropped. */
 export function finishAdjustSummary(summary: string, hints: readonly string[] = []): string {
   const limited = limitFormats(hints);
   let lines = summary.split("\n").map((line) => line.trim()).filter(Boolean);
-  if (limited.length) lines = lines.filter((line) => !/schon maximal groß|schon minimal klein/.test(line));
-  const index = lines.findIndex((line) => /umgesetzt: Störer \d+ % (größer|kleiner)/.test(line));
-  if (index >= 0 && limited.length) {
-    const growing = /größer/.test(lines[index] ?? "");
-    const state = growing ? "maximal" : "minimal";
-    const coversAll = LIMIT_LABELS.every((label) => limited.includes(label));
-    lines[index] = coversAll
-      ? `nicht möglich: Stern schon ${growing ? "maximal groß" : "minimal klein"}`
-      : `${(lines[index] ?? "").replace(/\.\s*$/, "")} (außer ${limited.join(", ")}: schon ${state})`;
-  }
+  if (limited.length) lines = lines.filter((line) => !/^Stern schon (maximal groß|minimal klein)/.test(line));
   const seen = new Set<string>();
   return lines.filter((line) => {
     if (seen.has(line)) return false;

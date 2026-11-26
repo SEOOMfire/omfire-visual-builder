@@ -1431,6 +1431,11 @@ function buildKachel(
       if (star.x < w * 0.02 || star.y < h * (tall ? 0.08 : 0.03) || star.x + star.w > w * (tiktok ? 0.84 : 0.98) || star.y + star.h > h * (tiktok ? 0.78 : 0.97)) return true;
       if (overlaps(star, placed.headline) || overlaps(star, placed.subline) || (placed.cta.w > 2 && overlaps(star, placed.cta))) return true;
       if (headBox && headBox.w > 2 && overlaps(star, faceCore(headBox))) return true;
+      if (deviceMode && fittedPill && fittedPill.w > 2) {
+        const air = Math.max(8, w * 0.012);
+        const padded = { x: fittedPill.x - air, y: fittedPill.y - air, w: fittedPill.w + air * 2, h: fittedPill.h + air * 2 };
+        if (overlaps(star, padded)) return true;
+      }
       const glyphs = deviceMode && fittedPill ? deviceGlyphs(fittedTile, fittedPill, copy).map((item) => item[1]) : tileInk(fittedTile);
       return glyphs.some((item) => item.w > 2 && overlaps(star, item));
     };
@@ -1558,7 +1563,7 @@ function buildKachel(
     placed.stern.w = best.w;
     placed.stern.h = best.h;
     if (deviceMode && productCutout) deviceReserve = fitDevice();
-    if (low < askedScale - 0.03) starLimit = "groß";
+    if (best.w <= starBeforeScale.w + Math.max(1.5, starBeforeScale.w * 0.04)) starLimit = "groß";
   }
   const hints: string[] = [];
   const label = sceneFormatLabel(format);

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { OTELO_FORMATS } from "../otelo-formats";
 import { type AdjustSnap, type ElementId } from "./adjust-commands";
-import { buildScene, dedupeHints, defaultHeadline, defaultOrange, defaultStoerer, normalizeVorlage, type HeadlineVariant, type OrangeSide, type OteloScene, type SceneCopy, type StoererTyp, type VorlageName } from "../otelo-scene";
+import { buildScene, dedupeHints, defaultHeadline, defaultOrange, defaultStoerer, normalizeVorlage, renderedStarDiameter, sceneFormatLabel, type HeadlineVariant, type OrangeSide, type OteloScene, type SceneCopy, type StoererTyp, type VorlageName } from "../otelo-scene";
+import type { StarSample } from "./adjust-commands";
 import type { RenderJob } from "../render-protocol";
 import type { CreativeState } from "../types";
 import { renderInBrowser } from "./browser-pool";
@@ -148,7 +149,18 @@ function asHeadline(value: string | undefined, fallback: HeadlineVariant): Headl
   return value === "direkt" || value === "box" ? value : fallback;
 }
 
-export async function renderTemplate(input: RenderRequest): Promise<RenderedCreative> {
+function starSample(scene: OteloScene, format: (typeof OTELO_FORMATS)[number]): StarSample {
+  const blocked = scene.hints.some((hint) => /Stern überdeckt|Gerät ist zu klein/.test(hint));
+  return { id: format.id, label: sceneFormatLabel(format), diameter: renderedStarDiameter(scene.stern?.box.w ?? 0), blocked };
+}
+
+/** Layout only, so an adjust can compare the star before and after without painting. */
+export async function layoutStars(input: RenderRequest): Promise<StarSample[]> {
+  const loaded = await loadOtelo(input);
+  return OTELO_FORMATS.map((format) => starSample(loaded.otelo[format.id], format));
+}
+
+async function loadOtelo(input: RenderRequest): Promise<{ name: VorlageName; otelo: Record<string, OteloScene>; person: ClientFile | null; device: ClientFile | null; motifNote: string; logoPath: string; energyPath?: string; dekoPath?: string; images: Record<string, string>; fonts: RenderJob["fonts"] }> {
   const files = await listClientFiles("otelo");
   if (!files.length) throw new Error("Für otelo liegt noch nichts auf dem Volume.");
   const name = normalizeVorlage(input.name);
@@ -246,6 +258,11 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
       }
     }
   }
+  return { name, otelo, person, device, motifNote, logoPath: logo.path, energyPath: energy && wantsProduct ? energy.path : undefined, dekoPath: dekoFile?.path, images, fonts };
+}
+
+export async function renderTemplate(input: RenderRequest): Promise<RenderedCreative> {
+  const { name, otelo, person, device, motifNote, images, fonts } = await loadOtelo(input);
   const job: RenderJob = {
     formats: [],
     canvases: OTELO_FORMATS.map((format) => ({ id: format.id, w: format.w, h: format.h, label: `${format.channel} ${format.token}` })),

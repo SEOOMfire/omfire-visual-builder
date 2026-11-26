@@ -7,7 +7,7 @@ import { clientRoot } from "./client-volume";
 import { namePart, nextVersion, oteloFileName, oteloFolder, type OteloName } from "./naming";
 import { PNG } from "pngjs";
 import { encode as encodeJpeg } from "jpeg-js";
-import { applyToBook, finishAdjustSummary, interpretCommands, newBook, parseAdjustText, seedBook, type AdjustBook, type AdjustCommand, type AdjustSnap, type FieldPatch } from "./adjust-commands";
+import { applyToBook, correctStarStep, finishAdjustSummary, holdStarScale, interpretCommands, newBook, parseAdjustText, seedBook, type AdjustBook, type AdjustCommand, type AdjustSnap, type FieldPatch } from "./adjust-commands";
 import { normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
 import { renderTemplate, type RenderedCreative } from "./otelo-render";
 import { signPreview, storePreview } from "./previews";
@@ -309,7 +309,23 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
     const resolved: Array<{ clause: string; command: AdjustCommand }> = preview.unknown.length
       ? (await interpretCommands(spoken)).map((command) => ({ clause: "*", command }))
       : [];
+    const beforeSnap = draft.layoutBook ? structuredClone(draft.layoutBook.snap) : undefined;
     const result = applyToBook(draft.layoutBook ?? newBook(draft.orange), spoken || { befehle: change.befehle }, resolved);
+    if (result.starFactor && result.starFactor !== 1 && beforeSnap && result.book.version !== versionBefore) {
+      const { layoutStars } = await import("./otelo-render");
+      const measure = (snap: AdjustSnap) => layoutStars({ ...fieldsForRender({ ...draft, layoutBook: { ...result.book, snap } }), layout: snap });
+      const before = await measure(beforeSnap);
+      let after = await measure(result.book.snap);
+      const percent = Math.round((result.starFactor - 1) * 100);
+      const first = correctStarStep(before, after, percent);
+      if (first.holdIds.length) {
+        for (const id of first.holdIds) holdStarScale(result.book.snap, id, result.starFactor);
+        after = await measure(result.book.snap);
+      }
+      const line = correctStarStep(before, after, percent).line;
+      result.summary = result.summary.split("\n").map((row) => /umgesetzt: Störer \d+ % (größer|kleiner)|nicht möglich: Stern schon/.test(row) ? line : row).join("\n");
+      result.book.history[result.book.history.length - 1] = { ...result.book.history[result.book.history.length - 1], summary: result.summary, snap: structuredClone(result.book.snap) };
+    }
     if (result.question && result.book.version === versionBefore) {
       draft.summary = result.summary || `nicht verstanden: ${result.question}`;
       const rendered = await renderTemplate(fieldsForRender(draft));

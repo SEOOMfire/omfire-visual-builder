@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyToBook, commandFromModel, finishAdjustSummary, mergedNudge, newBook, seedBook } from "../src/modules/visual-builder/server/adjust-commands";
+import { applyToBook, commandFromModel, correctStarStep, finishAdjustSummary, mergedNudge, newBook, seedBook } from "../src/modules/visual-builder/server/adjust-commands";
 
 test("Störer etwas tiefer moves it down by 3 percent", () => {
   const step = applyToBook(newBook(), "Störer etwas tiefer");
@@ -89,20 +89,19 @@ test("a color outside the palette is a question", () => {
   assert.match(step.question ?? "", /Markenpalette/);
 });
 
-test("a bigger star that fits nowhere is not reported as done", () => {
-  const doubled = [
-    "umgesetzt: Leiste ist jetzt „Jetzt bestellen“",
-    "umgesetzt: Leiste ist jetzt „Jetzt bestellen“",
-    "umgesetzt: Störer 30 % größer",
-    "Stern schon maximal groß im 1200x1200.",
-    "Stern schon maximal groß im 1200x1200.",
-  ].join("\n");
-  const hints = ["Stern schon maximal groß (1200x1200, 1200x628, 960x1200, 1080x1080, 1080x1920 Meta, 1080x1920 Tiktok)."];
-  const all = finishAdjustSummary(doubled, hints);
-  assert.equal(all, "umgesetzt: Leiste ist jetzt „Jetzt bestellen“\nnicht möglich: Stern schon maximal groß");
-  const some = finishAdjustSummary("umgesetzt: Störer 30 % größer", ["Stern schon maximal groß im 960x1200.", "Stern schon maximal groß im 1080x1920 Meta."]);
-  assert.match(some, /umgesetzt: Störer 30 % größer \(außer 960x1200, 1080x1920 Meta: schon maximal\)/);
-  assert.doesNotMatch(some, /nicht möglich/);
+test("the star reply follows the measured diameters", () => {
+  const labels = ["1200x1200", "1200x628", "960x1200", "1080x1080", "1080x1920 Meta", "1080x1920 Tiktok"];
+  const sample = (label: string, diameter: number, blocked = false) => ({ id: label, label, diameter, blocked });
+  const before = labels.map((label) => sample(label, 100));
+  const grown = new Set(["1200x628", "1080x1920 Meta", "1080x1920 Tiktok"]);
+  const after = labels.map((label) => sample(label, grown.has(label) ? 130 : 100));
+  const step = correctStarStep(before, after, 30);
+  assert.equal(step.line, "umgesetzt: Störer 30 % größer (außer 1200x1200, 960x1200, 1080x1080: schon maximal)");
+  assert.equal(correctStarStep(before, before, 30).line, "nicht möglich: Stern schon maximal groß");
+  const covered = labels.map((label) => sample(label, label === "1200x628" ? 140 : 100, label === "1200x628"));
+  assert.deepEqual(correctStarStep(before, covered, 30).holdIds, ["1200x628"]);
+  const doubled = finishAdjustSummary("umgesetzt: Leiste ist jetzt „Jetzt bestellen“\numgesetzt: Leiste ist jetzt „Jetzt bestellen“");
+  assert.equal(doubled, "umgesetzt: Leiste ist jetzt „Jetzt bestellen“");
 });
 
 test("the subline sentence keeps the command out of the banner", () => {
