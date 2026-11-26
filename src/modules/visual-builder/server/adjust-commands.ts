@@ -4,7 +4,30 @@ import { buildScene, elementRelation, sceneFormatLabel, type OrangeSide, type Sc
 
 export type ElementId = "headline" | "subline" | "stoerer" | "person" | "geraet" | "cta" | "logo" | "pflichttext" | "energielabel" | "schraege" | "deko" | "kachel" | "pfeile" | "altwert" | "datenmenge" | "stattpreis" | "zusatz" | "einmalig" | "geraetename";
 
-export type Nudge = { dx: number; dy: number; scale: number; flip: boolean; hidden: boolean };
+export type Nudge = { dx: number; dy: number; scale: number; flip: boolean; hidden: boolean; z?: number };
+
+/** Stacking order of the template. A stored z is the deviation from this number. */
+export const ELEMENT_LAYER: Record<ElementId, number> = {
+  deko: 1,
+  person: 2,
+  geraet: 2,
+  schraege: 2,
+  kachel: 3,
+  datenmenge: 3,
+  altwert: 3,
+  einmalig: 3,
+  stattpreis: 3,
+  zusatz: 4,
+  energielabel: 4,
+  geraetename: 4,
+  headline: 5,
+  pfeile: 5,
+  subline: 6,
+  cta: 7,
+  stoerer: 8,
+  logo: 9,
+  pflichttext: 9,
+};
 
 export type FieldPatch = {
   headline?: string;
@@ -56,6 +79,8 @@ export type AdjustCommand =
   | { op: "vorlage_setzen"; vorlage: string; motiv?: string; hinweis?: string }
   | { op: "feld"; key: keyof FieldPatch; value: string; hinweis?: string }
   | { op: "wie_format"; quelle: string; element?: ElementId; formate?: string[] }
+  | { op: "zuruecksetzen"; element: ElementId; formate?: string[] }
+  | { op: "parameter"; element: ElementId; formate?: string[]; x?: number; y?: number; groesse?: number; ebene?: number }
   | { op: "rueckgaengig" }
   | { op: "version"; nummer: number }
   | { op: "vergleichen"; links: number; rechts: number };
@@ -558,6 +583,8 @@ export function describeAdjust(commands: readonly AdjustCommand[]): string {
       if (command.hinweis) add("", command.hinweis);
     }     else if (command.op === "feld") add(command.key === "preisAlt" ? "statt-Preis" : command.key === "preisMonatAlt" ? "alter Monatspreis" : command.key === "datenmengeAlt" ? "Altwert" : command.key === "geraetName" ? "Gerätename" : command.key === "einmalpreis" ? "Einmalpreis" : command.key === "energielabel" ? "Energielabel" : command.key === "motivWinkel" ? "Blickwinkel" : String(command.key), `ist jetzt ${command.value}${command.hinweis ? `. ${command.hinweis}` : ""}`);
     else if (command.op === "wie_format") add(command.element === "stoerer" ? "Stern" : command.element ? LABEL[command.element] : "", "wie im Quadrat");
+    else if (command.op === "zuruecksetzen") add(LABEL[command.element], "auf die Vorlage zurückgesetzt");
+    else if (command.op === "parameter") add(LABEL[command.element], "auf die genannten Layout-Parameter gesetzt");
     else if (command.op === "vergleichen") add("", `Version ${command.links} und ${command.rechts}`);
   }
   const sentence = parts.join(", ");
@@ -608,7 +635,7 @@ export function mergedNudge(snap: AdjustSnap | undefined, formatId: string, elem
   const base = emptyNudge();
   const star = snap?.nudges["*"]?.[element];
   const own = snap?.nudges[formatId]?.[element];
-  return { ...base, ...star, ...own, scale: (star?.scale ?? 1) * (own?.scale ?? 1), dx: (star?.dx ?? 0) + (own?.dx ?? 0), dy: (star?.dy ?? 0) + (own?.dy ?? 0), flip: Boolean(own?.flip ?? star?.flip), hidden: Boolean(own?.hidden ?? star?.hidden) };
+  return { ...base, ...star, ...own, scale: (star?.scale ?? 1) * (own?.scale ?? 1), dx: (star?.dx ?? 0) + (own?.dx ?? 0), dy: (star?.dy ?? 0) + (own?.dy ?? 0), flip: Boolean(own?.flip ?? star?.flip), hidden: Boolean(own?.hidden ?? star?.hidden), z: (star?.z ?? 0) + (own?.z ?? 0) };
 }
 
 function copyOf(snap: AdjustSnap): SceneCopy {
@@ -663,6 +690,21 @@ function shiftsOf(snap: AdjustSnap, format: { id: string; token: string; w: numb
 function targetsOf(formate: string[] | undefined) {
   const tokens = formate?.length ? formate : OTELO_FORMATS.map((format) => format.id).filter((id) => id !== "pmax-1200x1200");
   return OTELO_FORMATS.filter((format) => format.id !== "pmax-1200x1200" && tokens.some((token) => token === format.id || token === format.token || token === `${format.w}x${format.h}`));
+}
+
+function elementBox(snap: AdjustSnap, element: ElementId, format: (typeof OTELO_FORMATS)[number]): { x: number; y: number; w: number; h: number } | undefined {
+  const scene = buildScene(format, vorlageOf(snap.fields.vorlage), copyOf(snap), shiftsOf(snap, format), undefined, snap.follows);
+  if (element === "stoerer") return scene.stern?.box;
+  if (element === "person") return scene.figure;
+  if (element === "geraet") return scene.productPaint?.opaque ?? scene.product;
+  if (element === "headline") return scene.headline.box;
+  if (element === "subline") return scene.subline.box;
+  if (element === "cta") return scene.cta.box;
+  if (element === "kachel") return scene.kachel?.box;
+  if (element === "logo") return scene.logo.box.w > 2 ? scene.logo.box : undefined;
+  if (element === "deko") return scene.deko?.box;
+  if (element === "energielabel") return scene.energy;
+  return undefined;
 }
 
 function renderedSpan(snap: AdjustSnap, element: ElementId, format: (typeof OTELO_FORMATS)[number]): number {
@@ -814,6 +856,51 @@ export function applyToBook(book: AdjustBook, input: unknown, resolved: Array<{ 
     }
     if (command.op === "seite_tauschen") {
       snap.orange = snap.orange === "links" ? "rechts" : "links";
+      bits.push(command);
+      continue;
+    }
+    if (command.op === "zuruecksetzen") {
+      if (command.formate?.length) {
+        for (const key of command.formate) delete snap.nudges[key]?.[command.element];
+      } else {
+        for (const bucket of Object.values(snap.nudges)) delete bucket[command.element];
+      }
+      bits.push(command);
+      continue;
+    }
+    if (command.op === "parameter") {
+      const element = command.element;
+      const positioned = command.x !== undefined || command.y !== undefined;
+      const ids = command.formate?.length ? command.formate : positioned ? OTELO_FORMATS.map((format) => format.id) : ["*"];
+      for (const id of ids) {
+        const shared = id === "*" ? 1 : snap.nudges["*"]?.[element]?.scale ?? 1;
+        const nudge = slot(snap, id, element);
+        if (command.groesse !== undefined && command.groesse > 0) {
+          if (id === "*") {
+            for (const [key, bucket] of Object.entries(snap.nudges)) {
+              if (key !== "*" && bucket[element]) bucket[element].scale = 1;
+            }
+          }
+          nudge.scale = (command.groesse / 100) / (shared || 1);
+        }
+        if (command.ebene !== undefined) nudge.z = command.ebene - ELEMENT_LAYER[element];
+        const format = OTELO_FORMATS.find((item) => item.id === id);
+        if (!format || (command.x === undefined && command.y === undefined)) continue;
+        const cleared = clone(snap);
+        for (const key of ["*", id]) {
+          const item = cleared.nudges[key]?.[element];
+          if (item) {
+            item.dx = 0;
+            item.dy = 0;
+          }
+        }
+        const base = elementBox(cleared, element, format);
+        if (!base) continue;
+        const sharedDx = id === "*" ? 0 : snap.nudges["*"]?.[element]?.dx ?? 0;
+        const sharedDy = id === "*" ? 0 : snap.nudges["*"]?.[element]?.dy ?? 0;
+        if (command.x !== undefined) nudge.dx = command.x - (base.x / format.w) * 100 - sharedDx;
+        if (command.y !== undefined) nudge.dy = command.y - (base.y / format.h) * 100 - sharedDy;
+      }
       bits.push(command);
       continue;
     }

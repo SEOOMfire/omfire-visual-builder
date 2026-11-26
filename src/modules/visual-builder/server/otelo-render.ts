@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { OTELO_FORMATS } from "../otelo-formats";
 import { type AdjustSnap, type ElementId } from "./adjust-commands";
+import { problemsFromScenes, standFromScenes, type LayoutProblem, type LayoutStand } from "./edit-creative";
 import { buildScene, dedupeHints, defaultHeadline, defaultOrange, defaultStoerer, normalizeVorlage, renderedStarDiameter, sceneFormatLabel, type HeadlineVariant, type OrangeSide, type OteloScene, type SceneCopy, type StoererTyp, type VorlageName } from "../otelo-scene";
 import type { StarSample } from "./adjust-commands";
 import type { RenderJob } from "../render-protocol";
@@ -76,6 +77,8 @@ export type RenderedCreative = {
   hints: string[];
   measureText: string;
   motifNote?: string;
+  stand?: LayoutStand;
+  layoutProblems?: LayoutProblem[];
 };
 
 export type RenderRequest = {
@@ -304,7 +307,15 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     hints: motifNote ? [`Rückfrage: ${motifNote}`, ...hints] : hints,
     measureText,
     motifNote,
+    stand: standFromScenes(otelo, input.layout, 1),
+    layoutProblems: problemsFromScenes(otelo),
   };
+}
+
+/** Layout and measurement without the browser, for a before/after comparison. */
+export async function layoutFrames(input: RenderRequest): Promise<{ stand: LayoutStand; problems: LayoutProblem[] }> {
+  const loaded = await loadOtelo(input);
+  return { stand: standFromScenes(loaded.otelo, input.layout, 1), problems: problemsFromScenes(loaded.otelo) };
 }
 
 export async function oteloStatus(): Promise<string> {

@@ -8,8 +8,9 @@ import { namePart, nextVersion, oteloFileName, oteloFolder, type OteloName } fro
 import { PNG } from "pngjs";
 import { encode as encodeJpeg } from "jpeg-js";
 import { applyToBook, correctStarStep, finishAdjustSummary, holdStarScale, interpretCommands, newBook, parseAdjustText, seedBook, type AdjustBook, type AdjustCommand, type AdjustSnap, type FieldPatch } from "./adjust-commands";
+import { applyEdits, commandsForEdit, editsFromArgs, freshProblems, judgeEdits, proposeLayoutFixes, type LayoutProblem, type LayoutStand } from "./edit-creative";
 import { normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
-import { renderTemplate, type RenderedCreative } from "./otelo-render";
+import { layoutFrames, layoutStars, renderTemplate, type RenderedCreative } from "./otelo-render";
 import { signPreview, storePreview } from "./previews";
 import { previewUrl } from "./public-url";
 
@@ -312,19 +313,12 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
     const beforeSnap = draft.layoutBook ? structuredClone(draft.layoutBook.snap) : undefined;
     const result = applyToBook(draft.layoutBook ?? newBook(draft.orange), spoken || { befehle: change.befehle }, resolved);
     if (result.starFactor && result.starFactor !== 1 && beforeSnap && result.book.version !== versionBefore) {
-      const { layoutStars } = await import("./otelo-render");
-      const measure = (snap: AdjustSnap) => layoutStars({ ...fieldsForRender({ ...draft, layoutBook: { ...result.book, snap } }), layout: snap });
-      const before = await measure(beforeSnap);
-      let after = await measure(result.book.snap);
-      const percent = Math.round((result.starFactor - 1) * 100);
-      const first = correctStarStep(before, after, percent);
-      if (first.holdIds.length) {
-        for (const id of first.holdIds) holdStarScale(result.book.snap, id, result.starFactor);
-        after = await measure(result.book.snap);
+      const line = await settleStarGrowth(draft, result.book, beforeSnap, result.starFactor);
+      if (line) {
+        result.summary = result.summary.split("\n").map((row) => /umgesetzt: Störer \d+ % (größer|kleiner)|nicht möglich: Stern schon/.test(row) ? line : row).join("\n");
+        const entry = result.book.history[result.book.history.length - 1];
+        if (entry) result.book.history[result.book.history.length - 1] = { ...entry, summary: result.summary };
       }
-      const line = correctStarStep(before, after, percent).line;
-      result.summary = result.summary.split("\n").map((row) => /umgesetzt: Störer \d+ % (größer|kleiner)|nicht möglich: Stern schon/.test(row) ? line : row).join("\n");
-      result.book.history[result.book.history.length - 1] = { ...result.book.history[result.book.history.length - 1], summary: result.summary, snap: structuredClone(result.book.snap) };
     }
     if (result.question && result.book.version === versionBefore) {
       draft.summary = result.summary || `nicht verstanden: ${result.question}`;
@@ -387,6 +381,105 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   }
   await writeDraft(draft);
   return { draft, rendered };
+}
+
+async function settleStarGrowth(draft: CreativeDraft, book: AdjustBook, beforeSnap: AdjustSnap, starFactor: number): Promise<string | undefined> {
+  if (!starFactor || starFactor === 1) return undefined;
+  const measure = (snap: AdjustSnap) => layoutStars({ ...fieldsForRender({ ...draft, layoutBook: { ...book, snap } }), layout: snap });
+  const before = await measure(beforeSnap);
+  let after = await measure(book.snap);
+  const percent = Math.round((starFactor - 1) * 100);
+  const first = correctStarStep(before, after, percent);
+  if (first.holdIds.length) {
+    for (const id of first.holdIds) holdStarScale(book.snap, id, starFactor);
+    after = await measure(book.snap);
+  }
+  const line = correctStarStep(before, after, percent).line;
+  const entry = book.history[book.history.length - 1];
+  if (entry) book.history[book.history.length - 1] = { ...entry, snap: structuredClone(book.snap) };
+  return line;
+}
+
+export async function editCreative(
+  id: string,
+  args: Record<string, unknown>,
+  review?: (draft: CreativeDraft, rendered: RenderedCreative) => Promise<string>,
+): Promise<{ draft: CreativeDraft; rendered: RenderedCreative; lines: string[]; corrections: string[]; stand: LayoutStand; glance: string }> {
+  const draft = await readDraft(id);
+  if (!draft) throw new Error("Diesen Entwurf kenne ich nicht. Ruf zuerst compose_creative auf.");
+  const { edits, errors } = editsFromArgs(args);
+  const book = draft.layoutBook ?? newBook(draft.orange);
+  const beforeSnap = structuredClone(book.snap);
+  const baseline = await layoutFrames({ ...fieldsForRender({ ...draft, layoutBook: { ...book, snap: beforeSnap } }), layout: beforeSnap });
+  const applied = applyEdits(book, edits);
+  if (applied.starFactor && applied.starFactor !== 1 && applied.book.version !== book.version) {
+    await settleStarGrowth(draft, applied.book, beforeSnap, applied.starFactor);
+  }
+  draft.layoutBook = applied.book;
+  draft.orange = applied.book.snap.orange;
+  applySnapFields(draft, applied.book.snap.fields ?? {});
+  const paint = async (current: AdjustBook) => {
+    draft.layoutBook = current;
+    draft.orange = current.snap.orange;
+    applySnapFields(draft, current.snap.fields ?? {});
+    const rendered = await renderTemplate(fieldsForRender(draft));
+    if (rendered.stand) rendered.stand.version = current.version;
+    return rendered;
+  };
+  let rendered = await paint(applied.book);
+  const measuredProblems = (picture: RenderedCreative) => freshProblems(picture.layoutProblems ?? [], baseline.problems);
+  const imageProblems = (note: string): LayoutProblem[] => note.split("\n").flatMap((row) => {
+    const match = row.match(/^([^:\n]+):\s*nicht bestanden\b/i);
+    return match?.[1] ? [{ format: match[1].trim(), text: row.trim() }] : [];
+  });
+  let problems = measuredProblems(rendered);
+  const corrections: string[] = [];
+  let glance = "";
+  const propose = (liste: LayoutProblem[], picture: RenderedCreative) => proposeLayoutFixes({
+    probleme: liste,
+    stand: picture.stand ?? baseline.stand,
+    bildBase64: picture.jpeg,
+  });
+  for (let round = 0; round < 3; round += 1) {
+    if (!problems.length && review && !glance) {
+      glance = await review(draft, rendered);
+      problems = imageProblems(glance);
+    }
+    if (!problems.length) break;
+    const proposal = await propose(problems, rendered);
+    if (!proposal.length) {
+      corrections.push(`nicht möglich: ${problems.map((problem) => `${problem.text} (${problem.format})`).join(" ")}`);
+      break;
+    }
+    const kept = { book: draft.layoutBook ?? applied.book, rendered, problems, glance };
+    const next = applyEdits(kept.book, proposal);
+    const again = await paint(next.book);
+    const againMeasured = measuredProblems(again);
+    const againGlance = againMeasured.length || !review ? "" : await review(draft, again);
+    const againProblems = againMeasured.length ? againMeasured : imageProblems(againGlance);
+    if (againProblems.length >= kept.problems.length) {
+      draft.layoutBook = kept.book;
+      rendered = await paint(kept.book);
+      glance = kept.glance;
+      corrections.push(`nicht möglich: Korrektur – ${kept.problems.map((problem) => `${problem.text} (${problem.format})`).join(" ")}`);
+      break;
+    }
+    corrections.push(`Korrektur: ${judgeEdits(proposal, kept.rendered.stand ?? baseline.stand, again.stand ?? baseline.stand).join(" ")}`);
+    rendered = again;
+    problems = againProblems;
+    glance = againGlance;
+  }
+  const afterStand: LayoutStand = rendered.stand ?? { ...baseline.stand, version: draft.layoutBook?.version ?? 1 };
+  const accepted = edits.filter((edit) => !commandsForEdit(edit).error);
+  const lines = [...errors, ...judgeEdits(accepted, { ...baseline.stand, version: book.version }, afterStand)];
+  const entry = draft.layoutBook?.history.find((item) => item.n === draft.layoutBook?.version);
+  if (entry) entry.summary = [...lines, ...corrections].filter(Boolean).join("\n");
+  draft.summary = [...lines, ...corrections].filter(Boolean).join("\n");
+  draft.hints = (rendered.hints ?? []).filter((hint) => !/schon maximal groß|schon minimal klein/.test(hint));
+  if (rendered.deviceFile) draft.motiv = rendered.deviceFile;
+  else if (rendered.personFile) draft.motiv = rendered.personFile;
+  await writeDraft(draft);
+  return { draft, rendered, lines, corrections, stand: afterStand, glance };
 }
 
 export async function storeRenderedDraft(rendered: RenderedCreative, fields: Omit<CreativeDraft, "id" | "vorlage" | "motiv" | "person" | "hints"> & { motiv: string; person?: string }): Promise<CreativeDraft> {

@@ -36,7 +36,7 @@ export const MCP_INSTRUCTIONS = [
   "Aus einem freigegebenen Briefing eine CSV nach docs/CSV.md erzeugen, zur Freigabe zeigen, dann check_batch, dann run_batch.",
   "Für Dezember und Januar ist die Deko keine, solange keine Winter-Deko im Bestand liegt.",
   "Fehlt eine Kampagne, nachfragen und nichts raten.",
-  "Sprachbefehle stehen unverändert in aenderung.text. Das Wort vor dem Verb ist das Element, jeder Teilsatz einzeln. Bei Unklarheit nachfragen, welches Element gemeint ist.",
+  "Änderungen an edit_creative geben, als Liste mit ziel, aktion, wert und optional formate. Den Satz selbst übersetzen. adjust_creative nur, wenn sich der Satz nicht übersetzen lässt; dann steht er unverändert in aenderung.text.",
 ].join(" ");
 
 export function bearerToken(request: Request): string | null {
@@ -84,7 +84,7 @@ export function driveNextStep(): string {
 export async function systemStatus(): Promise<string> {
   const { oteloStatus } = await import("./otelo-render");
   const status = await oteloStatus();
-  return `${status} Änderungen am Motiv laufen über adjust_creative. Die Liste steht in help_adjust.`;
+  return `${status} Änderungen am Motiv laufen über edit_creative. adjust_creative bleibt für freie Sätze. Die Liste steht in help_adjust.`;
 }
 
 export async function pingImage(): Promise<{ base64: string; token: string | null; note: string }> {
