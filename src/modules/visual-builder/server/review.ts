@@ -1,4 +1,5 @@
 import { openRouterComplete, openRouterConfig } from "../../../platform/ai/openrouter";
+import { dedupeHints } from "../otelo-scene";
 import { blockingHints } from "./creative-archive";
 import { readClientFile } from "./client-volume";
 import { reviewJpeg } from "./review-image";
@@ -28,8 +29,24 @@ export function failedGlanceFormats(glance: string): string[] {
   });
 }
 
+function sentence(text: string): string {
+  const trimmed = text.trim();
+  return trimmed ? trimmed.charAt(0).toUpperCase() + trimmed.slice(1) : trimmed;
+}
+
+/** One line per finding, with the formats in parentheses. Blocking lines and hints stay apart. */
+export function measuredLines(hints: readonly string[]): { blocking: string[]; notes: string[] } {
+  const unique = dedupeHints(hints);
+  const blocked = new Set(blockingHints(unique));
+  const blocking = unique.filter((hint) => blocked.has(hint)).map((hint) => sentence(hint.replace(/^nicht bestanden:\s*/i, "")));
+  const notes = unique
+    .filter((hint) => !blocked.has(hint) && !hint.startsWith("Rückfrage:"))
+    .map((hint) => sentence(hint.replace(/^Hinweis:\s*/i, "")));
+  return { blocking, notes };
+}
+
 export function pruefungText(measured: readonly string[], glance: string): string {
-  const blocking = blockingHints(measured);
+  const { blocking } = measuredLines(measured);
   const image = imageLine(glance);
   const failed = failedGlanceFormats(glance);
   const noted = !image.endsWith("keine Anmerkungen") && !/nicht gelaufen/i.test(image);

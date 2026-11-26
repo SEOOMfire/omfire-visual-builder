@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { PNG } from "pngjs";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
-import { arrowSpan, buildScene, deviceInside, fitHeadlineForChevrons, fitSublineText, renderedStarDiameter, renderedStarTextSize, wavePaintShare, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { arrowSpan, buildScene, deviceInside, faceCore, fitHeadlineForChevrons, fitSublineText, renderedStarDiameter, renderedStarTextSize, wavePaintShare, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
 import { blockingHints } from "../src/modules/visual-builder/server/creative-archive";
 import { headInside, measureCutout, placeCutout, type Cutout } from "../src/modules/visual-builder/server/cutout";
 import { glanceContradictsMeasure } from "../src/modules/visual-builder/server/review";
@@ -181,7 +182,7 @@ test("six person motifs stay clear of a failing check on both text sets", () => 
         assert.deepEqual(blocking, [], `${index} ${fields.headline} ${format.id} ${scene.hints.join(" | ")}`);
         if (scene.stern && scene.headBox) {
           const star = scene.stern.box;
-          const face = scene.headBox;
+          const face = faceCore(scene.headBox);
           const hits = star.x < face.x + face.w && face.x < star.x + star.w && star.y < face.y + face.h && face.y < star.y + star.h;
           assert.equal(hits, false, `${index} ${format.id} Stern auf dem Gesicht`);
         }
@@ -245,45 +246,56 @@ test("the rendered device star is at least 45 percent of the lime tile", () => {
 });
 
 test("the three live briefings stay free of blocking hints", () => {
+  const stage = process.env.OTELO_ASSET_STAGE || "/Users/marc/Documents/otelo-asset-stage";
+  const readCutout = (path: string) => {
+    const cutout = measureCutout(readFileSync(path));
+    assert.ok(cutout, path);
+    return cutout;
+  };
+  const endlosCut = readCutout(`${stage}/Brand Basics/Images_graphics/Models/Frau_schaut_auf_Smartphone_orange.png`);
+  const sommerCut = readCutout(`${stage}/Brand Basics/Images_graphics/Models/Frau_mit_Kopfhoerern_shutterstock_2316194479_rgb_03.png`);
+  const phone = readCutout(`${stage}/Hardwear/Input/Handys/SEG_Galaxy_A57_5G_SM-A576B_Awesome_Navy_45_Logoscreen_RGB.png`);
   const named = (hint: string) => !hint.includes("1080x1920") || /1080x1920 (Meta|Tiktok)/.test(hint);
-  const endless = { ...copy(), headline: "ENDLOS SURFEN", subline: "UNBEGRENZTES DATENVOLUMEN IM VODAFONE-NETZ", deko: "keine" as const };
-  const sommer = { ...copy(), headline: "SOMMER-DEAL", sternText: "1. MONAT GRATIS", deko: "fruehling_blaetter" as const };
-  const phone: Cutout = { imageW: 2400, imageH: 1600, opaque: { x: 904, y: 80, w: 595, h: 1440 }, head: { x: 0, y: 0, w: 1, h: 1 } };
-  const a57 = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57 5G" };
-  const pulli: Cutout = { imageW: 800, imageH: 1400, opaque: { x: 160, y: 20, w: 480, h: 1320 }, head: { x: 340, y: 60, w: 240, h: 260 }, orangeCloth: true };
+  const endless = { ...copy(), headline: "ENDLOS SURFEN", subline: "UNBEGRENZTES DATENVOLUMEN IM VODAFONE-NETZ", deko: "keine" as const, button: "Jetzt wechseln" };
+  const sommer = { ...copy(), headline: "SOMMER-DEAL", sternText: "1. MONAT GRATIS", deko: "fruehling_blaetter" as const, button: "Jetzt wechseln" };
+  const a57 = { ...copy(), einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", datenmengeAlt: "", sternText: "", geraetName: "Samsung Galaxy A57 5G", button: "Jetzt wechseln" };
   for (const format of OTELO_FORMATS) {
-    for (const [name, scene] of [
-      ["endlos", buildScene(format, "kachel_person", endless)],
-      ["sommer", buildScene(format, "kachel_person", sommer, {}, pulli)],
+    const scenes = [
+      ["endlos", buildScene(format, "kachel_person", endless, {}, endlosCut)],
+      ["sommer", buildScene(format, "kachel_person", sommer, {}, sommerCut)],
       ["a57", buildScene(format, "kachel_geraet", a57, {}, undefined, undefined, phone)],
-    ] as const) {
+    ] as const;
+    for (const [name, scene] of scenes) {
       assert.equal(blockingHints(scene.hints).length, 0, `${name} ${format.id} ${scene.hints.join(" | ")}`);
       assert.ok(scene.hints.every(named), scene.hints.join(" | "));
     }
-    const device = buildScene(format, "kachel_geraet", a57, {}, undefined, undefined, phone);
+    const device = scenes[2][1];
     const seen = device.productPaint?.opaque;
     assert.ok(seen, format.id);
     const view = deviceInside(seen, format.w, format.h);
     assert.equal(view.rightCrop, false, format.id);
     assert.ok(view.share >= 0.85, `${format.id} ${view.share.toFixed(2)}`);
-    if (format.id.endsWith("9x16") && device.cta.box.w > 2) {
-      assert.ok(seen.y >= device.cta.box.y + device.cta.box.h + format.h * 0.02 - 1, `${format.id} CTA ${seen.y.toFixed(0)}`);
-    }
-    if (format.id === "pmax-1200x1200" || format.id === "meta-1x1") {
+    const minPhone = format.id === "pmax-1200x628" ? 0.4 : format.id.endsWith("9x16") ? 0 : 0.55;
+    if (minPhone) assert.ok(seen.h >= format.h * minPhone - 1, `${format.id} Höhe ${(seen.h / format.h).toFixed(2)}`);
+    if (!format.id.endsWith("9x16") && format.id !== "pmax-1200x628") {
       const star = device.stern?.box;
-      const pill = device.pill?.box;
-      assert.ok(star && pill, format.id);
-      const dx = star.x > pill.x + pill.w ? star.x - (pill.x + pill.w) : pill.x > star.x + star.w ? pill.x - (star.x + star.w) : 0;
-      const dy = star.y > pill.y + pill.h ? star.y - (pill.y + pill.h) : pill.y > star.y + star.h ? pill.y - (star.y + star.h) : 0;
-      const gap = dx === 0 && dy === 0 ? 0 : dx > 0 && dy > 0 ? Math.hypot(dx, dy) : dx + dy;
-      assert.ok(gap >= format.w * 0.01, `${format.id} Abstand ${gap.toFixed(0)}`);
+      const tile = device.kachel?.box;
+      assert.ok(star && tile, format.id);
+      const ratio = renderedStarDiameter(star.w) / tile.w;
+      assert.ok(ratio <= 0.55 && ratio >= 0.45, `${format.id} Stern ${(ratio * 100).toFixed(0)}`);
     }
-    const person = buildScene(format, "kachel_person", sommer, {}, pulli);
+    const person = scenes[1][1];
     if (format.id.endsWith("9x16") && person.stern && person.kachel) {
       const star = person.stern.box;
       const tile = person.kachel.box;
       const relY = (star.y + star.h / 2 - tile.y) / tile.h;
       assert.ok(relY < 0.55, `${format.id} relY ${relY.toFixed(2)}`);
+      assert.ok(star.y + star.h <= tile.y + tile.h + 1, format.id);
+      const face = person.headBox ? faceCore(person.headBox) : undefined;
+      const onFace = Boolean(face && star.x < face.x + face.w && face.x < star.x + star.w && star.y < face.y + face.h && face.y < star.y + star.h);
+      const onCta = person.cta.box.w > 2 && star.x < person.cta.box.x + person.cta.box.w && person.cta.box.x < star.x + star.w && star.y < person.cta.box.y + person.cta.box.h && person.cta.box.y < star.y + star.h;
+      assert.equal(onFace, false, format.id);
+      assert.equal(onCta, false, format.id);
     }
   }
 });

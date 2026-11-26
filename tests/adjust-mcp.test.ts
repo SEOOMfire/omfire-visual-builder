@@ -289,6 +289,12 @@ test("repeated hints name each format once", () => {
   assert.equal(hints.length, 2);
   assert.match(hints[0] ?? "", /1200x1200, 960x1200, 1080x1920/);
   assert.match(hints[1] ?? "", /1200x628/);
+  const story = dedupeHints([
+    "Hinweis: Deko kaum sichtbar vor dem Motiv – Wellen oder keine Deko? im 1080x1920 Meta.",
+    "Hinweis: Deko kaum sichtbar vor dem Motiv – Wellen oder keine Deko? im 1080x1920 Tiktok.",
+  ]);
+  assert.equal(story.length, 1);
+  assert.match(story[0] ?? "", /1080x1920 Meta, 1080x1920 Tiktok/);
 });
 
 test("more air keeps the tile off the CTA", () => {

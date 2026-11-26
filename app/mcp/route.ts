@@ -1,6 +1,7 @@
 import { adjustCreative, readDraft, saveCreative, signedPath, storeRenderedDraft, writeDraft } from "../../src/modules/visual-builder/server/creative-archive";
 import { MCP_INSTRUCTIONS, bearerToken, pingImage, principalFromToken, systemStatus } from "../../src/modules/visual-builder/server/mcp";
 import { markdownPreview } from "../../src/modules/visual-builder/server/preview-text";
+import { measuredLines } from "../../src/modules/visual-builder/server/review";
 import { previewUrl } from "../../src/modules/visual-builder/server/public-url";
 
 export const dynamic = "force-dynamic";
@@ -35,12 +36,13 @@ function fail(id: unknown, message: string) {
 }
 
 function renderedText(intro: string, rendered: { motifName: string; token: string; formats: Array<{ label: string; token: string }>; hints: string[]; buttonName: string | null }, extra?: string) {
+  const { notes } = measuredLines(rendered.hints);
   return markdownPreview({
     intro,
     motifName: rendered.motifName,
     contactUrl: previewUrl(rendered.token),
     formats: rendered.formats.map((format) => ({ label: format.label, url: previewUrl(format.token) })),
-    hints: rendered.hints,
+    hints: notes,
     extra: [rendered.buttonName ? `Button: ${rendered.buttonName}` : "", extra ?? ""].filter(Boolean).join(" "),
   });
 }

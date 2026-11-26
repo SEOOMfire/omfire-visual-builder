@@ -2,13 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { blockingHints } from "../src/modules/visual-builder/server/creative-archive";
 import { reviewSize } from "../src/modules/visual-builder/server/review-image";
-import { completeSentences, failedGlanceFormats, glanceBrief, glanceContradictsMeasure, glanceLine, parseGlance, pruefungText, withoutInstructed } from "../src/modules/visual-builder/server/review";
+import { completeSentences, failedGlanceFormats, glanceBrief, glanceContradictsMeasure, glanceLine, measuredLines, parseGlance, pruefungText, withoutInstructed } from "../src/modules/visual-builder/server/review";
 
 test("the reply always names the image check", () => {
   assert.match(pruefungText([], ""), /Bildprüfung: nicht gelaufen/);
   assert.match(pruefungText([], "Bestanden, das Motiv sitzt."), /Bildprüfung: keine Anmerkungen/);
   assert.match(pruefungText([], "Die Raute sitzt auf dem Gesicht."), /Bildprüfung: Die Raute/);
-  assert.match(pruefungText(["Die Headline liegt auf Orange im 1200x1200."], ""), /nicht bestanden/);
+  assert.match(pruefungText(["Die Headline liegt auf Orange im 1200x1200."], ""), /Prüfung: nicht bestanden/);
+  const mixed = measuredLines([
+    "nicht bestanden: Der Stern überdeckt CTA im 1080x1920 Meta.",
+    "nicht bestanden: Der Stern überdeckt CTA im 1080x1920 Tiktok.",
+    "Hinweis: Deko kaum sichtbar vor dem Motiv – Wellen oder keine Deko? im 1080x1920 Meta.",
+    "Hinweis: Deko kaum sichtbar vor dem Motiv – Wellen oder keine Deko? im 1080x1920 Tiktok.",
+  ]);
+  assert.deepEqual(mixed.blocking, ["Der Stern überdeckt CTA (1080x1920 Meta, 1080x1920 Tiktok)."]);
+  assert.deepEqual(mixed.notes, ["Deko kaum sichtbar vor dem Motiv – Wellen oder keine Deko? (1080x1920 Meta, 1080x1920 Tiktok)."]);
+  assert.equal(mixed.notes.some((note) => /nicht bestanden/i.test(note)), false);
   assert.equal(blockingHints(["Die Headline liegt auf Orange im 1200x1200."]).length, 1);
   assert.equal(blockingHints(["Bildprüfung: keine Anmerkungen"]).length, 0);
   assert.equal(blockingHints(["nicht bestanden: Der Stern überdeckt die Headline im 1200x1200."]).length, 1);
