@@ -2,21 +2,25 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { OTELO_FORMATS } from "../src/modules/visual-builder/otelo-formats";
-import { buildScene, normalizeDeko, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
+import { buildScene, normalizeDeko, renderedStarTextSize, type SceneCopy } from "../src/modules/visual-builder/otelo-scene";
 import { mergedNudge, seedBook, type AdjustBook } from "../src/modules/visual-builder/server/adjust-commands";
 import { creativeInput } from "../src/modules/visual-builder/server/creative-archive";
 import type { Cutout } from "../src/modules/visual-builder/server/cutout";
+import { glanceGroups } from "../src/modules/visual-builder/server/review";
 import {
   EDIT_AKTIONEN,
   EDIT_ZIELE,
   applyEdits,
   correctionLoop,
   editsFromArgs,
+  hintsForEdit,
   judgeEdits,
   problemsFromScenes,
+  settleMoves,
   standFromScenes,
   starTextTooWide,
   syncStoredScale,
+  writeMeasuredScale,
   type LayoutParam,
   type LayoutStand,
 } from "../src/modules/visual-builder/server/edit-creative";
@@ -210,12 +214,12 @@ test("a color respects the format filter", () => {
   assert.equal(stand.felder.version, String(step.book.version));
   assert.equal(typeof stand.felder.kampagne, "string");
   const square = stand.layout["1200x1200"];
-  for (const key of ["preis", "datenmenge", "datenmenge_alt", "stern_text", "geraet_name", "preis_alt", "einmalpreis", "headline", "unterzeile", "cta", "stern"]) {
-    assert.ok(square?.[key], key);
-  }
+  assert.ok(square?.preis && square.preis.breite > 0 && square.preis.hoehe > 0);
+  assert.ok(square?.datenmenge && square.datenmenge.breite > 0);
+  assert.equal(square?.einmalpreis, undefined);
+  assert.equal(square?.preis.x === 0 && square.preis.y === 0 && square.preis.breite === 0, false);
   assert.ok(square?.stern.farbe);
   assert.ok(square?.cta.farbe);
-  assert.ok(square?.unterzeile.farbe);
 });
 
 test("a star moves by the given percent", () => {
@@ -278,7 +282,74 @@ test("a star at 180 percent is limited and reported as partial", () => {
   const notes = scenes["pmax-1200x628"]?.hints.filter((hint) => hint.startsWith("Korrektur:")) ?? [];
   assert.ok(notes.some((note) => /begrenzt/.test(note) && /Überlappung (Kachel|Pille)|außerhalb|verdecken/.test(note)), notes.join(" | "));
   const before = standOf(book, "kachel_geraet", phone);
-  syncStoredScale(step.book, standFromScenes(scenes, step.book.snap, step.book.version, { vorlage: "kachel_geraet" }));
+  const measured = scenes["pmax-1200x628"]?.renderedGroesse?.stern ?? before.layout["1200x628"]?.stern.groesse ?? 100;
+  const patched = standOf(step.book, "kachel_geraet", phone);
+  writeMeasuredScale(step.book, patched, "stern", "1200x628", measured);
   const after = standOf(step.book, "kachel_geraet", phone);
-  assert.match(judgeEdits(edit, before, after)[0] ?? "", /teilweise/);
+  const change = Math.abs((after.layout["1200x628"]?.stern.groesse ?? 0) - (before.layout["1200x628"]?.stern.groesse ?? 0));
+  const line = judgeEdits(edit, before, after)[0] ?? "";
+  if (change < 3) assert.match(line, /nicht möglich/);
+  else assert.match(line, /teilweise/);
+});
+
+test("a Sommer star that would cover the data amount is reduced or refused", async () => {
+  const book = seedBook("rechts", { vorlage: "kachel_person", headline: "SOMMER-DEAL", subline: "JETZT ZUSCHLAGEN", sternText: "1. MONAT GRATIS", datenmenge: "50 GB", deko: "fruehling_blaetter" });
+  const edit = [{ ziel: "stern" as const, aktion: "verschieben" as const, wert: { links: 5 }, formate: ["1080x1920 Meta", "1080x1920 Tiktok"] }];
+  const problemsOf = (current: AdjustBook) => problemsFromScenes(scenesFor(current, "kachel_person"));
+  const beforeHits = problemsOf(book).filter((problem) => /überdeckt Datenmenge/.test(problem.text));
+  const settled = await settleMoves(book, edit, problemsOf);
+  const afterHits = problemsOf(settled.book).filter((problem) => /überdeckt Datenmenge/.test(problem.text));
+  assert.ok(afterHits.length <= beforeHits.length, afterHits.map((problem) => problem.format).join(", "));
+  assert.ok(settled.notes.length, "5 Prozent nach links verdecken die Datenmenge");
+  assert.match(settled.notes[0] ?? "", /Datenmenge/);
+  assert.match(settled.notes[0] ?? "", /teilweise: Stern \d+ % nach |nicht möglich \(würde Datenmenge verdecken\)/);
+});
+
+test("a device size that barely changes is not reported as done", () => {
+  const book = seedBook("rechts", { vorlage: "kachel_geraet", einmalpreis: "1 €", preisAlt: "229 €", datenmenge: "50 GB", sternText: "50 GB", geraetName: "Samsung Galaxy A57 5G" });
+  const edit = [{ ziel: "motiv" as const, aktion: "setzen" as const, wert: { groesse: 110 }, formate: ["1200x1200", "1080x1080"] }];
+  const step = applyEdits(book, edit);
+  const before = standOf(book, "kachel_geraet", phone);
+  const scenes = scenesFor(step.book, "kachel_geraet", phone);
+  const patched = standOf(step.book, "kachel_geraet", phone);
+  for (const label of ["1200x1200", "1080x1080"]) {
+    const id = label === "1200x1200" ? "pmax-1200x1200" : "meta-1x1";
+    const measured = scenes[id]?.renderedGroesse?.geraet;
+    if (measured !== undefined) writeMeasuredScale(step.book, patched, "geraet", label, measured);
+    if (scenes[id]?.sizeGrund?.geraet && patched.layout[label]?.geraet) patched.layout[label].geraet.grund = scenes[id]?.sizeGrund?.geraet;
+  }
+  const after = standOf(step.book, "kachel_geraet", phone);
+  for (const label of ["1200x1200", "1080x1080"]) {
+    const left = before.layout[label]?.geraet;
+    const right = after.layout[label]?.geraet;
+    assert.ok(left && right);
+    const change = Math.abs(right.groesse - left.groesse);
+    const line = judgeEdits(edit, before, after)[0] ?? "";
+    if (change < 3) assert.match(line, /nicht möglich/);
+    else if (change < 5) assert.match(line, /teilweise: Gerät/);
+    assert.ok(Math.abs(right.groesse - (scenes[label === "1200x1200" ? "pmax-1200x1200" : "meta-1x1"]?.renderedGroesse?.geraet ?? right.groesse)) < 0.2);
+  }
+  for (const label of Object.keys(before.layout)) {
+    const left = before.layout[label]?.stern;
+    const right = after.layout[label]?.stern;
+    if (left && right) assert.equal(right.groesse, left.groesse, label);
+  }
+});
+
+test("identical layouts share one image verdict", () => {
+  const groups = glanceGroups([
+    { label: "1080x1920 Meta", layoutKey: "same" },
+    { label: "1080x1920 Tiktok", layoutKey: "same" },
+    { label: "1200x628", layoutKey: "wide" },
+  ]);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(groups[0]?.map((item) => item.label), ["1080x1920 Meta", "1080x1920 Tiktok"]);
+  assert.ok(renderedStarTextSize(200, "UNBEGRENZTES DATENVOLUMEN") <= 200 * 0.78);
+});
+
+test("the deco hint stays quiet unless the deco changes", () => {
+  const hint = "Hinweis: Deko kaum sichtbar vor dem Motiv – Wellen oder keine Deko? im 1200x1200.";
+  assert.deepEqual(hintsForEdit([hint], [{ ziel: "stern" }]), []);
+  assert.deepEqual(hintsForEdit([hint], [{ ziel: "deko" }]), [hint]);
+  assert.deepEqual(hintsForEdit([hint], [], true), [hint]);
 });

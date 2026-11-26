@@ -8,7 +8,7 @@ import { namePart, nextVersion, oteloFileName, oteloFolder, type OteloName } fro
 import { PNG } from "pngjs";
 import { encode as encodeJpeg } from "jpeg-js";
 import { applyToBook, correctStarStep, finishAdjustSummary, holdStarScale, interpretCommands, newBook, parseAdjustText, seedBook, type AdjustBook, type AdjustCommand, type AdjustSnap, type FieldPatch } from "./adjust-commands";
-import { applyEdits, commandsForEdit, editsFromArgs, freshProblems, judgeEdits, proposeLayoutFixes, syncStoredScale, type LayoutProblem, type LayoutStand } from "./edit-creative";
+import { applyEdits, applyMeasuredSizes, commandsForEdit, editsFromArgs, freshProblems, hintsForEdit, judgeEdits, proposeLayoutFixes, settleMoves, type LayoutProblem, type LayoutStand } from "./edit-creative";
 import { normalizeDeko, normalizeVorlage, type HeadlineVariant, type OrangeSide, type StoererTyp, type VorlageName } from "../otelo-scene";
 import { layoutFrames, layoutStars, renderTemplate, type RenderedCreative } from "./otelo-render";
 import { signPreview, storePreview } from "./previews";
@@ -305,6 +305,7 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   if (typeof change.geraet_name === "string") draft.geraetName = change.geraet_name;
   const namedDeko = normalizeDeko(typeof change.deko === "string" ? change.deko : undefined);
   if (namedDeko) draft.deko = namedDeko;
+  const decoBefore = draft.layoutBook?.snap.fields?.deko ?? draft.deko;
   const spoken = [change.text, change.anweisung, change.satz].find((value) => typeof value === "string" && value.trim()) as string | undefined ?? "";
   const versionBefore = draft.layoutBook?.version ?? 1;
   if (spoken || (Array.isArray(change.befehle) && change.befehle.length > 0)) {
@@ -372,6 +373,8 @@ export async function adjustCreative(id: string, change: Record<string, unknown>
   if (rendered.deviceFile) draft.motiv = rendered.deviceFile;
   else if (rendered.personFile) draft.motiv = rendered.personFile;
   if (rendered.personFile && draft.vorlage === "product_person") draft.person = rendered.personFile;
+  const decoNow = draft.layoutBook?.snap.fields?.deko ?? draft.deko;
+  if (decoNow === decoBefore) rendered.hints = hintsForEdit(rendered.hints, []);
   draft.summary = finishAdjustSummary(draft.summary ?? "", rendered.hints);
   draft.hints = rendered.hints.filter((hint) => !/schon maximal groß|schon minimal klein/.test(hint));
   if (rendered.motifNote) draft.summary = `${draft.summary ?? ""} ${rendered.motifNote}`.trim();
@@ -415,7 +418,10 @@ export async function editCreative(
   const baseline = await layoutFrames({ ...fieldsForRender({ ...draft, layoutBook: { ...book, snap: beforeSnap } }), layout: beforeSnap });
   baseline.stand.felder.vorlage ||= draft.vorlage;
   baseline.stand.felder.kampagne ||= draft.kampagne;
-  const applied = applyEdits(book, edits);
+  const applied = await settleMoves(book, edits, async (current) => {
+    const frames = await layoutFrames({ ...fieldsForRender({ ...draft, layoutBook: { ...current, snap: current.snap } }), layout: current.snap });
+    return frames.problems;
+  });
   if (applied.starFactor && applied.starFactor !== 1 && applied.book.version !== book.version) {
     await settleStarGrowth(draft, applied.book, beforeSnap, applied.starFactor);
   }
@@ -432,7 +438,7 @@ export async function editCreative(
       rendered.stand.felder.version = String(current.version);
       rendered.stand.felder.kampagne ||= draft.kampagne;
       rendered.stand.felder.vorlage ||= draft.vorlage;
-      syncStoredScale(current, rendered.stand);
+      if (rendered.measured) applyMeasuredSizes(current, rendered.stand, rendered.measured, edits, draft.vorlage);
     }
     return rendered;
   };
@@ -483,9 +489,13 @@ export async function editCreative(
   if (draft.layoutBook && JSON.stringify(draft.layoutBook.snap) === JSON.stringify(beforeSnap)) draft.layoutBook = book;
   afterStand.version = draft.layoutBook?.version ?? book.version;
   afterStand.felder.version = String(afterStand.version);
-  const accepted = edits.filter((edit) => !commandsForEdit(edit, draft.vorlage).error);
-  const lines = [...errors, ...judgeEdits(accepted, { ...baseline.stand, version: book.version }, afterStand)];
-  corrections.push(...(rendered.clampNotes ?? []).filter((note) => !corrections.includes(note)));
+  const explained = new Set(edits.filter((edit) => edit.aktion === "verschieben" && applied.notes.some((note) => note.toLowerCase().includes(edit.ziel))).map((edit) => `${edit.ziel}:${edit.aktion}`));
+  const accepted = edits.filter((edit) => !commandsForEdit(edit, draft.vorlage).error && !explained.has(`${edit.ziel}:${edit.aktion}`));
+  const lines = [...errors, ...applied.notes, ...judgeEdits(accepted, { ...baseline.stand, version: book.version }, afterStand)];
+  const starSized = edits.some((edit) => edit.ziel === "stern" && (edit.aktion === "groesser" || edit.aktion === "kleiner" || (edit.aktion === "setzen" && typeof edit.wert === "object" && edit.wert.groesse !== undefined)));
+  if (starSized) corrections.push(...(rendered.clampNotes ?? []).filter((note) => !corrections.includes(note)));
+  else if ((rendered.clampNotes ?? []).length && !draft.hints.some((hint) => /kleiner machen/.test(hint))) lines.push("Hinweis: Stern überlappt Kachel, kleiner machen?");
+  rendered.hints = hintsForEdit(rendered.hints ?? [], edits);
   if ((draft.layoutBook?.version ?? book.version) === book.version) lines.push(`Die Version bleibt ${book.version}, keine Änderung wurde umgesetzt.`);
   const entry = draft.layoutBook?.history.find((item) => item.n === draft.layoutBook?.version);
   if (entry) entry.summary = [...lines, ...corrections].filter(Boolean).join("\n");

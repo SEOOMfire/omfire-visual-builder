@@ -514,7 +514,7 @@ function drawDeviceOffer(ctx: CanvasRenderingContext2D, scene: OteloScene) {
     const lines = starDisplayLines(scene.stern.text);
     const lineSize = lines.length === 1 ? scene.stern.box.h * 0.42 : scene.stern.box.h * 0.28;
     lines.forEach((line, index) => {
-      const fitted = Math.min(lineSize, sizeForWidth(ctx, line, 800, "Titillium Web", scene.stern!.box.w * 0.82));
+      const fitted = Math.min(lineSize, sizeForWidth(ctx, line, 800, "Titillium Web", scene.stern!.box.w * 0.78));
       ctx.font = face(800, fitted, "Titillium Web");
       ctx.fillText(line, scene.stern!.box.x + scene.stern!.box.w / 2, scene.stern!.box.y + scene.stern!.box.h * (lines.length === 1 ? 0.5 : 0.38 + index * 0.26));
     });
@@ -585,7 +585,7 @@ function drawKachel(ctx: CanvasRenderingContext2D, scene: OteloScene, images: Re
     const lines = starDisplayLines(scene.stern.text);
     const lineSize = lines.length === 1 ? scene.stern.box.h * 0.34 : scene.stern.box.h * 0.22;
     lines.forEach((line, index) => {
-      const fitted = Math.min(lineSize, sizeForWidth(ctx, line, 800, "Titillium Web", scene.stern!.box.w * 0.82));
+      const fitted = Math.min(lineSize, sizeForWidth(ctx, line, 800, "Titillium Web", scene.stern!.box.w * 0.78));
       ctx.font = face(800, fitted, "Titillium Web");
       ctx.fillText(line, scene.stern!.box.x + scene.stern!.box.w / 2, scene.stern!.box.y + scene.stern!.box.h * (lines.length === 1 ? 0.52 : 0.4 + index * 0.24));
     });

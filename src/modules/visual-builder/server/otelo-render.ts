@@ -62,7 +62,7 @@ function pick(files: { role: string; name: string; path: string }[], role: strin
     ?? files.find((file) => file.role === role);
 }
 
-export type RenderedFormat = { id: string; label: string; token: string; pngBase64: string };
+export type RenderedFormat = { id: string; label: string; token: string; pngBase64: string; layoutKey?: string };
 
 export type RenderedCreative = {
   name: VorlageName;
@@ -80,6 +80,7 @@ export type RenderedCreative = {
   stand?: LayoutStand;
   layoutProblems?: LayoutProblem[];
   clampNotes?: string[];
+  measured?: Record<string, { stern?: number; geraet?: number; figur?: number; geraetGrund?: string; figurGrund?: string }>;
 };
 
 export type RenderRequest = {
@@ -288,7 +289,10 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
   const formats: RenderedFormat[] = [];
   for (const format of output.formats) {
     const token = await storePreview(`${randomUUID()}-${format.format}.png`, Buffer.from(format.pngBase64, "base64"));
-    formats.push({ id: format.format, label: labels.get(format.format) ?? format.pixelSize, token, pngBase64: format.pngBase64 });
+    const scene = otelo[format.format];
+    const pack = (box?: { x: number; y: number; w: number; h: number }) => box && box.w > 2 ? [box.x, box.y, box.w, box.h].map((value) => Math.round(value / 4) * 4).join(":") : "";
+    const layoutKey = scene ? [pack(scene.headline.box), pack(scene.subline.box), pack(scene.stern?.box), pack(scene.kachel?.box), pack(scene.cta.box), pack(scene.pill?.box)].join("|") : "";
+    formats.push({ id: format.format, label: labels.get(format.format) ?? format.pixelSize, token, pngBase64: format.pngBase64, layoutKey });
   }
   const token = await storePreview(`${randomUUID()}-kontakt.jpg`, Buffer.from(output.contactSheetBase64, "base64"));
   const hints = dedupeHints(output.formats.flatMap((format) => format.hints.map((hint) => hint.sentence))).filter((hint) => !hint.startsWith("Korrektur:"));
@@ -315,6 +319,16 @@ export async function renderTemplate(input: RenderRequest): Promise<RenderedCrea
     stand: standFromScenes(otelo, input.layout, 1, { vorlage: name, kampagne: input.kampagne }),
     layoutProblems: problemsFromScenes(otelo),
     clampNotes,
+    measured: Object.fromEntries(OTELO_FORMATS.map((format) => {
+      const scene = otelo[format.id];
+      return [sceneFormatLabel(format), {
+        stern: scene?.renderedGroesse?.stern,
+        geraet: scene?.renderedGroesse?.geraet,
+        figur: scene?.renderedGroesse?.figur,
+        geraetGrund: scene?.sizeGrund?.geraet,
+        figurGrund: scene?.sizeGrund?.figur,
+      }];
+    })),
   };
 }
 

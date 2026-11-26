@@ -98,7 +98,9 @@ export type OteloScene = {
   headlineColor?: string;
   ctaColor?: string;
   /** User scale that the picture actually reached, in percent of the template size. */
-  renderedGroesse?: Partial<Record<"stern", number>>;
+  renderedGroesse?: Partial<Record<"stern" | "geraet" | "figur", number>>;
+  sizeGrund?: Partial<Record<"geraet" | "figur", string>>;
+  offers?: { datenmenge?: Box; datenmengeAlt?: Box; preis?: Box; preisAlt?: Box; einmalpreis?: Box };
   deko?: { name: DekoName; box: Box; strength?: number };
   headlinePfeile?: boolean;
   deviceLabel?: { text: string; box: Box };
@@ -684,7 +686,7 @@ export function renderedStarTextSize(boxWidth: number, text: string): number {
   const lines = starDisplayLines(text);
   const longest = Math.max(1, ...lines.map((line) => line.length));
   const lineSize = boxWidth * (lines.length >= 2 ? 0.28 : 0.42);
-  return Math.min(lineSize, (boxWidth * 0.82) / (longest * 0.56));
+  return Math.min(lineSize, (boxWidth * 0.78) / (longest * 0.56));
 }
 
 /** Smallest star box whose painted text still reaches 2 percent of the format height. */
@@ -1775,6 +1777,32 @@ function buildKachel(
   }
   for (const note of [...new Set(caps)]) hints.push(`Hinweis: ${note}.`);
   if (deko?.box) deko.box = slideBox(deko.box, shifts.deko, w, h);
+  const offers: NonNullable<OteloScene["offers"]> = {};
+  if (!deviceMode && fittedTile.w > 2) {
+    const ink = tileInk(fittedTile);
+    if (copy.datenmenge?.trim() && ink[0]) offers.datenmenge = ink[0];
+    if (copy.datenmengeAlt?.trim() && ink[1]) offers.datenmengeAlt = ink[1];
+    if (copy.preis?.trim() && ink[2]) offers.preis = ink[2];
+  }
+  if (deviceMode && fittedTile.w > 2 && placed.pill && placed.pill.w > 2) {
+    for (const [glyph, box] of deviceGlyphs(fittedTile, placed.pill, copy)) {
+      if (glyph === "Einmalpreis" && copy.einmalpreis?.trim()) offers.einmalpreis = box;
+      if (glyph === "statt-Preis" && copy.preisAlt?.trim()) offers.preisAlt = box;
+      if (glyph === "Pillentext" && copy.preis?.trim() && !offers.preis) offers.preis = box;
+    }
+  }
+  const sizeGrund: NonNullable<OteloScene["sizeGrund"]> = {};
+  const reachedOf = (base: Box | undefined, placedBox: Box | undefined, asked: number, kind: "geraet" | "figur") => {
+    if (!base || !placedBox || base.h < 2) return undefined;
+    const reached = Math.round((placedBox.h / base.h) * 1000) / 10;
+    if (asked > placedBox.h / base.h + 0.03) {
+      const right = placedBox.x + placedBox.w;
+      sizeGrund[kind] = right > w * 0.9 ? "Rand rechts" : fittedTile.w > 2 && overlaps(placedBox, fittedTile) ? "Kachel" : "sicherer Bereich";
+    }
+    return reached;
+  };
+  const geraetReached = reachedOf(device, placed.product, shifts.geraet?.scale && shifts.geraet.scale > 0 ? shifts.geraet.scale : 1, "geraet");
+  const figurReached = reachedOf(figure, placed.figure, shifts.person?.scale && shifts.person.scale > 0 ? shifts.person.scale : 1, "figur");
   return {
     id: format.id,
     width: w,
@@ -1811,7 +1839,13 @@ function buildKachel(
     sternColor: shifts.stoerer?.color || copy.sternColor,
     headlineColor: shifts.headline?.color || copy.headlineColor,
     ctaColor: shifts.cta?.color || copy.ctaColor,
-    renderedGroesse: placed.stern && starBeforeScale && starBeforeScale.w > 2 ? { stern: Math.round((placed.stern.w / starBeforeScale.w) * 1000) / 10 } : undefined,
+    renderedGroesse: {
+      ...(placed.stern && starBeforeScale && starBeforeScale.w > 2 ? { stern: Math.round((placed.stern.w / starBeforeScale.w) * 1000) / 10 } : {}),
+      ...(geraetReached !== undefined ? { geraet: geraetReached } : {}),
+      ...(figurReached !== undefined ? { figur: figurReached } : {}),
+    },
+    sizeGrund,
+    offers,
     deviceLabel: copy.geraetName?.trim() ? { text: copy.geraetName.trim(), box: slideBox(deviceNameBox(w, h, tall, placed.product ?? box(w * 0.5, h * 0.5, w * 0.4, h * 0.4), opaqueDevice, copy.geraetName, captionNameH), shifts.geraetename, w, h) } : undefined,
     textScale: {
       preisAlt: shifts.stattpreis?.scale && shifts.stattpreis.scale > 0 ? shifts.stattpreis.scale : 1,

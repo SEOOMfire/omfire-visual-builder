@@ -318,13 +318,12 @@ function round1(value: number): number {
 function paramOf(scene: OteloScene, box: { x: number; y: number; w: number; h: number } | undefined, element: ElementId, snap: AdjustSnap | undefined, hidden: boolean, farbe = "", grund = ""): LayoutParam {
   const frame = box && box.w > 2 ? box : { x: 0, y: 0, w: 0, h: 0 };
   const nudge = mergedNudge(snap, scene.id, element);
-  const rendered = element === "stoerer" ? scene.renderedGroesse?.stern : undefined;
   return {
     x: round1((frame.x / Math.max(1, scene.width)) * 100),
     y: round1((frame.y / Math.max(1, scene.height)) * 100),
     breite: round1((frame.w / Math.max(1, scene.width)) * 100),
     hoehe: round1((frame.h / Math.max(1, scene.height)) * 100),
-    groesse: rendered ?? round1(nudge.scale * 100),
+    groesse: round1(nudge.scale * 100),
     ebene: (ELEMENT_LAYER[element] ?? 3) + (nudge.z ?? 0),
     versteckt: hidden || nudge.hidden,
     farbe,
@@ -367,43 +366,108 @@ export function standFromScenes(scenes: Record<string, OteloScene>, snap: Adjust
     const grund = scene.hints.find((hint) => hint.startsWith("Korrektur:") && hint.includes(label))?.match(/begrenzt, (.+) im /)?.[1] ?? "";
     const row: Record<string, LayoutParam> = {};
     for (const item of LAYOUT_BOX) {
+      const box = item.box(scene);
+      if ((!box || box.w < 2) && !mergedNudge(snap, format.id, item.element).hidden) continue;
       const hidden = mergedNudge(snap, format.id, item.element).hidden;
       const farbe = item.ziel === "headline" ? scene.headlineColor || ""
         : item.ziel === "unterzeile" ? scene.subline.lines[0]?.color || ""
         : item.ziel === "stern" ? scene.sternColor || "#FA5A14"
         : item.ziel === "cta" ? scene.ctaColor || "#D7EB00"
         : "";
-      row[item.ziel] = paramOf(scene, item.box(scene), item.element, snap, hidden, farbe, item.ziel === "stern" ? grund : "");
+      row[item.ziel] = paramOf(scene, box, item.element, snap, hidden, farbe, item.ziel === "stern" ? grund : item.ziel === "geraet" ? scene.sizeGrund?.geraet ?? "" : item.ziel === "figur" ? scene.sizeGrund?.figur ?? "" : "");
     }
-    const present = (ziel: string, element: ElementId, box: { x: number; y: number; w: number; h: number } | undefined) => {
-      row[ziel] = paramOf(scene, box, element, snap, mergedNudge(snap, format.id, element).hidden);
+    const offer = scene.offers ?? {};
+    const put = (ziel: string, element: ElementId, box: { x: number; y: number; w: number; h: number } | undefined) => {
+      if (!box || box.w < 2 || box.h < 2) return;
+      row[ziel] = paramOf(scene, box, element, snap, false);
     };
-    present("preis", "zusatz", scene.pill?.box);
-    present("datenmenge", "datenmenge", scene.kachel?.box);
-    present("datenmenge_alt", "altwert", scene.kachel?.box);
-    present("stern_text", "stoerer", scene.stern?.box);
-    present("geraet_name", "geraetename", scene.deviceLabel?.box);
-    present("preis_alt", "stattpreis", scene.kachel?.box);
-    present("einmalpreis", "einmalig", scene.kachel?.box);
+    put("preis", "zusatz", offer.preis);
+    put("datenmenge", "datenmenge", offer.datenmenge);
+    put("datenmenge_alt", "altwert", offer.datenmengeAlt);
+    put("preis_alt", "stattpreis", offer.preisAlt);
+    put("einmalpreis", "einmalig", offer.einmalpreis);
+    if (scene.stern?.text?.trim()) put("stern_text", "stoerer", scene.stern.box);
+    put("geraet_name", "geraetename", scene.deviceLabel?.box);
     layout[label] = row;
   }
   return { version, felder, layout };
 }
 
-/** Writes the scale the picture actually reached, so the stored size matches the render. */
-export function syncStoredScale(book: AdjustBook, stand: LayoutStand): void {
+const SCALE_ELEMENT: Record<string, ElementId> = { stern: "stoerer", geraet: "geraet", figur: "person" };
+
+/** Writes the measured size for the elements this edit asked about. Other elements stay untouched. */
+export function syncStoredScale(book: AdjustBook, stand: LayoutStand, only?: readonly string[]): void {
+  const allowed = only ? new Set(only) : new Set(["stern"]);
   for (const [label, row] of Object.entries(stand.layout)) {
     const format = OTELO_FORMATS.find((item) => sceneFormatLabel(item) === label);
-    const got = row.stern?.groesse;
-    if (!format || got === undefined) continue;
-    const stored = mergedNudge(book.snap, format.id, "stoerer").scale * 100;
-    if (Math.abs(stored - got) <= 3) continue;
-    const shared = book.snap.nudges["*"]?.stoerer?.scale ?? 1;
-    book.snap.nudges[format.id] ??= {};
-    const nudge = book.snap.nudges[format.id].stoerer ?? { dx: 0, dy: 0, scale: 1, flip: false, hidden: false };
-    nudge.scale = (got / 100) / (shared || 1);
-    book.snap.nudges[format.id].stoerer = nudge;
+    if (!format) continue;
+    for (const ziel of allowed) {
+      const element = SCALE_ELEMENT[ziel];
+      const got = row[ziel]?.groesse;
+      if (!element || got === undefined) continue;
+      const stored = mergedNudge(book.snap, format.id, element).scale * 100;
+      if (Math.abs(stored - got) <= 3) continue;
+      const shared = book.snap.nudges["*"]?.[element]?.scale ?? 1;
+      book.snap.nudges[format.id] ??= {};
+      const nudge = book.snap.nudges[format.id][element] ?? { dx: 0, dy: 0, scale: 1, flip: false, hidden: false };
+      nudge.scale = (got / 100) / (shared || 1);
+      book.snap.nudges[format.id][element] = nudge;
+    }
   }
+}
+
+/** Keeps the stored size equal to the measured one, and only for elements this edit asked for. */
+export function applyMeasuredSizes(
+  book: AdjustBook,
+  stand: LayoutStand,
+  measured: Record<string, { stern?: number; geraet?: number; figur?: number; geraetGrund?: string; figurGrund?: string }>,
+  edits: readonly EditChange[],
+  vorlage?: string,
+): void {
+  const wanted = new Map<string, Set<string>>();
+  for (const edit of edits) {
+    const sizing = edit.aktion === "groesser" || edit.aktion === "kleiner" || (edit.aktion === "setzen" && typeof edit.wert === "object" && edit.wert?.groesse !== undefined);
+    if (!sizing) continue;
+    const key = edit.ziel === "stern" ? "stern"
+      : edit.ziel === "motiv" || edit.ziel === "geraet" || edit.ziel === "handy" || edit.ziel === "gerät" || edit.ziel === "figur"
+        ? (imageElement(vorlage) === "geraet" ? "geraet" : "figur")
+        : "";
+    if (!key) continue;
+    const ids = formatIds(edit.formate);
+    const set = wanted.get(key) ?? new Set<string>();
+    if (!ids) set.add("*");
+    else for (const id of ids) set.add(id);
+    wanted.set(key, set);
+  }
+  for (const format of OTELO_FORMATS) {
+    const label = sceneFormatLabel(format);
+    const sizes = measured[label];
+    if (!sizes) continue;
+    for (const key of ["stern", "geraet", "figur"] as const) {
+      const allow = wanted.get(key);
+      if (!allow || (!allow.has("*") && !allow.has(format.id))) continue;
+      const value = sizes[key];
+      if (value === undefined) continue;
+      writeMeasuredScale(book, stand, key, label, value);
+      const grund = key === "geraet" ? sizes.geraetGrund : key === "figur" ? sizes.figurGrund : "";
+      const row = stand.layout[label]?.[key];
+      if (grund && row) row.grund = grund;
+    }
+  }
+}
+
+/** Copies a measured scale onto the stored nudge and the stand, for one requested element. */
+export function writeMeasuredScale(book: AdjustBook, stand: LayoutStand, ziel: "stern" | "geraet" | "figur", label: string, measured: number): void {
+  const format = OTELO_FORMATS.find((item) => sceneFormatLabel(item) === label);
+  const element = SCALE_ELEMENT[ziel];
+  if (!format || !element) return;
+  const shared = book.snap.nudges["*"]?.[element]?.scale ?? 1;
+  book.snap.nudges[format.id] ??= {};
+  const nudge = book.snap.nudges[format.id][element] ?? { dx: 0, dy: 0, scale: 1, flip: false, hidden: false };
+  nudge.scale = (measured / 100) / (shared || 1);
+  book.snap.nudges[format.id][element] = nudge;
+  const row = stand.layout[label]?.[ziel];
+  if (row) row.groesse = Math.round(measured * 10) / 10;
 }
 
 function intersects(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }, air: number): boolean {
@@ -451,6 +515,69 @@ export function problemsFromScenes(scenes: Record<string, OteloScene>): LayoutPr
 export function freshProblems(current: readonly LayoutProblem[], baseline: readonly LayoutProblem[]): LayoutProblem[] {
   const known = new Set(baseline.map((problem) => `${problem.format}|${problem.text}`));
   return current.filter((problem) => !known.has(`${problem.format}|${problem.text}`));
+}
+
+function newTextHits(current: readonly LayoutProblem[], baseline: readonly LayoutProblem[]): LayoutProblem[] {
+  return freshProblems(current, baseline).filter((problem) => /überdeckt (?:Datenmenge|Preis|Altwert|Einmalpreis|Pillentext|statt|Headline|Unterzeile|CTA)/i.test(problem.text));
+}
+
+const MOVE_WORD: Record<string, string> = { links: "links", rechts: "rechts", oben: "oben", unten: "unten" };
+
+/** Shrinks a move that would cover text, dodges to a free neighbour, or drops it. */
+export async function settleMoves(
+  book: AdjustBook,
+  edits: readonly EditChange[],
+  problemsOf: (book: AdjustBook) => Promise<LayoutProblem[]> | LayoutProblem[],
+): Promise<{ book: AdjustBook; errors: string[]; starFactor?: number; notes: string[] }> {
+  const moves = edits.some((edit) => edit.aktion === "verschieben");
+  const baseline = moves ? await problemsOf(book) : [];
+  const rewritten: EditChange[] = [];
+  const notes: string[] = [];
+  for (const edit of edits) {
+    if (edit.aktion !== "verschieben" || !edit.wert || typeof edit.wert !== "object") {
+      rewritten.push(edit);
+      continue;
+    }
+    const primary = (["links", "rechts", "oben", "unten"] as const).find((key) => typeof edit.wert === "object" && edit.wert?.[key]);
+    if (!primary) {
+      rewritten.push(edit);
+      continue;
+    }
+    const asked = Math.abs(Number(edit.wert[primary]) || 0);
+    const neighbours = primary === "links" || primary === "rechts" ? (["oben", "unten"] as const) : (["links", "rechts"] as const);
+    const attempts = [asked, 3, 1]
+      .filter((step, index, all) => step > 0 && step <= asked + 0.01 && all.indexOf(step) === index)
+      .map((step) => ({ wert: { [primary]: step }, step, dir: primary }));
+    for (const dir of neighbours) attempts.push({ wert: { [dir]: Math.min(asked, 3) }, step: Math.min(asked, 3), dir });
+    let chosen: { wert: Record<string, number>; step: number; dir: string } | undefined;
+    let covered = "";
+    for (const attempt of attempts) {
+      const trial = applyEdits(book, [...rewritten, { ...edit, wert: attempt.wert }]).book;
+      const hits = newTextHits(await problemsOf(trial), baseline);
+      if (!hits.length) {
+        chosen = attempt;
+        break;
+      }
+      if (attempt.dir === primary) covered = hits[0]?.text.match(/überdeckt\s+(\S+)/i)?.[1]?.trim() || "Text";
+    }
+    const who = edit.ziel === "stern" ? "Stern" : edit.ziel === "kachel" ? "Kachel" : edit.ziel;
+    if (!chosen) {
+      notes.push(`nicht möglich (${covered ? `würde ${covered} verdecken` : `${who} erzeugt einen neuen Verstoß`})`);
+      continue;
+    }
+    rewritten.push({ ...edit, wert: chosen.wert });
+    if (chosen.step + 0.4 < asked || chosen.dir !== primary) {
+      notes.push(`teilweise: ${who} ${chosen.step} % nach ${MOVE_WORD[chosen.dir] ?? chosen.dir}${covered ? ` (würde ${covered} verdecken)` : ""}`);
+    }
+  }
+  const applied = applyEdits(book, rewritten);
+  return { ...applied, notes };
+}
+
+/** Drops the deco-on-orange hint except when the draft is new or the deco itself changes. */
+export function hintsForEdit(hints: readonly string[], edits: readonly { ziel: string }[], created = false): string[] {
+  if (created || edits.some((edit) => edit.ziel === "deko")) return [...hints];
+  return hints.filter((hint) => !hint.includes("Deko kaum sichtbar"));
 }
 
 type Placed = { breite: number; hoehe: number; x: number; y: number; groesse: number; versteckt: boolean };
@@ -552,17 +679,32 @@ export function judgeEdits(edits: readonly EditChange[], before: LayoutStand, af
         return Math.abs(left.x - right.x) > 0.4 || Math.abs(left.y - right.y) > 0.4;
       });
       const why = labels.map((label) => after.layout[label]?.[ziel]?.grund).find(Boolean);
-      if (done.length === labels.length && labels.length) return `umgesetzt: ${name} verschoben`;
-      if (!done.length) return `nicht möglich: ${name} lässt sich dort nicht verschieben${why ? ` (${why})` : ""}`;
-      return `teilweise: ${name} verschoben (${done.join(", ")})`;
+      const askedMove = edit.wert && typeof edit.wert === "object" ? Math.max(...(["links", "rechts", "oben", "unten"] as const).map((key) => Math.abs(Number(edit.wert && typeof edit.wert === "object" ? edit.wert[key] : 0) || 0))) : 0;
+      const achieved = labels.map((label) => {
+        const left = placed(before, label, ziel);
+        const right = placed(after, label, ziel);
+        if (!left || !right) return 0;
+        return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));
+      });
+      const best = achieved.length ? Math.max(...achieved) : 0;
+      if (done.length === labels.length && labels.length && best + 0.5 >= askedMove) return `umgesetzt: ${name} verschoben`;
+      if (best < 0.8) return `nicht möglich: ${name} lässt sich dort nicht verschieben${why ? ` (${why})` : ""}`;
+      return `teilweise: ${name} ${Math.round(best)} % verschoben${why ? ` (${why})` : ""}`;
     }
     if (edit.aktion === "setzen" && edit.wert && typeof edit.wert === "object" && edit.wert.groesse !== undefined) {
       const want = edit.wert.groesse;
-      const close = labels.filter((label) => Math.abs((after.layout[label]?.[ziel]?.groesse ?? 0) - want) <= 3);
+      const shown = ziel === "geraet" ? "Gerät" : ziel === "figur" ? "Figur" : name;
       const why = labels.map((label) => after.layout[label]?.[ziel]?.grund).find(Boolean);
-      if (close.length === labels.length && labels.length) return `umgesetzt: ${name} ${want} %`;
-      const got = Math.round(after.layout[labels[0] ?? ""]?.[ziel]?.groesse ?? 0);
-      return `teilweise: ${name} auf ${got} % begrenzt${why ? `, ${why}` : ""}`;
+      const samples = labels.map((label) => {
+        const beforeG = before.layout[label]?.[ziel]?.groesse ?? 100;
+        const afterG = after.layout[label]?.[ziel]?.groesse ?? beforeG;
+        return { beforeG, afterG, change: Math.abs(afterG - beforeG), asked: Math.abs(want - beforeG) };
+      });
+      if (samples.length && samples.every((sample) => Math.abs(sample.afterG - want) <= 3)) return `umgesetzt: ${shown} ${want} %`;
+      if (samples.length && samples.every((sample) => sample.change < 3)) return `nicht möglich: ${shown}${why ? ` (${why})` : " (unter 3 %)"}`;
+      const got = Math.round(samples[0]?.afterG ?? want);
+      if (samples.some((sample) => sample.change < sample.asked / 2 || Math.abs(sample.afterG - want) > 3)) return `teilweise: ${shown} ${got} %${why ? ` (${why})` : ""}`;
+      return `umgesetzt: ${shown} ${got} %`;
     }
     if (edit.aktion === "setzen" && edit.wert && typeof edit.wert === "object") {
       return `umgesetzt: ${name} Layout gesetzt`;

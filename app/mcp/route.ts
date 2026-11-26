@@ -63,7 +63,7 @@ function instructedText(draft: { layoutBook?: { snap: { fields?: { sublineColor?
   return notes.join(" ");
 }
 
-async function attachReview(draft: { vorlage?: string; glance?: string; hints: string[]; layoutBook?: { snap: { fields?: { sublineColor?: string; datenmengeAlt?: string; deko?: string; button?: string }; nudges?: Record<string, Partial<Record<string, { hidden?: boolean }>>> } } }, measured: string[], formats: Array<{ label: string; pngBase64: string }>, measureText = ""): Promise<string> {
+async function attachReview(draft: { vorlage?: string; glance?: string; hints: string[]; layoutBook?: { snap: { fields?: { sublineColor?: string; datenmengeAlt?: string; deko?: string; button?: string }; nudges?: Record<string, Partial<Record<string, { hidden?: boolean }>>> } } }, measured: string[], formats: Array<{ label: string; pngBase64: string; layoutKey?: string }>, measureText = ""): Promise<string> {
   const { readClientText } = await import("../../src/modules/visual-builder/server/client-volume");
   const { glanceFormats, pruefungText, visibleBriefing } = await import("../../src/modules/visual-builder/server/review");
   const rules = await readClientText("otelo", "ci-richtlinie.md").catch(() => "");
@@ -80,7 +80,7 @@ async function attachReview(draft: { vorlage?: string; glance?: string; hints: s
     }
   }
   const briefing = visibleBriefing(fields, hidden);
-  draft.glance = await glanceFormats(formats.map((format) => ({ label: format.label, jpeg: format.pngBase64 })), rules ?? "", reference, measureText, instructedText(draft).trim(), "", briefing);
+  draft.glance = await glanceFormats(formats.map((format) => ({ label: format.label, jpeg: format.pngBase64, layoutKey: format.layoutKey })), rules ?? "", reference, measureText, instructedText(draft).trim(), "", briefing);
   draft.hints = measured;
   await writeDraft(draft as Parameters<typeof writeDraft>[0]);
   return pruefungText(measured, draft.glance);

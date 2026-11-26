@@ -237,7 +237,7 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
       ],
       config,
       appTitle: "OMfire Visual-Builder",
-      temperature: 0.2,
+      temperature: 0,
       maxTokens: 1500,
       timeoutMs: 30_000,
       reasoning,
@@ -258,8 +258,19 @@ export async function glanceAt(jpegBase64: string, rules: string, referencePath 
   }
 }
 
+/** Formats with the same layout are checked once. The verdict is copied. */
+export function glanceGroups<T extends { label: string; layoutKey?: string }>(formats: readonly T[]): T[][] {
+  const groups: T[][] = [];
+  for (const format of formats) {
+    const found = format.layoutKey ? groups.find((group) => group[0]?.layoutKey === format.layoutKey) : undefined;
+    if (found) found.push(format);
+    else groups.push([format]);
+  }
+  return groups;
+}
+
 export async function glanceFormats(
-  formats: Array<{ label: string; jpeg: string }>,
+  formats: Array<{ label: string; jpeg: string; layoutKey?: string }>,
   rules: string,
   referencePath: string,
   measured = "",
@@ -268,9 +279,12 @@ export async function glanceFormats(
   briefing = "",
 ): Promise<string> {
   const picked = formats.filter((format) => format.jpeg);
-  const notes = await Promise.all(picked.map(async (format) => {
-    const note = await glanceAt(format.jpeg, rules, referencePath, measured, format.label, instructed, fontRule, briefing);
-    return `${format.label}: ${note}`;
-  }));
+  const notes: string[] = [];
+  for (const group of glanceGroups(picked)) {
+    const first = group[0];
+    if (!first) continue;
+    const note = await glanceAt(first.jpeg, rules, referencePath, measured, first.label, instructed, fontRule, briefing);
+    for (const format of group) notes.push(`${format.label}: ${note}`);
+  }
   return notes.join("\n");
 }
