@@ -1029,6 +1029,7 @@ function buildKachel(
     logo: applyShift(logo.box, shifts.logo, w, h, "top-left", textLimits, caps, "Logo"),
     stern: stern ? applyShift(stern.box, shifts.stoerer ? { ...shifts.stoerer, scale: 1, dx: 0, dy: 0 } : undefined, w, h, "top-left", { ...textLimits, right: w * 1.02, top: 0 }, caps, "Stern") : undefined,
   };
+  const deviceScaledH = placed.product?.h;
   if (fittedPill) {
     fittedPill.x += fittedTile.x - tile.x;
     fittedPill.y += fittedTile.y - tile.y;
@@ -1792,16 +1793,17 @@ function buildKachel(
     }
   }
   const sizeGrund: NonNullable<OteloScene["sizeGrund"]> = {};
-  const reachedOf = (base: Box | undefined, placedBox: Box | undefined, asked: number, kind: "geraet" | "figur") => {
+  const reachedOf = (base: Box | undefined, placedBox: Box | undefined, asked: number, kind: "geraet" | "figur", scaledH?: number) => {
     if (!base || !placedBox || base.h < 2) return undefined;
     const reached = Math.round((placedBox.h / base.h) * 1000) / 10;
-    if (asked > 1.02) {
+    const clamped = scaledH !== undefined && placedBox.h < scaledH - 1;
+    if (clamped) {
       const right = placedBox.x + placedBox.w;
-      sizeGrund[kind] = right > w * 0.9 ? "Rand rechts" : fittedTile.w > 2 && overlaps(placedBox, fittedTile) ? "Kachel" : "sicherer Bereich";
-    } else if (asked < 0.98) sizeGrund[kind] = "Gerät hat Mindesthöhe erreicht";
+      sizeGrund[kind] = asked < 1 ? "Gerät hat Mindesthöhe erreicht" : right > w * 0.9 ? "Rand rechts" : fittedTile.w > 2 && overlaps(placedBox, fittedTile) ? "Kachel" : "sicherer Bereich";
+    }
     return reached;
   };
-  const geraetReached = reachedOf(device, placed.product, shifts.geraet?.scale && shifts.geraet.scale > 0 ? shifts.geraet.scale : 1, "geraet");
+  const geraetReached = reachedOf(device, placed.product, shifts.geraet?.scale && shifts.geraet.scale > 0 ? shifts.geraet.scale : 1, "geraet", deviceScaledH);
   const figurReached = reachedOf(figure, placed.figure, shifts.person?.scale && shifts.person.scale > 0 ? shifts.person.scale : 1, "figur");
   return {
     id: format.id,

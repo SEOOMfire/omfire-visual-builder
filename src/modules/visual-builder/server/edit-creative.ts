@@ -327,7 +327,7 @@ function paramOf(scene: OteloScene, box: { x: number; y: number; w: number; h: n
     ebene: (ELEMENT_LAYER[element] ?? 3) + (nudge.z ?? 0),
     versteckt: hidden || nudge.hidden,
     farbe,
-    grund,
+    ...(grund ? { grund } : {}),
   };
 }
 
@@ -526,14 +526,25 @@ function orderedEdits(edits: readonly EditChange[]): EditChange[] {
   return [...first, ...rest];
 }
 
+export type EditDebug = {
+  ziel: string;
+  aktion: string;
+  ausgang: unknown;
+  geplant: unknown;
+  schritte: { schritt: string; verstoesse: string[] }[];
+  gespeichert: unknown;
+};
+
 /** Shrinks a move that would cover text, dodges to a free neighbour, or drops it. Version loads run first. */
 export async function settleMoves(
   book: AdjustBook,
   edits: readonly EditChange[],
   problemsOf: (book: AdjustBook) => Promise<LayoutProblem[]> | LayoutProblem[],
-): Promise<{ book: AdjustBook; errors: string[]; starFactor?: number; notes: string[] }> {
+): Promise<{ book: AdjustBook; errors: string[]; starFactor?: number; notes: string[]; lineFor: Map<EditChange, string>; debug: EditDebug[] }> {
   const rewritten: EditChange[] = [];
   const notes: string[] = [];
+  const lineFor = new Map<EditChange, string>();
+  const debug: EditDebug[] = [];
   for (const edit of orderedEdits(edits)) {
     if (edit.aktion !== "verschieben" || !edit.wert || typeof edit.wert !== "object") {
       rewritten.push(edit);
@@ -547,6 +558,9 @@ export async function settleMoves(
     const asked = Math.abs(Number(edit.wert[primary]) || 0);
     const baselineBook = applyEdits(book, rewritten).book;
     const baseline = await problemsOf(baselineBook);
+    const ids = formatIds(edit.formate) ?? ["*"];
+    const element = edit.ziel === "stern" || edit.ziel === "stern_text" ? "stoerer" : edit.ziel === "kachel" ? "kachel" : "stoerer";
+    const ausgang = Object.fromEntries(ids.map((id) => [id, mergedNudge(baselineBook.snap, id, element).dx]));
     const neighbours = primary === "links" || primary === "rechts" ? (["oben", "unten"] as const) : (["links", "rechts"] as const);
     const attempts = [asked, 3, 1]
       .filter((step, index, all) => step > 0 && step <= asked + 0.01 && all.indexOf(step) === index)
@@ -554,28 +568,39 @@ export async function settleMoves(
     for (const dir of neighbours) attempts.push({ wert: { [dir]: Math.min(asked, 3) }, step: Math.min(asked, 3), dir });
     let chosen: { wert: Record<string, number>; step: number; dir: string } | undefined;
     let covered = "";
+    const schritte: EditDebug["schritte"] = [];
     for (const attempt of attempts) {
       const trial = applyEdits(book, [...rewritten, { ...edit, wert: attempt.wert }]).book;
       const hits = newTextHits(await problemsOf(trial), baseline);
+      schritte.push({ schritt: `${MOVE_WORD[attempt.dir] ?? attempt.dir} ${attempt.step}`, verstoesse: hits.map((hit) => hit.text) });
       if (!hits.length) {
         chosen = attempt;
         break;
       }
-      if (attempt.dir === primary || !covered) covered = hits[0]?.text.match(/überdeckt\s+(\S+)/i)?.[1]?.trim() || "Text";
+      if (!covered) covered = hits[0]?.text.match(/überdeckt\s+(\S+)/i)?.[1]?.trim() || "Text";
     }
     const who = edit.ziel === "stern" ? "Stern" : edit.ziel === "kachel" ? "Kachel" : edit.ziel;
-    if (!chosen) {
-      notes.push(`nicht möglich (${covered ? `würde ${covered} verdecken` : `${who} erzeugt einen neuen Verstoß`})`);
-      continue;
+    let line = "";
+    if (!chosen) line = `nicht möglich: ${who} (${covered ? `würde ${covered} verdecken` : "der Schritt erzeugt einen neuen Verstoß"})`;
+    else if (chosen.step + 0.4 < asked || chosen.dir !== primary) line = `teilweise: ${who} ${chosen.step} % nach ${MOVE_WORD[chosen.dir] ?? chosen.dir}${covered ? ` (würde ${covered} verdecken)` : ""}`;
+    if (line) {
+      notes.push(line);
+      lineFor.set(edit, line);
     }
-    rewritten.push({ ...edit, wert: chosen.wert });
-    if (chosen.step + 0.4 < asked || chosen.dir !== primary) {
-      notes.push(`teilweise: ${who} ${chosen.step} % nach ${MOVE_WORD[chosen.dir] ?? chosen.dir}${covered ? ` (würde ${covered} verdecken)` : ""}`);
-    }
+    if (chosen) rewritten.push({ ...edit, wert: chosen.wert });
+    const storedBook = applyEdits(book, rewritten).book;
+    debug.push({
+      ziel: edit.ziel,
+      aktion: edit.aktion,
+      ausgang,
+      geplant: edit.wert,
+      schritte,
+      gespeichert: Object.fromEntries(ids.map((id) => [id, { dx: mergedNudge(storedBook.snap, id, element).dx, dy: mergedNudge(storedBook.snap, id, element).dy }])),
+    });
   }
-  if (!rewritten.length) return { book, errors: [], notes, starFactor: undefined };
+  if (!rewritten.length) return { book, errors: [], notes, starFactor: undefined, lineFor, debug };
   const applied = applyEdits(book, rewritten);
-  return { ...applied, notes };
+  return { ...applied, notes, lineFor, debug };
 }
 
 export type EditInspection = { problems: LayoutProblem[]; stand: LayoutStand; heights: Record<string, number> };
@@ -590,13 +615,16 @@ export async function planCreativeEdits(
   book: AdjustBook,
   edits: readonly EditChange[],
   inspect: (book: AdjustBook) => Promise<EditInspection> | EditInspection,
-): Promise<{ book: AdjustBook; lines: string[]; notes: string[]; hints: string[] }> {
+): Promise<{ book: AdjustBook; lines: string[]; notes: string[]; hints: string[]; debug: EditDebug[] }> {
   const before = await inspect(book);
   const settled = await settleMoves(book, edits, async (current) => (await inspect(current)).problems);
   let current = settled.book;
   const notes = [...settled.notes];
-  const explained = new Set(edits.filter((edit) => edit.aktion === "verschieben" && notes.some((note) => note.toLowerCase().includes("stern") && edit.ziel === "stern")).map((edit) => `${edit.ziel}:${edit.aktion}`));
+  const explained = new Set(edits.filter((edit) => settled.lineFor.has(edit)).map((edit) => `${edit.ziel}:${edit.aktion}`));
   const sized = edits.filter((edit) => imageKey(edit, book.snap.fields.vorlage) && (edit.aktion === "groesser" || edit.aktion === "kleiner" || (edit.aktion === "setzen" && typeof edit.wert === "object" && edit.wert.groesse !== undefined)));
+  const reference = edits.some((edit) => edit.aktion === "version_laden" || (edit.ziel === "version" && edit.aktion === "setzen"))
+    ? await inspect(applyEdits(book, edits.filter((edit) => edit.aktion === "version_laden" || (edit.ziel === "version" && edit.aktion === "setzen"))).book)
+    : before;
   if (sized.length && JSON.stringify(current.snap) !== JSON.stringify(book.snap)) {
     const after = await inspect(current);
     for (const edit of sized) {
@@ -605,20 +633,26 @@ export async function planCreativeEdits(
       const ids = formatIds(edit.formate) ?? OTELO_FORMATS.map((format) => format.id);
       const labels = ids.map((id) => sceneFormatLabel(OTELO_FORMATS.find((format) => format.id === id) ?? OTELO_FORMATS[0]));
       const changes = labels.map((label) => {
-        const from = before.heights[label] ?? 0;
+        const from = reference.heights[label] ?? 0;
         const to = after.heights[label] ?? from;
         return from > 0 ? Math.abs(to - from) / from * 100 : 0;
       });
-      const shrinking = edit.aktion === "kleiner" || (typeof edit.wert === "object" && edit.wert?.groesse !== undefined && edit.wert.groesse < (before.stand.layout[labels[0] ?? ""]?.[key]?.groesse ?? 100));
+      const shrinking = edit.aktion === "kleiner" || (typeof edit.wert === "object" && edit.wert?.groesse !== undefined && edit.wert.groesse < (reference.stand.layout[labels[0] ?? ""]?.[key]?.groesse ?? 100));
+      const asked = typeof edit.wert === "object" && edit.wert?.groesse !== undefined ? `${edit.wert.groesse} %` : `${percentOf(edit.wert, 15)} % ${edit.aktion === "kleiner" ? "kleiner" : "größer"}`;
       if (changes.length && changes.every((change) => change < 3)) {
+        const anchor = edits.some((item) => item.aktion === "version_laden" || (item.ziel === "version" && item.aktion === "setzen"))
+          ? applyEdits(book, edits.filter((item) => item.aktion === "version_laden" || (item.ziel === "version" && item.aktion === "setzen"))).book
+          : book;
         for (const id of ids) {
+          const source = anchor.snap.nudges[id]?.[element];
           current.snap.nudges[id] ??= {};
-          const prior = book.snap.nudges[id]?.[element];
-          if (prior) current.snap.nudges[id][element] = structuredClone(prior);
+          if (source) current.snap.nudges[id][element] = structuredClone(source);
           else delete current.snap.nudges[id][element];
           if (current.snap.nudges[id] && !Object.keys(current.snap.nudges[id]).length) delete current.snap.nudges[id];
         }
-        notes.push(shrinking ? "nicht möglich (Gerät hat Mindesthöhe erreicht)" : "nicht möglich (Rand rechts)");
+        const line = `nicht möglich: Gerät ${asked} (${shrinking ? "Mindesthöhe erreicht" : "Rand rechts"})`;
+        notes.push(line);
+        settled.lineFor.set(edit, line);
         explained.add(`${edit.ziel}:${edit.aktion}`);
       }
     }
@@ -629,10 +663,15 @@ export async function planCreativeEdits(
   afterStand.version = current.version;
   before.stand.felder.version = String(book.version);
   afterStand.felder.version = String(current.version);
-  const accepted = edits.filter((edit) => !commandsForEdit(edit, book.snap.fields.vorlage).error && !explained.has(`${edit.ziel}:${edit.aktion}`));
-  const lines = [...notes, ...judgeEdits(accepted, before.stand, afterStand)].filter((line) => !/lässt sich dort nicht verschieben/.test(line));
-  const hints = before.problems.some((problem) => /überdeckt Datenmenge/.test(problem.text)) ? ["Hinweis: Stern verdeckt Datenmenge, nach rechts schieben?"] : [];
-  return { book: current, lines, notes, hints };
+  const lines = edits.flatMap((edit) => {
+    const settledLine = settled.lineFor.get(edit);
+    if (settledLine) return [settledLine];
+    if (commandsForEdit(edit, book.snap.fields.vorlage).error) return [];
+    const judged = judgeEdits([edit], before.stand, afterStand)[0];
+    return judged ? [judged] : [];
+  }).filter((line) => !/lässt sich dort nicht verschieben/.test(line));
+  const hints = reference.problems.some((problem) => /überdeckt Datenmenge/.test(problem.text)) ? ["Hinweis: Stern verdeckt Datenmenge, nach rechts schieben?"] : [];
+  return { book: current, lines, notes, hints, debug: settled.debug };
 }
 
 /** Drops the deco-on-orange hint except when the draft is new or the deco itself changes. */

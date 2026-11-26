@@ -409,7 +409,7 @@ export async function editCreative(
   id: string,
   args: Record<string, unknown>,
   review?: (draft: CreativeDraft, rendered: RenderedCreative) => Promise<string>,
-): Promise<{ draft: CreativeDraft; rendered: RenderedCreative; lines: string[]; corrections: string[]; stand: LayoutStand; glance: string }> {
+): Promise<{ draft: CreativeDraft; rendered: RenderedCreative; lines: string[]; corrections: string[]; stand: LayoutStand; glance: string; debug?: unknown }> {
   const draft = await readDraft(id);
   if (!draft) throw new Error("Diesen Entwurf kenne ich nicht. Ruf zuerst compose_creative auf.");
   const { edits, errors } = editsFromArgs(args);
@@ -499,7 +499,9 @@ export async function editCreative(
   if (rendered.deviceFile) draft.motiv = rendered.deviceFile;
   else if (rendered.personFile) draft.motiv = rendered.personFile;
   await writeDraft(draft);
-  return { draft, rendered, lines, corrections, stand: afterStand, glance };
+  const deviceDone = lines.some((line) => /^umgesetzt:/.test(line) && /Gerät|Motiv/.test(line));
+  if (deviceDone) for (const row of Object.values(afterStand.layout)) delete row.geraet?.grund;
+  return { draft, rendered, lines, corrections, stand: afterStand, glance, debug: args.debug === true ? planned.debug : undefined };
 }
 
 export async function storeRenderedDraft(rendered: RenderedCreative, fields: Omit<CreativeDraft, "id" | "vorlage" | "motiv" | "person" | "hints"> & { motiv: string; person?: string }): Promise<CreativeDraft> {
